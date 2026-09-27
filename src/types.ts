@@ -1,0 +1,550 @@
+/**
+ * 全局类型定义。
+ *
+ * 数据类类型（MonsterData / ObjectData / RoleData / RaceData）描述由 tools 目录
+ * 下的提取脚本从 NetHack 5.0 C 头文件生成的结构；其余类型描述运行时对象。
+ */
+
+// ---------------------------------------------------------------------------
+// 由 C 头文件提取的游戏数据
+// ---------------------------------------------------------------------------
+
+/** 怪物的一次攻击：攻击方式、伤害类型、骰子（数量与面数）。 */
+export interface MonsterAttack {
+  at: string;
+  ad: string;
+  dice: [number, number];
+}
+
+/** 怪物原型，对应 NetHack 的 struct permonst。 */
+export interface MonsterData {
+  /** NetHack 枚举名，例如 GIANT_ANT。 */
+  id: string;
+  name: string;
+  /** 地图字形，单字符。 */
+  glyph: string;
+  /** 字形类名，例如 S_ANT。 */
+  sym: string;
+  symClass: string;
+  lvl: number;
+  speed: number;
+  ac: number;
+  mr: number;
+  align: number;
+  /** 生成频率（G_FREQ），0 表示不随机生成。 */
+  freq: number;
+  genFlags: string[];
+  attacks: MonsterAttack[];
+  weight: number;
+  nutrition: number;
+  sound: string;
+  size: MonsterSize;
+  /** 抗性列表（MR_*）。 */
+  resists: string[];
+  /** 赋予其他生物的抗性（MR_*）。 */
+  confers: string[];
+  /** 行为标志（M1_*、M2_*、M3_*）。 */
+  flags: string[];
+  diff: number;
+  /** 十六进制颜色，用于 3D 模型与界面。 */
+  color: string;
+}
+
+export type MonsterSize =
+  | 'MZ_TINY'
+  | 'MZ_SMALL'
+  | 'MZ_MEDIUM'
+  | 'MZ_HUMAN'
+  | 'MZ_LARGE'
+  | 'MZ_HUGE'
+  | 'MZ_GIGANTIC';
+
+export type ObjectClass =
+  | 'weapon'
+  | 'armor'
+  | 'food'
+  | 'potion'
+  | 'scroll'
+  | 'spellbook'
+  | 'wand'
+  | 'ring'
+  | 'amulet'
+  | 'tool'
+  | 'gem'
+  | 'rock'
+  | 'coin';
+
+/** 物品原型，对应 NetHack 的 struct objclass 中的静态部分。 */
+export interface ObjectData {
+  id: string;
+  name: string;
+  cls: ObjectClass;
+  /** 提取时使用的类宏名，例如 WEAPON、ARMOR、SPELL。 */
+  kind: string;
+  /** 未鉴定外观，例如药水的 ruby、魔杖的 glass。 */
+  appr?: string | null;
+  prob: number;
+  weight: number;
+  cost: number;
+  material: string;
+  color: string;
+  /** 占位条目（WAN1..WAN3），只用于补齐外观池。 */
+  dummy?: boolean;
+
+  // 武器
+  dmg?: string;
+  dmgLarge?: string;
+  hit?: number;
+  skill?: string | null;
+  launcher?: string | null;
+  wtype?: string | null;
+
+  // 护甲
+  ac?: number;
+  slot?: ArmorSlot;
+  blocking?: number;
+
+  // 食物
+  nutrition?: number;
+  delay?: number;
+  tin?: string;
+
+  // 药水 / 戒指 / 护身符 / 法术书
+  power?: string;
+  spec?: number;
+  spellClass?: string;
+  level?: number;
+
+  // 卷轴 / 魔杖
+  label?: string;
+  dir?: string;
+  charges?: boolean;
+
+  // 宝石与岩石
+  gval?: number;
+  mohs?: number;
+
+  // 工具
+  tool?: string;
+  container?: boolean;
+  eyewear?: boolean;
+}
+
+export type ArmorSlot = 'suit' | 'shield' | 'helm' | 'gloves' | 'boots' | 'cloak' | 'shirt';
+
+/** 属性升级曲线：初始与每级固定值/随机值。 */
+export interface RoleAdvance {
+  infix: number;
+  inrnd: number;
+  lofix: number;
+  lornd: number;
+  hifix: number;
+  hirnd: number;
+}
+
+export interface Attributes {
+  str: number;
+  int: number;
+  wis: number;
+  dex: number;
+  con: number;
+  cha: number;
+}
+
+export interface RoleData {
+  id: string;
+  names: { male: string; female: string | null };
+  attrs: Attributes;
+  attrdist: Attributes;
+  hp: RoleAdvance;
+  energy: RoleAdvance;
+  xlev: number;
+  initRecord: number;
+  spell: {
+    base: number;
+    heal: number;
+    shield: number;
+    armor: number;
+    stat: string;
+    spec: string;
+    bonus: number;
+  };
+  /** 允许的种族/性别/阵营位掩码。 */
+  allowMask: number;
+  aligns: Alignment[];
+  races: string[];
+  genders: Gender[];
+}
+
+export interface RaceData {
+  id: string;
+  name: string;
+  adj: string;
+  filecode: string;
+  names: { male: string; female: string };
+  attrs: Attributes;
+  attrmax: Attributes;
+  hp: RoleAdvance;
+  energy: RoleAdvance;
+  allowMask: number;
+  aligns: Alignment[];
+}
+
+export type Alignment = 'lawful' | 'neutral' | 'chaotic';
+export type Gender = 'male' | 'female';
+
+// ---------------------------------------------------------------------------
+// 地牢
+// ---------------------------------------------------------------------------
+
+export interface Room {
+  lx: number;
+  ly: number;
+  hx: number;
+  hy: number;
+  index: number;
+  type: 'room';
+  lit: boolean;
+}
+
+export interface DoorState {
+  closed: boolean;
+  locked: boolean;
+  broken: boolean;
+}
+
+export interface TrapState {
+  type: string;
+  seen: boolean;
+}
+
+export interface StairRef {
+  x: number;
+  y: number;
+  dir: 'up' | 'down';
+}
+
+export interface FeatureState {
+  type: string;
+}
+
+export interface GroundPile {
+  x: number;
+  y: number;
+  items: ItemInstance[];
+}
+
+export interface Level {
+  depth: number;
+  width: number;
+  height: number;
+  /** 瓦片类型，取值见 core/constants.ts 的 T。 */
+  tiles: Uint8Array;
+  /** 是否曾经看到过。 */
+  seen: Uint8Array;
+  /** 房间是否照明。 */
+  lit: Uint8Array;
+  rooms: Room[];
+  doors: Map<number, DoorState>;
+  traps: Map<number, TrapState>;
+  features: Map<number, FeatureState>;
+  stairs: StairRef[];
+  up: { x: number; y: number } | null;
+  down: { x: number; y: number } | null;
+  start: { x: number; y: number } | null;
+  objects: GroundPile[];
+  monsters: Monster[];
+  /** 是否已经生成过怪物与物品。 */
+  populated?: boolean;
+  /** 玩家是否到过该层。 */
+  visited?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// 运行时实体
+// ---------------------------------------------------------------------------
+
+/** 物品实例。proto 指向静态原型，其余字段随游戏进程变化。 */
+export interface ItemInstance {
+  uid: number;
+  proto: ObjectData;
+  id: string;
+  quantity: number;
+  enchant: number;
+  /** 是否已鉴定。 */
+  known: boolean;
+  buc: 'blessed' | 'uncursed' | 'cursed';
+  appearance: string | null;
+  charges?: number;
+  gold?: boolean;
+  /** 起始装备标记，装备后清空。 */
+  equipped?: EquipIntent | null;
+}
+
+export type EquipIntent = 'wield' | 'wear' | 'offhand' | null;
+
+export interface Monster {
+  id: number;
+  data: MonsterData;
+  /** 怪物护甲等级，取自原型数据。 */
+  readonly ac: number;
+  /** 英文名，用于回退显示。 */
+  readonly name: string;
+  /** i18n 键（mon.XXXX），界面据此查找译名。 */
+  readonly nameKey: string;
+  x: number;
+  y: number;
+  /** NetHack 的 m_lev。 */
+  mlev: number;
+  mhp: number;
+  mhpmax: number;
+  /** 行动力累积，达到 12 行动一次。 */
+  mv: number;
+  asleep: boolean;
+  fleeing: boolean;
+  dead: boolean;
+}
+
+export type EquipmentSlot =
+  | 'weapon'
+  | 'shield'
+  | 'suit'
+  | 'cloak'
+  | 'helm'
+  | 'gloves'
+  | 'boots'
+  | 'shirt'
+  | 'amulet'
+  | 'ringLeft'
+  | 'ringRight'
+  | 'eyes';
+
+export type Equipment = Partial<Record<EquipmentSlot, ItemInstance>>;
+
+export interface Player {
+  name: string;
+  role: RoleData;
+  race: RaceData;
+  align: Alignment;
+  gender: Gender;
+  level: number;
+  xp: number;
+  hp: number;
+  maxHp: number;
+  pw: number;
+  maxPw: number;
+  /** 属性。 */
+  str: number;
+  int: number;
+  wis: number;
+  dex: number;
+  con: number;
+  cha: number;
+  hitInc: number;
+  luck: number;
+  gold: number;
+  /** 饱食度，900 为正常，0 以下会昏倒。 */
+  hunger: number;
+  acBonus: number;
+  /** 只读派生属性，由 getter 计算。 */
+  readonly ac: number;
+  readonly weapon: ItemInstance | null;
+  readonly damageBonus: number;
+  inventory: ItemInstance[];
+  equipment: Equipment;
+  x: number;
+  y: number;
+  dead: boolean;
+  /** 剩余回合数状态。 */
+  blind: number;
+  confused: number;
+  invisible: number;
+  /** 睡眠剩余回合；大于 0 时无法行动。 */
+  sleep: number;
+  /** 被缠住剩余回合；大于 0 时无法移动。 */
+  held: number;
+  seeInvisible: boolean;
+  knownSpells: string[];
+}
+
+/** 角色创建结果。 */
+export interface CharacterChoice {
+  role: RoleData;
+  race: RaceData;
+  align: Alignment;
+  gender: Gender;
+}
+
+// ---------------------------------------------------------------------------
+// 会话与消息
+// ---------------------------------------------------------------------------
+
+/** 消息中的变量。实体以 ID 形式保存，界面按当前语言解析。 */
+export interface MessageVars {
+  mon?: string;
+  obj?: string | null;
+  item?: ItemDescription;
+  roleId?: string;
+  raceId?: string;
+  align?: Alignment;
+  [key: string]: unknown;
+}
+
+export interface GameMessage {
+  key: string;
+  vars: MessageVars;
+  turn: number;
+}
+
+/** 物品的可翻译描述，由 game/items.ts 的 describeItem 生成。 */
+export interface ItemDescription {
+  qty: number;
+  key: string;
+  vars: Record<string, unknown>;
+}
+
+export interface SessionStatus {
+  depth: number;
+  turn: number;
+  hp: number;
+  maxHp: number;
+  pw: number;
+  maxPw: number;
+  ac: number;
+  level: number;
+  xp: number;
+  nextXp: number;
+  gold: number;
+  kills: number;
+  role: string;
+  race: string;
+  align: Alignment;
+  dead: boolean;
+}
+
+export type ActionResult =
+  | 'moved'
+  | 'blocked'
+  | 'opened'
+  | 'slept'
+  | 'held'
+  | 'attacked'
+  | 'killed'
+  | 'descended'
+  | 'ascended'
+  | 'dead'
+  | 'waited'
+  | 'picked'
+  | 'used'
+  | 'nothing';
+
+export interface ActionResultInfo {
+  result: ActionResult;
+  picked?: number;
+  key?: string;
+}
+
+export interface CombatFeedback {
+  monsterId: number;
+  hit: boolean;
+  byPlayer: boolean;
+  damage?: number;
+  killed?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// 随机数发生器
+// ---------------------------------------------------------------------------
+
+export interface Rng {
+  seed: number;
+  next(): number;
+  float(): number;
+  /** 返回 [0, n)。 */
+  rn2(n: number): number;
+  /** 返回 [1, n]。 */
+  rnd(n: number): number;
+  /** 返回 [x, x+y)。 */
+  rn1(x: number, y: number): number;
+  /** n 个 s 面骰之和。 */
+  dice(n: number, s: number): number;
+  /** 按 "2d6" 形式掷伤害。 */
+  rollDamage(spec: string): number;
+  chance(p: number): boolean;
+  shuffle<T>(arr: T[]): T[];
+  pick<T>(arr: T[]): T | undefined;
+  pickWeighted<T>(items: T[], weight: keyof T | ((item: T) => number)): T | undefined;
+  getState(): [number, number, number, number];
+  setState(state: [number, number, number, number]): void;
+}
+
+// ---------------------------------------------------------------------------
+// 存档
+// ---------------------------------------------------------------------------
+
+export interface SerializedItem {
+  p: string;
+  q: number;
+  e: number;
+  b: string;
+  k: 0 | 1;
+  a: string | null;
+  c?: number;
+  g?: 0 | 1;
+}
+
+export interface SerializedLevel {
+  depth: number;
+  seen: number[];
+  populated: boolean;
+  doors: [number, boolean, boolean, boolean][];
+  traps: [number, string, boolean][];
+  objects: { x: number; y: number; items: SerializedItem[] }[];
+  monsters: {
+    t: string;
+    x: number;
+    y: number;
+    hp: number;
+    max: number;
+    lv: number;
+    asleep: 0 | 1;
+    fleeing: 0 | 1;
+    mv: number;
+  }[];
+}
+
+export interface SaveData {
+  v: 1;
+  seed: number;
+  depth: number;
+  turn: number;
+  kills: number;
+  dead: 0 | 1;
+  character: { roleId: string; raceId: string; align: Alignment; gender: Gender };
+  attributes: Attributes;
+  player: {
+    x: number;
+    y: number;
+    hp: number;
+    maxHp: number;
+    pw: number;
+    maxPw: number;
+    gold: number;
+    hunger: number;
+    xp: number;
+    level: number;
+    luck: number;
+    hitInc: number;
+    blind: number;
+    confused: number;
+    invisible: number;
+    sleep?: number;
+    held?: number;
+    seeInvisible: boolean;
+    knownSpells: string[];
+    inventory: SerializedItem[];
+    equipment: Record<string, number>;
+  };
+  levels: SerializedLevel[];
+  messages: GameMessage[];
+}

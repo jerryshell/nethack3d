@@ -1,0 +1,29 @@
+{
+  "root": "../nethack",
+  "commit": "c1b1b08e95dc5e5ad55760e20affd45de5dd7e90",
+  "shortCommit": "c1b1b08",
+  "branch": "NetHack-5.0",
+  "commitDate": "2026-09-26 11:47:20 -0400",
+  "commitSubject": "follow-up: timestamp in bones was already relative",
+  "remote": "git@github.com:NetHack/NetHack.git",
+  "worktreeClean": true,
+  "fileHashes": {
+    "include/monsters.h": "f029a356bc81d165",
+    "include/objects.h": "2c0b3045a1d48b3e",
+    "include/defsym.h": "30e5e6d2105906a7",
+    "include/color.h": "6913b7614e1286cc",
+    "src/role.c": "f4cdb1dc7d34daf3"
+  },
+  "counts": {
+    "monsters": 394,
+    "objects": 440
+  },
+  "version": 1,
+  "recordedAt": "2026-09-27T06:51:32.557Z",
+  "generated": {
+    "monsters": 394,
+    "objects": 440,
+    "roles": 13,
+    "races": 5
+  }
+}

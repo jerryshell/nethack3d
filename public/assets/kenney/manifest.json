@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "pack": "3D assets/Mini Dungeon",
+  "license": "CC0-1.0",
+  "source": "https://kenney.nl",
+  "files": {
+    "floor.glb": {
+      "bytes": 1796,
+      "sha256": "e45e31b7b77370a9"
+    },
+    "floor-detail.glb": {
+      "bytes": 11924,
+      "sha256": "409aab1270ed18fe"
+    },
+    "dirt.glb": {
+      "bytes": 2816,
+      "sha256": "dbdfaf6700dc11a6"
+    },
+    "wall.glb": {
+      "bytes": 18148,
+      "sha256": "ed9fc37375fc85fa"
+    },
+    "wall-half.glb": {
+      "bytes": 15824,
+      "sha256": "ff9e19de116ed72c"
+    },
+    "wall-opening.glb": {
+      "bytes": 19220,
+      "sha256": "d040af59a774769c"
+    },
+    "column.glb": {
+      "bytes": 11268,
+      "sha256": "6155d05cde0e7268"
+    },
+    "stairs.glb": {
+      "bytes": 11556,
+      "sha256": "eb317d8f5368e129"
+    },
+    "gate.glb": {
+      "bytes": 14152,
+      "sha256": "0e05755294d56ce1"
+    },
+    "trap.glb": {
+      "bytes": 42944,
+      "sha256": "7d2f0b0d06d1df19"
+    },
+    "barrel.glb": {
+      "bytes": 14096,
+      "sha256": "ca735e8eb8f9170b"
+    },
+    "chest.glb": {
+      "bytes": 34048,
+      "sha256": "64cc6c44786a0833"
+    },
+    "pot.glb": {
+      "bytes": 26516,
+      "sha256": "bf432a42383ec506"
+    },
+    "rocks.glb": {
+      "bytes": 18452,
+      "sha256": "ee14136f047ef55f"
+    },
+    "Textures/colormap.png": {
+      "bytes": 10838,
+      "sha256": "bc492d755caf9e64"
+    },
+    "characters/human.glb": {
+      "bytes": 218072,
+      "sha256": "6a149b22f52f5ea6"
+    },
+    "characters/orc.glb": {
+      "bytes": 199616,
+      "sha256": "e0b021c98b34a633"
+    },
+    "characters/knight.glb": {
+      "bytes": 246916,
+      "sha256": "77572792bfe2773b"
+    },
+    "characters/rogue.glb": {
+      "bytes": 252140,
+      "sha256": "2288438e7baf9acc"
+    },
+    "characters/Textures/colormap.png": {
+      "bytes": 8706,
+      "sha256": "0d4947d34ff32acf"
+    },
+    "audio/step-1.ogg": {
+      "bytes": 7889,
+      "sha256": "ee489cc4cb6162e2"
+    },
+    "audio/step-2.ogg": {
+      "bytes": 7993,
+      "sha256": "54aab47746b8a546"
+    },
+    "audio/step-3.ogg": {
+      "bytes": 7886,
+      "sha256": "c8cf9a719aff28da"
+    },
+    "audio/step-4.ogg": {
+      "bytes": 8336,
+      "sha256": "4526b8b981268024"
+    },
+    "audio/hit-heavy.ogg": {
+      "bytes": 13698,
+      "sha256": "ff099bdcaffcb13f"
+    },
+    "audio/hit-light.ogg": {
+      "bytes": 10881,
+      "sha256": "c85dd74a77526a79"
+    },
+    "audio/hit-metal.ogg": {
+      "bytes": 7869,
+      "sha256": "090cfc7268960aa9"
+    },
+    "audio/hit-wood.ogg": {
+      "bytes": 8656,
+      "sha256": "1b3ac1595f7315cd"
+    },
+    "audio/mining.ogg": {
+      "bytes": 14116,
+      "sha256": "9110431df3df7eec"
+    },
+    "audio/body-fall.ogg": {
+      "bytes": 8651,
+      "sha256": "5103f2616bd97a74"
+    },
+    "audio/slice.ogg": {
+      "bytes": 18545,
+      "sha256": "3598f30f9afa294e"
+    },
+    "audio/chop.ogg": {
+      "bytes": 8227,
+      "sha256": "3a5f5db40939e487"
+    },
+    "audio/coins.ogg": {
+      "bytes": 7813,
+      "sha256": "68c0001ea38a4905"
+    },
+    "audio/potion.ogg": {
+      "bytes": 9054,
+      "sha256": "d1b959d0a8107b25"
+    },
+    "audio/book.ogg": {
+      "bytes": 13219,
+      "sha256": "7616b0da866cda26"
+    },
+    "audio/door-open.ogg": {
+      "bytes": 21049,
+      "sha256": "6b243b41df9a3752"
+    },
+    "audio/door-close.ogg": {
+      "bytes": 18941,
+      "sha256": "a0b40a11ffd7fc8c"
+    },
+    "audio/descend.ogg": {
+      "bytes": 12445,
+      "sha256": "be677e6970e830fa"
+    },
+    "audio/level-up.ogg": {
+      "bytes": 6929,
+      "sha256": "742ee48b51ba5a86"
+    },
+    "audio/click.ogg": {
+      "bytes": 9021,
+      "sha256": "0d25a09e2316cd74"
+    },
+    "audio/select.ogg": {
+      "bytes": 9127,
+      "sha256": "72ca7476ac72629e"
+    },
+    "audio/confirm.ogg": {
+      "bytes": 11066,
+      "sha256": "1d59821014076adf"
+    },
+    "audio/error.ogg": {
+      "bytes": 9347,
+      "sha256": "25635c536b112e74"
+    },
+    "audio/open.ogg": {
+      "bytes": 9748,
+      "sha256": "721a30697b41718c"
+    },
+    "audio/close.ogg": {
+      "bytes": 9763,
+      "sha256": "872212f9f21928d7"
+    }
+  }
+}

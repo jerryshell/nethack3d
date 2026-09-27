@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "no-underscore-dangle": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-callback-reference": "off",
+    "unicorn/no-array-reverse": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/prefer-number-properties": "off",
+    "unicorn/no-null": "off",
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-non-null-assertion": "off",
+    "import/no-unassigned-import": "off"
+  },
+  "overrides": [
+    {
+      "files": ["tools/**/*.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["tools/**/*.mjs", "tools/**/*.ts"],
+      "rules": {
+        "no-shadow": "off",
+        "no-unused-vars": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["dist/**", "node_modules/**", "src/data/*.gen.ts"]
+}

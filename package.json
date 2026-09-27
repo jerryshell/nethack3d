@@ -1,0 +1,52 @@
+{
+  "name": "nethack3d",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NetHack in 3D — a browser roguelike built with Vite + three.js, data extracted from NetHack 5.0 source",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "extract": "bun tools/extract-nh-data.ts && bun tools/extract-nh-roles.ts",
+    "assets:sync": "bun tools/sync-assets.ts",
+    "assets:check": "bun tools/sync-assets.ts --check",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "check": "bun test --coverage tools/selfcheck.test.ts",
+    "check:fast": "bun test tools/selfcheck.test.ts",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "fmt": "oxfmt --write .",
+    "fmt:check": "oxfmt --check .",
+    "verify": "bun run fmt:check && bun run lint:strict && bun run typecheck && bun run assets:check && bun run check && bun run build",
+    "lint:strict": "oxlint --deny-warnings .",
+    "agent": "bun tools/agent-loop.ts",
+    "agent:json": "bun tools/agent-loop.ts --json",
+    "agent:list": "bun tools/agent-loop.ts --list",
+    "agent:repl": "bun tools/agent-repl.ts",
+    "agent:e2e": "bun tools/agent-e2e.ts",
+    "agent:e2e:preview": "bun tools/agent-e2e.ts --preview",
+    "agent:smoke": "bun tools/agent-smoke.ts",
+    "verify:full": "bun run verify && bun run agent",
+    "verify:release": "bun run verify:full && bun run agent:smoke && bun run agent:e2e:preview",
+    "sync:check": "bun tools/sync-nethack.ts --check",
+    "sync:record": "bun tools/sync-nethack.ts --record",
+    "sync:update": "bun tools/sync-nethack.ts --record && bun run extract"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.6.3",
+    "@types/three": "^0.186.0",
+    "oxfmt": "^0.70.0",
+    "oxlint": "^1.85.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.0.0"
+  },
+  "packageManager": "bun@1.4.2"
+}
