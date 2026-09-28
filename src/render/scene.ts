@@ -3,11 +3,12 @@ import type { GameSession } from '../game/session';
 import type { Level } from '../types';
 import type { ViewRenderer } from './view';
 import { DungeonMesh, tileToWorld } from './dungeonMesh';
-import { createPlayerModel } from './models';
+import { createPlayerModel, createBlobShadow } from './models';
 import { createCharacter } from './characters';
 import type { CharacterHandle, CharacterKey } from './characters';
 import { CameraRig } from './cameraRig';
 import { EntityLayer } from './entities';
+import { ParticleField } from './particles';
 import { createLogger, LOG_NS } from '../core/log';
 import { COLNO, ROWNO } from '../core/constants';
 
@@ -32,10 +33,14 @@ export class GameScene {
   /** 玩家动作状态：移动中播放走路，动作结束后回到待机。 */
   private playerWalkTimer = 0;
   private playerAttackTimer = 0;
+  /** 火把飞灰的生成计时。 */
+  private emberTimer = 0;
   rig: CameraRig;
   dungeon: DungeonMesh | null;
   entities: EntityLayer;
   items: ItemLayer;
+  /** 命中火花与死亡爆散的粒子池。 */
+  particles: ParticleField;
   time: number;
   /** 光标所指格子的高亮框，null 表示没有指向可行走的格子。 */
   private hoverMark: THREE.Mesh;
@@ -61,11 +66,13 @@ export class GameScene {
     this.playerGroup = new THREE.Group();
     this.playerModel = createPlayerModel();
     this.playerGroup.add(this.playerModel, this.torch);
+    this.playerGroup.add(createBlobShadow(0.36));
     this.root.add(this.playerGroup);
 
     this.entities = new EntityLayer();
     this.items = new ItemLayer();
-    this.root.add(this.entities, this.items);
+    this.particles = new ParticleField();
+    this.root.add(this.entities, this.items, this.particles);
 
     this.rig = new CameraRig(renderer.camera);
     this.dungeon = null;
@@ -231,6 +238,26 @@ export class GameScene {
     this.items.sync(session);
   }
 
+  /** 在怪物位置喷出命中火花；killed 时改成死亡爆散。 */
+  spawnMonsterSparks(monsterId: number, color: number, killed = false): void {
+    const pos = this.entities.positionOf(monsterId);
+    if (!pos) return;
+    this.particles.burst(
+      pos.x,
+      pos.y + 0.5,
+      pos.z,
+      color,
+      killed
+        ? { count: 26, speed: 2.6, lift: 2.2, size: 0.09 }
+        : { count: 10, speed: 1.5, lift: 1.1 },
+    );
+  }
+
+  /** 在指定世界坐标喷出粒子（供端到端与工具使用）。 */
+  spawnBurstAt(x: number, y: number, z: number, color: number, count = 12): void {
+    this.particles.burst(x, y, z, color, { count });
+  }
+
   update(dt: number): void {
     this.time += dt;
     // 火把闪烁。
@@ -251,6 +278,20 @@ export class GameScene {
     if (this.dungeon) this.dungeon.update(dt);
     this.entities.update(dt);
     this.items.update(dt);
+    this.particles.update(dt);
+    // 火把飞灰：玩家身边缓慢升起的小火星。
+    this.emberTimer -= dt;
+    if (this.emberTimer <= 0) {
+      this.emberTimer = 0.35 + Math.random() * 0.25;
+      const p = this.playerGroup.position;
+      this.particles.burst(
+        p.x + (Math.random() - 0.5) * 1.4,
+        0.35 + Math.random() * 0.5,
+        p.z + (Math.random() - 0.5) * 1.4,
+        0xffa54f,
+        { count: 1, speed: 0.06, lift: 0.32, size: 0.035 },
+      );
+    }
     this.rig.update(dt);
   }
 

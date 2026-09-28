@@ -12,6 +12,7 @@ import { describeItem } from '../game/items';
 import { itemName, itemSuffix } from './itemName';
 import { letterToIndex } from '../game/inventory';
 import { createLogger, LOG_NS } from '../core/log';
+import { containerHasRoom, isContainer } from '../game/containers';
 
 const log = createLogger(LOG_NS.ui);
 
@@ -25,6 +26,10 @@ const VERB_TITLE = {
   read: 'verb.read',
   zap: 'verb.zap',
   apply: 'verb.apply',
+  throw: 'verb.throw',
+  fire: 'verb.fire',
+  put: 'verb.put',
+  open: 'verb.open',
   view: 'verb.view',
 };
 
@@ -38,15 +43,33 @@ const VERB_KEY_HINTS: Record<string, string> = {
   read: 'r',
   zap: 'z',
   apply: 'a',
+  throw: 't',
+  fire: 'f',
+  put: 'P',
+  open: 'o',
   drop: 'd',
   view: '',
 };
 
 /** 某件物品可用的动作，与原版提示一致。 */
-export function verbsFor(item: ItemInstance): string[] {
+export function verbsFor(item: ItemInstance, session?: GameSession): string[] {
   const cls = item.proto.cls;
   const verbs: string[] = [];
-  if (cls === 'weapon') verbs.push('wield');
+  // 容器只能打开；普通物品在背包里有空容器时可以放进去。
+  if (isContainer(item)) {
+    verbs.push('open');
+  } else if (
+    session &&
+    session.player.inventory.some((it) => it !== item && containerHasRoom(it))
+  ) {
+    verbs.push('put');
+  }
+  if (cls === 'weapon') {
+    verbs.push('wield');
+    verbs.push('throw');
+  }
+  if (cls === 'gem' || cls === 'food') verbs.push('throw');
+  if (cls === 'weapon' && item.proto.kind === 'PROJECTILE') verbs.push('fire');
   if (cls === 'armor' || cls === 'ring' || cls === 'amulet') verbs.push('wear');
   if (cls === 'potion') verbs.push('quaff');
   if (cls === 'scroll') verbs.push('read');
@@ -110,7 +133,7 @@ export function createInventoryPanel({
   function buildActions(item: ItemInstance): HTMLElement {
     const row = document.createElement('div');
     row.className = 'inv-actions';
-    const verbs = [...verbsFor(item), 'drop'];
+    const verbs = [...verbsFor(item, session), 'drop'];
     for (const verb of verbs) {
       const button = document.createElement('button');
       button.className = 'btn tiny';
@@ -184,7 +207,7 @@ export function createInventoryPanel({
     const item = idx >= 0 ? session.player.inventory[idx] : null;
     if (!item) return;
     if (mode === 'view') {
-      const verbs = verbsFor(item);
+      const verbs = verbsFor(item, session);
       if (verbs.length) {
         onChoose?.(verbs[0], item);
       } else {

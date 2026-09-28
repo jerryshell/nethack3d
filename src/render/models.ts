@@ -2,9 +2,8 @@ import * as THREE from 'three';
 import type { MonsterData, ObjectData } from '../types';
 
 /**
- * 程序化低多边形模型。
- *
- * 全部由基础几何体拼装，因此项目不携带美术资源。
+ * 程序化低多边形模型：兽类与物品由基础几何体拼装。
+ * 地牢设施与人物使用 Kenney 素材，见 `render/assets.ts`。
  * 返回的 THREE.Group 在 `userData.bob` 中标记待机动画部件。
  */
 
@@ -31,6 +30,26 @@ function sphere(r: number, material: THREE.Material, x = 0, y = 0, z = 0): THREE
   const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), material);
   m.position.set(x, y, z);
   return m;
+}
+
+/**
+ * 脚下的圆形伪阴影：不参与光照，只有一层半透明黑。
+ */
+export function createBlobShadow(radius = 0.3): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 20),
+    new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+    }),
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.02;
+  mesh.name = 'blob-shadow';
+  mesh.renderOrder = 1;
+  return mesh;
 }
 
 /**

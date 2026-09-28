@@ -111,7 +111,8 @@ interface ManifestFile {
 
 interface Manifest {
   version: number;
-  pack: string;
+  /** 素材来源包；地牢、人物与音效来自不同子库。 */
+  packs: string[];
   license: string;
   source: string;
   files: Record<string, ManifestFile>;
@@ -185,7 +186,7 @@ function sync(src: string): void {
 
   const manifest: Manifest = {
     version: 1,
-    pack: PACK,
+    packs: [PACK, CHARACTERS_PACK, 'Audio'],
     license: 'CC0-1.0',
     source: 'https://kenney.nl',
     files,
@@ -260,7 +261,7 @@ function check(): number {
     return 1;
   }
   console.log(
-    `素材与清单一致：${Object.keys(manifest.files).length} 个文件，${manifest.pack}，${manifest.license}`,
+    `素材与清单一致：${Object.keys(manifest.files).length} 个文件，${manifest.packs.join('、')}，${manifest.license}`,
   );
   return 0;
 }

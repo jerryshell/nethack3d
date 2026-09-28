@@ -187,7 +187,9 @@ section('地牢生成', async () => {
       for (const depth of [1, 2, 5, 11, 20]) {
         const level = generateLevel({ gameSeed: seed, depth });
         generated++;
-        ok(level.rooms.length >= 3, `seed ${seed} depth ${depth}: >= 3 rooms`);
+        const roomRule =
+          level.special === 'big_room' ? level.rooms.length === 1 : level.rooms.length >= 3;
+        ok(roomRule, `seed ${seed} depth ${depth}: 房间数量符合布局`);
         ok(!!level.down, `seed ${seed} depth ${depth}: down stairs present`);
         ok(depth === 1 ? !level.up : !!level.up, `seed ${seed} depth ${depth}: up stairs rule`);
         const start = level.start ?? { x: 1, y: 1 };
@@ -243,7 +245,7 @@ section('战斗与会话', async () => {
     ok(session.level.monsters.length > 0, 'level 1 spawns monsters');
     const maxDiff1 = Math.floor((1 + session.player.level) / 2);
     ok(
-      session.level.monsters.every((m) => m.data.diff <= maxDiff1),
+      session.level.monsters.filter((m) => !m.tame).every((m) => m.data.diff <= maxDiff1),
       `dlvl1 monsters respect difficulty window (max ${maxDiff1})`,
     );
 
@@ -304,6 +306,299 @@ section('战斗与会话', async () => {
   }
 });
 
+section('抗性与特殊攻击', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { playerResists, monsterResists, monsterMagicResists } = await import('../src/game/resist');
+  const { createRng } = await import('../src/core/rng');
+  const { monById, objById } = await import('../src/data/index');
+  const { makeItem } = await import('../src/game/items');
+  const { wearItem, zapWand, addToInventory } = await import('../src/game/inventory');
+
+  const antData = monById.get('GIANT_ANT') as MonsterData;
+
+  /** 造一只只会一种特殊攻击的怪物，贴近玩家并保证命中。 */
+  const foe = (session: InstanceType<typeof GameSession>, ad: string, dice: [number, number]) => {
+    const mon = new Monster(antData, session.player.x + 1, session.player.y, createRng(3));
+    mon.data = { ...antData, attacks: [{ at: 'AT_CLAW', ad, dice }] };
+    mon.mlev = 40;
+    mon.asleep = false;
+    return mon;
+  };
+
+  // 火焰：无抗性受伤，戴抗火戒指完全免伤。
+  {
+    const s = new GameSession({ seed: 4242 });
+    const before = s.player.hp;
+    s.monsterAttack(foe(s, 'AD_FIRE', [3, 6]));
+    ok(s.player.hp < before, '火焰攻击造成伤害');
+    ok(
+      s.messages.some((m) => m.key === 'msg.hitFire'),
+      '火焰伤害使用独立消息',
+    );
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    const ring = makeItem(objById.get('RIN_FIRE_RESISTANCE') as ObjectData, s.rng);
+    wearItem(s.player, ring);
+    ok(playerResists(s.player).has('fire'), '抗火戒指提供火焰抗性');
+    const before = s.player.hp;
+    s.monsterAttack(foe(s, 'AD_FIRE', [3, 6]));
+    ok(s.player.hp === before, '火焰抗性完全免伤');
+    ok(
+      s.messages.some((m) => m.key === 'msg.resistFire'),
+      '免伤有对应消息',
+    );
+  }
+
+  // 毒素：力量下降；解毒护身符免疫。
+  {
+    const s = new GameSession({ seed: 4242 });
+    const before = s.player.str;
+    s.monsterAttack(foe(s, 'AD_DRST', [1, 4]));
+    ok(s.player.str === before - 1, '毒素攻击降低力量');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    const amulet = makeItem(objById.get('AMULET_VERSUS_POISON') as ObjectData, s.rng);
+    wearItem(s.player, amulet);
+    const before = s.player.str;
+    s.monsterAttack(foe(s, 'AD_DRST', [1, 4]));
+    ok(s.player.str === before, '解毒护身符免疫力量流失');
+  }
+
+  // 状态效果：睡眠、麻痹、混乱、失明写入计时器；自由行动戒指免疫麻痹。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_SLEE', [1, 4]));
+    ok(s.player.sleep > 0, '睡眠攻击写入睡眠计时');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_PLYS', [1, 4]));
+    ok(s.player.held > 0, '麻痹攻击写入定身计时');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    const ring = makeItem(objById.get('RIN_FREE_ACTION') as ObjectData, s.rng);
+    wearItem(s.player, ring);
+    s.monsterAttack(foe(s, 'AD_PLYS', [1, 4]));
+    ok(s.player.held === 0, '自由行动戒指免疫麻痹');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_CONF', [1, 4]));
+    s.monsterAttack(foe(s, 'AD_BLND', [1, 4]));
+    ok(s.player.confused > 0 && s.player.blind > 0, '混乱与失明写入计时');
+  }
+
+  // 吸能、吸级与腐蚀。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.pw = 10;
+    s.monsterAttack(foe(s, 'AD_DREN', [1, 1]));
+    ok(s.player.pw === 5, `吸能抽走一半法力（${s.player.pw}/10）`);
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.level = 5;
+    s.player.xp = 1000;
+    s.player.maxHp = 30;
+    s.player.hp = 30;
+    s.monsterAttack(foe(s, 'AD_DRLI', [1, 4]));
+    ok(s.player.level === 4, `吸级降低一级（${s.player.level}）`);
+    ok(s.player.maxHp === 29, `吸级降低生命上限（${s.player.maxHp}）`);
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    const mail = makeItem(objById.get('LEATHER_ARMOR') as ObjectData, s.rng);
+    mail.enchant = 2;
+    wearItem(s.player, mail);
+    s.monsterAttack(foe(s, 'AD_RUST', [1, 1]));
+    ok(mail.enchant === 1, `锈蚀降低盔甲附魔（${mail.enchant}）`);
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    const mon = foe(s, 'AD_HEAL', [2, 6]);
+    mon.mhp = 1;
+    s.monsterAttack(mon);
+    ok(mon.mhp > 1, `治疗攻击恢复怪物生命（${mon.mhp}）`);
+  }
+
+  // 怪物抗性：红龙免疫火焰光束，普通怪物照常受伤。
+  const redDragon = monById.get('RED_DRAGON') as MonsterData;
+  ok(monsterResists(redDragon, 'fire'), '红龙原型带火焰抗性');
+  ok(!monsterResists(antData, 'fire'), '蚂蚁不抗拒火焰');
+  {
+    const s = new GameSession({ seed: 4242 });
+    const dragon = new Monster(redDragon, s.player.x + 1, s.player.y, s.rng);
+    dragon.asleep = false;
+    s.level.monsters = [dragon];
+    s.refreshFov();
+    const wand = makeItem(objById.get('WAN_FIRE') as ObjectData, s.rng);
+    const out = zapWand(s, wand);
+    ok(out.key === 'use.zapResisted', '红龙免疫火焰光束');
+    ok(dragon.mhp === dragon.mhpmax, '免疫时生命不变');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    const ant = new Monster(antData, s.player.x + 1, s.player.y, s.rng);
+    ant.mhp = ant.mhpmax = 999;
+    ant.asleep = false;
+    s.level.monsters = [ant];
+    s.refreshFov();
+    const wand = makeItem(objById.get('WAN_FIRE') as ObjectData, s.rng);
+    const out = zapWand(s, wand);
+    ok(out.key === 'use.zap', '无抗性怪物被光束击中');
+    ok(ant.mhp < 999, '无抗性时生命下降');
+  }
+
+  // 龙鳞甲按颜色提供抗性；法术抗性按 mr 百分比判定。
+  {
+    const s = new GameSession({ seed: 4242 });
+    const mail = makeItem(objById.get('RED_DRAGON_SCALE_MAIL') as ObjectData, s.rng);
+    wearItem(s.player, mail);
+    ok(playerResists(s.player).has('fire'), '红龙鳞甲提供火焰抗性');
+  }
+  {
+    const sure = { ...antData, mr: 100 };
+    const none = { ...antData, mr: 0 };
+    ok(monsterMagicResists(none, createRng(1)) === false, 'mr 为 0 时不抵抗法术');
+    ok(monsterMagicResists(sure, createRng(1)) === true, 'mr 为 100 时必定抵抗法术');
+  }
+
+  // 偷窃、金币、诅咒与去附魔：0 骰的攻击也要生效。
+  {
+    const s = new GameSession({ seed: 4242 });
+    const before = s.player.inventory.length;
+    s.monsterAttack(foe(s, 'AD_SITM', [0, 0]));
+    ok(s.player.inventory.length === before - 1, '偷窃攻击拿走一件物品');
+    ok(
+      s.messages.some((m) => m.key === 'msg.monSteals'),
+      '偷窃使用独立消息',
+    );
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.gold = 101;
+    s.monsterAttack(foe(s, 'AD_SGLD', [1, 2]));
+    ok(s.player.gold === 51, `偷金币只留下一半（${s.player.gold}）`);
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_CURS', [0, 0]));
+    ok(
+      s.player.inventory.some((i) => i.buc === 'cursed'),
+      '诅咒攻击让物品带上诅咒',
+    );
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    /** 已穿戴装备的附魔总和。 */
+    const enchantSum = (): number =>
+      Object.values(s.player.equipment).reduce((sum, item) => sum + (item ? item.enchant : 0), 0);
+    const before = enchantSum();
+    s.monsterAttack(foe(s, 'AD_ENCH', [4, 4]));
+    ok(enchantSum() === before - 1, `去附魔降低装备附魔（${before} -> ${enchantSum()}）`);
+  }
+
+  // 取消、缠绕与眩晕。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.seeInvisible = true;
+    s.player.invisible = 10;
+    s.monsterAttack(foe(s, 'AD_CNCL', [2, 4]));
+    ok(!s.player.seeInvisible && s.player.invisible === 0, '取消清空魔法效果');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_WRAP', [1, 6]));
+    ok(s.player.held > 0, '缠绕攻击定住玩家');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_STUN', [0, 4]));
+    ok(s.player.stun > 0, `眩晕攻击写入计时（${s.player.stun}）`);
+  }
+
+  // 石化：倒计时结束死亡，完全治疗药水解开。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_STON', [0, 0]));
+    ok(s.player.petrifying > 0, '石化攻击写入倒计时');
+    for (let i = 0; i < 12 && !s.dead; i++) s.finishTurn();
+    ok(s.dead, '石化倒计时归零后死亡');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_STON', [0, 0]));
+    const potion = makeItem(objById.get('POT_FULL_HEALING') as ObjectData, s.rng);
+    addToInventory(s.player, potion);
+    const r = s.useItem(potion);
+    ok(s.player.petrifying === 0 && !s.dead, '完全治疗药水解除石化');
+    ok(r.key === 'use.curedStone', '解石化有独立消息');
+  }
+
+  // 分解：无抗性即死，黑龙鳞甲免疫。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.monsterAttack(foe(s, 'AD_DISN', [0, 0]));
+    ok(s.dead, '分解攻击在没有抗性时即死');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    const scales = makeItem(objById.get('BLACK_DRAGON_SCALE_MAIL') as ObjectData, s.rng);
+    wearItem(s.player, scales);
+    s.monsterAttack(foe(s, 'AD_DISN', [0, 0]));
+    ok(!s.dead, '分解抗性挡住即死');
+  }
+
+  // 反射：电击弹回攻击者，玩家不受伤害。
+  {
+    const s = new GameSession({ seed: 4242 });
+    const amulet = makeItem(objById.get('AMULET_OF_REFLECTION') as ObjectData, s.rng);
+    wearItem(s.player, amulet);
+    ok(playerResists(s.player).has('reflection'), '反射护身符提供反射');
+    const mon = foe(s, 'AD_ELEC', [4, 6]);
+    // 留出足够生命，避免反射击杀后升级恢复生命干扰判定。
+    mon.mhp = mon.mhpmax = 200;
+    const hp = s.player.hp;
+    s.monsterAttack(mon);
+    ok(s.player.hp === hp, '反射时玩家不受电击伤害');
+    ok(mon.mhp < 200, '电击被弹回攻击者');
+  }
+
+  // 被动攻击（AT_NONE）：命中酸液团会被灼伤，手持武器则隔开石化。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.hitInc = 100;
+    const blob = new Monster(
+      monById.get('ACID_BLOB') as MonsterData,
+      s.player.x + 1,
+      s.player.y,
+      createRng(5),
+    );
+    blob.asleep = false;
+    blob.mhp = blob.mhpmax = 999;
+    const hp = s.player.hp;
+    s.attackMonster(blob);
+    ok(s.player.hp < hp, '命中酸液团触发被动酸液');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.hitInc = 100;
+    const cock = new Monster(
+      monById.get('COCKATRICE') as MonsterData,
+      s.player.x + 1,
+      s.player.y,
+      createRng(6),
+    );
+    cock.asleep = false;
+    cock.mhp = cock.mhpmax = 999;
+    s.attackMonster(cock);
+    ok(s.player.petrifying === 0, '手持武器时不会被动石化');
+  }
+});
 section('物品与背包', async () => {
   {
     const { GameSession } = await import('../src/game/session.js');
@@ -371,6 +666,131 @@ section('物品与背包', async () => {
     const before = s.player.hunger;
     s.useItem(food);
     ok(s.player.hunger > before, 'eating restores nutrition');
+  }
+});
+
+section('商店', async () => {
+  {
+    const { GameSession } = await import('../src/game/session.js');
+    const { shopBuyPrice, shopSellPrice, makeItem } = await import('../src/game/items.js');
+    const { shopRoom, inRoom, coords } = await import('../src/game/dungeon.js');
+    const { serializeSession, restoreSession } = await import('../src/game/save.js');
+
+    // 定价公式：售价加三分之一，收购价一半，最低 1 枚。
+    const proto = objById.get('LONG_SWORD') as ObjectData;
+    const sampleItem = makeItem(proto, createRng(7));
+    ok(
+      shopBuyPrice(sampleItem) === Math.ceil(proto.cost * (4 / 3)),
+      `buy price = ${shopBuyPrice(sampleItem)}`,
+    );
+    ok(
+      shopSellPrice(sampleItem) === Math.floor(proto.cost / 2),
+      `sell price = ${shopSellPrice(sampleItem)}`,
+    );
+    const freeItem = makeItem({ ...proto, cost: 0 } as ObjectData, createRng(8));
+    ok(
+      shopBuyPrice(freeItem) === 1 && shopSellPrice(freeItem) === 1,
+      'zero-cost items still settle at 1 gold',
+    );
+    // 魅力议价：越高买得越便宜、卖得越贵。
+    ok(
+      shopBuyPrice(sampleItem, 18) < shopBuyPrice(sampleItem, 10),
+      `高魅力买得更便宜（${shopBuyPrice(sampleItem, 18)} < ${shopBuyPrice(sampleItem, 10)}）`,
+    );
+    ok(
+      shopSellPrice(sampleItem, 18) > shopSellPrice(sampleItem, 10),
+      `高魅力卖得更贵（${shopSellPrice(sampleItem, 18)} > ${shopSellPrice(sampleItem, 10)}）`,
+    );
+
+    // 逐层找一家商店，进店后应有店主与未付款商品。
+    const s = new GameSession({ seed: 20240101 });
+    let shopDepth = -1;
+    for (let depth = 2; depth < 30 && shopDepth < 0; depth++) {
+      if (shopRoom(s.getLevel(depth))) shopDepth = depth;
+    }
+    ok(shopDepth > 0, `found a shop at depth ${shopDepth}`);
+    s.changeDepth(shopDepth, 'down');
+    const room = shopRoom(s.level);
+    ok(!!room, 'shop room survives population');
+    const a = generateLevel({ gameSeed: 20240101, depth: shopDepth });
+    const b = generateLevel({ gameSeed: 20240101, depth: shopDepth });
+    ok(shopRoom(a)?.index === shopRoom(b)?.index, 'shop placement is deterministic');
+
+    // 只留店主，避免其它怪物在交易期间干扰。
+    s.level.monsters = s.level.monsters.filter((m) => m.data.id === 'SHOPKEEPER');
+    const keeper = s.level.monsters[0];
+    ok(!!keeper && !!room && inRoom(room, keeper.x, keeper.y), 'shopkeeper stands inside the shop');
+    ok(!keeper?.asleep, 'shopkeeper stays awake');
+    const stock = s.level.objects.filter((p) => room && inRoom(room, p.x, p.y));
+    const goods = stock.flatMap((p) => p.items).filter((i) => i.unpaid);
+    ok(goods.length > 0, `shop stocks ${goods.length} unpaid goods`);
+    ok(
+      [...s.level.traps.keys()].every((i) => {
+        const at = coords(i);
+        return !room || !inRoom(room, at.x, at.y);
+      }),
+      'shop has no traps',
+    );
+
+    // 钱够时买入：扣款等于标价，物品结清。
+    const pile = stock.find((p) => p.items.some((i) => i.unpaid)) as GroundPile;
+    const sample = pile.items.find((i) => i.unpaid) as (typeof goods)[number];
+    const price = shopBuyPrice(sample, s.player.cha);
+    s.player.gold = price;
+    s.player.x = pile.x;
+    s.player.y = pile.y;
+    s.pickupAction();
+    ok(s.player.inventory.includes(sample), 'paying picks the item up');
+    ok(!sample.unpaid, 'paid item is no longer shop property');
+    ok(s.player.gold === 0, 'gold decreases by the buy price');
+
+    // 卖出：店主按半价收购，物品重新变成店产。
+    const sellPrice = shopSellPrice(sample, s.player.cha);
+    s.useItem(sample, 'drop');
+    ok(s.player.gold === sellPrice, 'selling credits half the base cost');
+    ok(!!sample.unpaid, 'sold item becomes shop property');
+
+    // 钱不够时拒绝拾取，物品留在原地。
+    s.player.gold = 0;
+    const broke = s.pickupAction();
+    ok(
+      broke.picked === 0 && !s.player.inventory.includes(sample),
+      'unaffordable goods stay on the floor',
+    );
+
+    // 存档往返保留未付款标记。
+    const restored = restoreSession(serializeSession(s));
+    const restoredUnpaid = restored.level.objects.flatMap((p) => p.items).filter((i) => i.unpaid);
+    ok(restoredUnpaid.length > 0, 'save round-trip keeps unpaid goods');
+  }
+
+  // 商店每 200 回合补一件货，计时随存档保留。
+  {
+    const { GameSession } = await import('../src/game/session.js');
+    const { shopRoom, inRoom } = await import('../src/game/dungeon.js');
+    const { serializeSession, restoreSession } = await import('../src/game/save.js');
+    const s = new GameSession({ seed: 20240101 });
+    let depth = -1;
+    for (let d = 2; d < 30 && depth < 0; d++) if (shopRoom(s.getLevel(d))) depth = d;
+    if (depth < 0) {
+      fail('补货测试需要商店楼层');
+    } else {
+      s.changeDepth(depth, 'down');
+      const room = shopRoom(s.level);
+      const count = (): number =>
+        s.level.objects.filter((p) => room && inRoom(room, p.x, p.y)).length;
+      const before = count();
+      s.level.shopRestockAt = s.turn;
+      s.wait();
+      ok(count() === before + 1, `商店补货（${before} -> ${count()}）`);
+      ok(
+        s.messages.some((m) => m.key === 'msg.shopRestocks'),
+        '补货有提示',
+      );
+      ok((s.level.shopRestockAt ?? 0) > s.turn, '补货后重置计时');
+      const restored = restoreSession(serializeSession(s));
+      ok(restored.level.shopRestockAt === s.level.shopRestockAt, '补货计时随存档保留');
+    }
   }
 });
 
@@ -519,12 +939,35 @@ section('终局', async () => {
       s.player.y = pile.y;
       s.refreshFov();
       s.pickupAction();
-      ok(s.victory === true, 'picking up the Amulet wins the game');
+      ok(s.victory === false, 'picking up the Amulet alone does not win');
+      ok(
+        s.messages.some((m) => m.key === 'msg.amuletTaken'),
+        'amulet pickup tells you to escape',
+      );
+      ok(
+        s.level.monsters.some((m) => m.data.id === 'WIZARD_OF_YENDOR'),
+        'picking up the Amulet spawns the Wizard of Yendor',
+      );
+      s.changeDepth(1, 'up', 'main');
+      ok(s.victory === true, 'escaping to depth 1 with the Amulet wins');
       ok(
         s.messages.some((m) => m.key === 'msg.victory'),
         'victory message is logged',
       );
     }
+  }
+
+  // 没有护身符回到第 1 层不算通关，也不会有追击者。
+  {
+    const { GameSession } = await import('../src/game/session.js');
+    const s = new GameSession({ seed: 9 });
+    s.changeDepth(2, 'down');
+    ok(
+      !s.level.monsters.some((m) => m.data.id === 'WIZARD_OF_YENDOR'),
+      'no Wizard of Yendor without the Amulet',
+    );
+    s.changeDepth(1, 'up', 'main');
+    ok(s.victory === false, 'returning to depth 1 without the Amulet does not win');
   }
 });
 
@@ -597,7 +1040,7 @@ section('点击移动寻路', async () => {
 section('地图结构', async () => {
   const { generateLevel, index, insideRoom } = await import('../src/game/dungeon');
   const { COLNO, T, isRoom } = await import('../src/core/constants');
-  const { auditDoorOrientations } = await import('./agent-lib');
+  const { auditDoors } = await import('./agent-lib');
 
   let doors = 0;
   let adjacentPairs = 0;
@@ -611,7 +1054,7 @@ section('地图结构', async () => {
   for (const seed of [1, 42, 777]) {
     for (const depth of [1, 5, 11]) {
       const level = generateLevel({ gameSeed: seed, depth });
-      auditProblems = auditProblems.concat(auditDoorOrientations(level).problems);
+      auditProblems = auditProblems.concat(auditDoors(level).problems);
       doors += level.doors.size;
 
       for (const [i] of level.doors) {
@@ -637,6 +1080,8 @@ section('地图结构', async () => {
       }
 
       for (const room of level.rooms) {
+        // 大房间是一整间无门大厅，不参与「每个房间有门」的检查。
+        if (level.special === 'big_room') break;
         let hasDoor = false;
         for (const [i] of level.doors) {
           const x = i % COLNO;
@@ -675,28 +1120,63 @@ section('地图结构', async () => {
   // ASCII 模糊：固定样本碰不到「走廊贴着房间外墙经过」这类格局，
   // 批量生成关卡，把每扇门的朝向与地图上的通道走向对照一遍。
   let fuzzDoors = 0;
-  let fuzzClear = 0;
-  let fuzzRoomFallback = 0;
-  let fuzzUnknown = 0;
+  let fuzzProper = 0;
   const fuzzProblems: string[] = [];
   for (let n = 0; n < 24; n++) {
     const seed = (9001 + n * 104729) >>> 0;
     const depth = 1 + ((n * 7 + 3) % 30);
-    const audit = auditDoorOrientations(generateLevel({ gameSeed: seed, depth }));
+    const audit = auditDoors(generateLevel({ gameSeed: seed, depth }));
     fuzzDoors += audit.doors;
-    fuzzClear += audit.clear;
-    fuzzRoomFallback += audit.roomFallback;
-    fuzzUnknown += audit.unknown;
+    fuzzProper += audit.proper;
     fuzzProblems.push(...audit.problems.map((p) => `种子 ${seed} 第 ${depth} 层：${p}`));
   }
   ok(fuzzDoors > 200, `模糊样本内共有 ${fuzzDoors} 扇门`);
-  ok(fuzzClear > 80, `模糊样本内有 ${fuzzClear} 扇通道明确的门`);
-  ok(fuzzRoomFallback > 0, `模糊样本覆盖房间兜底判定（${fuzzRoomFallback} 扇）`);
-  ok(fuzzUnknown * 10 < fuzzDoors, `绝大多数门可由地图判定（无法判定 ${fuzzUnknown} 扇）`);
+  ok(
+    fuzzProper === fuzzDoors,
+    `模糊样本的门都满足「前后通道、两侧墙」（${fuzzProper}/${fuzzDoors}）`,
+  );
   ok(
     fuzzProblems.length === 0,
     `模糊样本门朝向与地图通道一致（${fuzzProblems.length} 扇判反` +
       `${fuzzProblems.length ? `：${fuzzProblems.slice(0, 2).join('；')}` : ''}）`,
+  );
+});
+section('状态转储', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { buildDump, dumpFileName, DUMP_SAVE_MARKER } = await import('../src/ui/dump');
+  const { restoreSession } = await import('../src/game/save');
+
+  const session = new GameSession({ seed: 4242 });
+  const text = buildDump(session);
+  ok(text.includes(`seed: ${session.seed}`), `转储包含种子（${session.seed}）`);
+  ok(text.includes(`depth: ${session.depth} /`), `转储包含层数（${session.depth}）`);
+  ok(text.includes(`turn: ${session.turn}`), `转储包含回合数`);
+  ok(text.includes('@'), '地图标出玩家位置');
+  ok(
+    text.includes('map:') && text.includes('messages') && text.includes('logs:'),
+    '转储包含地图、消息与日志分段',
+  );
+  ok(!text.includes('undefined'), '转储没有 undefined');
+  ok(text.split('\n').length > 30, `转储篇幅足够（${text.split('\n').length} 行）`);
+
+  // 末段的存档 JSON 必须能恢复现场，否则玩家发来的转储只能靠猜。
+  const saved = text.slice(text.indexOf(DUMP_SAVE_MARKER) + DUMP_SAVE_MARKER.length).trim();
+  const problems: string[] = [];
+  try {
+    const restored = restoreSession(JSON.parse(saved));
+    if (restored.seed !== session.seed) problems.push(`种子 ${restored.seed}`);
+    if (restored.depth !== session.depth) problems.push(`层数 ${restored.depth}`);
+    if (restored.player.x !== session.player.x || restored.player.y !== session.player.y) {
+      problems.push('玩家位置');
+    }
+    if (restored.player.hp !== session.player.hp) problems.push('生命');
+  } catch (err) {
+    problems.push(err instanceof Error ? err.message : String(err));
+  }
+  ok(problems.length === 0, `转储里的存档可以恢复现场（${problems.join('；') || '无差异'}）`);
+  ok(
+    dumpFileName(session).includes(String(session.seed)) && dumpFileName(session).endsWith('.txt'),
+    `文件名可辨识（${dumpFileName(session)}）`,
   );
 });
 section('陷阱', async () => {
@@ -827,6 +1307,1719 @@ section('陷阱', async () => {
     ok(!s.dead, '未知陷阱类型不会导致死亡');
   }
 });
+section('地形设施', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { FEATURE_ACTIONS, FEATURE_TABLES, rollFeatureEffect } =
+    await import('../src/game/features');
+  const { createRng } = await import('../src/core/rng');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+
+  // 效果表完整：权重为正，文案键合法，抽取结果不越界。
+  for (const kind of ['fountain', 'sink', 'grave', 'throne'] as const) {
+    const table = FEATURE_TABLES[kind];
+    ok(table.length > 0, `${kind} 有效果表`);
+    ok(
+      table.every((e) => e.weight > 0 && e.message.startsWith('msg.')),
+      `${kind} 的权重与文案键合法`,
+    );
+    ok(
+      table.some((e) => e.kind === 'nothing'),
+      `${kind} 保留无事发生的分支`,
+    );
+    const rng = createRng(99);
+    ok(
+      Array.from({ length: 50 }, () => rollFeatureEffect(rng, kind)).every((e) =>
+        table.includes(e),
+      ),
+      `${kind} 的抽取结果都在表内`,
+    );
+  }
+  // 四种设施都有情境动作，祭坛留到祈祷机制。
+  ok(Object.keys(FEATURE_ACTIONS).length === 4, '四种设施提供情境动作');
+  ok(!FEATURE_ACTIONS[T.ALTAR], '祭坛暂不提供动作');
+
+  /** 逐层找一处指定设施，把玩家放到设施格上。 */
+  const standOn = (
+    session: InstanceType<typeof GameSession>,
+    type: string,
+  ): { i: number; depth: number } | null => {
+    for (let depth = 2; depth < 30; depth++) {
+      const level = session.getLevel(depth);
+      for (const [i, feature] of level.features) {
+        if (feature.type === type) {
+          session.changeDepth(depth, 'down');
+          session.level.monsters = [];
+          session.player.x = i % COLNO;
+          session.player.y = Math.floor(i / COLNO);
+          session.player.hunger = 2000;
+          session.refreshFov();
+          return { i, depth };
+        }
+      }
+    }
+    return null;
+  };
+
+  // 坟墓：挖一次就到底，第二次只消耗回合。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    const at = standOn(s, 'GRAVE');
+    ok(!!at, `第 ${at?.depth} 层找得到坟墓`);
+    if (at) {
+      s.useFeature('dig');
+      ok(s.level.features.get(at.i)?.depleted === true, '挖过的坟墓标记为已挖开');
+      const before = s.turn;
+      const again = s.useFeature('dig');
+      ok(again.result === 'used' && s.turn > before, '再次挖掘只消耗回合');
+    }
+  }
+
+  // 王座：坐过一次后失效或直接消失。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    const at = standOn(s, 'THRONE');
+    ok(!!at, `第 ${at?.depth} 层找得到王座`);
+    if (at) {
+      s.useFeature('sit');
+      const feature = s.level.features.get(at.i);
+      ok(!feature || feature.used === true, '王座坐过一次后失效或消失');
+      if (!feature) ok(s.level.tiles[at.i] === T.ROOM, '消失的王座恢复成普通地面');
+    }
+  }
+
+  // 喷泉：一直喝到干涸，干涸后不再产生效果。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    const at = standOn(s, 'FOUNTAIN');
+    ok(!!at, `第 ${at?.depth} 层找得到喷泉`);
+    if (at) {
+      s.player.hp = s.player.maxHp;
+      for (let n = 0; n < 300 && !s.level.features.get(at.i)?.depleted; n++) {
+        s.useFeature('drink');
+        // 现身的怪物不参与后续回合，避免测试被战斗打断。
+        s.level.monsters = [];
+      }
+      ok(s.level.features.get(at.i)?.depleted === true, '喷泉最终会干涸');
+      ok(isWalkable(s.level.tiles[at.i]), '干涸的喷泉仍可通行');
+      const hp = s.player.hp;
+      s.useFeature('drink');
+      ok(s.player.hp === hp, '干涸后喝水不再有治疗效果');
+    }
+  }
+
+  // 存档往返保留失效标记，已挖开的坟墓不会复活。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    const at = standOn(s, 'GRAVE');
+    if (at) {
+      s.useFeature('dig');
+      const restored = restoreSession(serializeSession(s));
+      ok(restored.level.features.get(at.i)?.depleted === true, '挖开的坟墓随存档保留');
+    } else {
+      fail('存档测试需要一座坟墓');
+    }
+  }
+});
+section('祈祷与阵营', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById } = await import('../src/data/index');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { FIXED_CHARACTER } = await import('./agent-lib');
+
+  /** 固定角色，保证阵营是中立。 */
+  const newFixed = () => new GameSession({ seed: 20240101, character: FIXED_CHARACTER });
+
+  // 击杀改变阵营记录：敌对加分，和平扣分。
+  {
+    const s = newFixed();
+    const imp = monById.get('IMP') as MonsterData;
+    const mon = new Monster(imp, s.player.x + 1, s.player.y, s.rng);
+    mon.mlev = 10;
+    s.slayMonster(mon, true);
+    ok(s.player.alignRecord > 0, `击杀敌对怪物提高阵营记录（${s.player.alignRecord}）`);
+    const watch = monById.get('WATCHMAN') as MonsterData;
+    const w = new Monster(watch, s.player.x + 1, s.player.y, s.rng);
+    const before = s.player.alignRecord;
+    s.slayMonster(w, true);
+    ok(
+      s.player.alignRecord < before,
+      `击杀和平生物降低阵营记录（${before} -> ${s.player.alignRecord}）`,
+    );
+  }
+
+  // 扫一遍 2..29 层，收集祭坛位置并顺带检查归属合法；生成是确定性的，
+  // 后续测试直接跳到已知层，避免重复生成拖垮超时。
+  const altarSpots: { depth: number; i: number }[] = [];
+  {
+    const probe = newFixed();
+    for (let depth = 2; depth < 30; depth++) {
+      for (const [i, feature] of probe.getLevel(depth).features) {
+        if (feature.type !== 'ALTAR') continue;
+        altarSpots.push({ depth, i });
+        ok(
+          !feature.align || ['lawful', 'neutral', 'chaotic'].includes(feature.align),
+          `祭坛归属合法（${feature.align}）`,
+        );
+      }
+    }
+  }
+  ok(altarSpots.length > 0, `样本里存在祭坛（${altarSpots.length} 座）`);
+  const altarAt = altarSpots[0] ?? null;
+
+  /** 跳到已知祭坛那一层，改写成指定阵营并把玩家放上去。 */
+  const standOnAltar = (
+    s: InstanceType<typeof GameSession>,
+    align: 'lawful' | 'neutral' | 'chaotic',
+  ): boolean => {
+    if (!altarAt) return false;
+    s.changeDepth(altarAt.depth, 'down');
+    s.level.monsters = [];
+    const feature = s.level.features.get(altarAt.i);
+    if (!feature) return false;
+    feature.align = align;
+    s.player.x = altarAt.i % COLNO;
+    s.player.y = Math.floor(altarAt.i / COLNO);
+    s.player.hunger = 2000;
+    s.refreshFov();
+    return true;
+  };
+
+  // 在自己阵营的祭坛上祈祷：满血、回法、清除异常、记录 +1、写入冷却。
+  {
+    const s = newFixed();
+    ok(standOnAltar(s, 'neutral'), '找得到祭坛');
+    s.player.hp = 5;
+    s.player.pw = 0;
+    s.player.blind = 5;
+    s.player.stun = 3;
+    s.player.petrifying = 4;
+    s.pray();
+    ok(s.player.hp === s.player.maxHp, `祈祷满血（${s.player.hp}）`);
+    ok(s.player.pw === s.player.maxPw, '祈祷回满法力');
+    ok(
+      s.player.blind === 0 && s.player.stun === 0 && s.player.petrifying === 0,
+      '祈祷清除异常状态',
+    );
+    ok(s.player.alignRecord === 1, `祈祷提升阵营记录（${s.player.alignRecord}）`);
+    ok(s.player.prayerTimeout >= 300, `祈祷写入冷却（${s.player.prayerTimeout}）`);
+    ok(
+      s.messages.some((m) => m.key === 'msg.prayerBlessed'),
+      '祈祷使用祝福消息',
+    );
+  }
+
+  // 冷却中再次祈祷：受伤、记录下降、召唤敌对天使。
+  {
+    const s = newFixed();
+    ok(standOnAltar(s, 'neutral'), '找得到祭坛（受罚）');
+    s.player.prayerTimeout = 100;
+    const before = s.player.hp;
+    const recordBefore = s.player.alignRecord;
+    s.pray();
+    ok(s.player.hp < before, `冷却中祈祷受伤（${before} -> ${s.player.hp}）`);
+    ok(s.player.alignRecord === recordBefore - 5, '惩罚降低阵营记录');
+    ok(
+      s.level.monsters.some((m) => m.data.id === 'ANGEL' && m.angry),
+      '惩罚召唤敌对天使',
+    );
+  }
+
+  // 站在别的阵营祭坛前祈祷：同样受罚。
+  {
+    const s = newFixed();
+    const other = FIXED_CHARACTER.align === 'lawful' ? 'chaotic' : 'lawful';
+    ok(standOnAltar(s, other), '找得到异教祭坛');
+    const before = s.player.hp;
+    s.pray();
+    ok(s.player.hp < before, '敬拜异教祭坛受伤');
+  }
+
+  // 冷却递减；阵营记录与冷却随存档保留。
+  {
+    const s = newFixed();
+    s.player.alignRecord = 7;
+    s.player.prayerTimeout = 3;
+    s.wait();
+    ok(s.player.prayerTimeout === 2, `冷却随回合递减（${s.player.prayerTimeout}）`);
+    const restored = restoreSession(serializeSession(s));
+    ok(restored.player.alignRecord === 7, '阵营记录随存档保留');
+    ok(restored.player.prayerTimeout === 2, '祈祷冷却随存档保留');
+  }
+});
+section('变形', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById, objById } = await import('../src/data/index');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory, wearItem } = await import('../src/game/inventory');
+  const { playerResists } = await import('../src/game/resist');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { createRng } = await import('../src/core/rng');
+  const { index } = await import('../src/game/dungeon');
+
+  // 药水：变成随机怪物形态，属性改用形态数据。
+  {
+    const s = new GameSession({ seed: 4242 });
+    const potion = makeItem(objById.get('POT_POLYMORPH') as ObjectData, s.rng);
+    addToInventory(s.player, potion);
+    const r = s.useItem(potion);
+    const form = s.player.formData;
+    ok(r.key === 'use.polymorph' && !!form, `变形药水生效（${form?.id}）`);
+    ok(
+      s.player.form !== null && s.player.form.turns >= 20 && s.player.form.turns <= 39,
+      `变形持续 20-39 回合（${s.player.form?.turns}）`,
+    );
+    if (form) {
+      ok(s.player.ac === form.ac - s.player.acBonus, `护甲改用形态数据（${s.player.ac}）`);
+      const atk = form.attacks.find((a) => a.at !== 'AT_NONE' && a.dice[0] > 0 && a.dice[1] > 0);
+      const expected = atk ? `${atk.dice[0]}d${atk.dice[1]}` : '1d2';
+      ok(s.player.weaponDamageSpec('MZ_MEDIUM') === expected, `近战骰改用形态数据（${expected}）`);
+    }
+  }
+
+  // 不变护身符完全挡住变形。
+  {
+    const s = new GameSession({ seed: 4242 });
+    const amulet = makeItem(objById.get('AMULET_OF_UNCHANGING') as ObjectData, s.rng);
+    addToInventory(s.player, amulet);
+    wearItem(s.player, amulet);
+    const potion = makeItem(objById.get('POT_POLYMORPH') as ObjectData, s.rng);
+    addToInventory(s.player, potion);
+    const r = s.useItem(potion);
+    ok(s.player.form === null && r.key === 'use.polyUnchanging', '不变护身符挡住变形药水');
+    ok(s.polymorph().blocked, '不变护身符挡住所有变形来源');
+  }
+
+  // 形态自带抗性：红龙形态不怕火。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.form = { id: 'RED_DRAGON', turns: 10 };
+    ok(playerResists(s.player).has('fire'), '红龙形态提供火焰抗性');
+    s.player.form = null;
+    ok(!playerResists(s.player).has('fire'), '恢复原形后失去形态抗性');
+  }
+
+  // 到期自动恢复。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.polymorph();
+    ok(!!s.player.form, '变形已开始');
+    const turns = s.player.form?.turns ?? 0;
+    s.level.monsters = [];
+    s.player.hunger = 2000;
+    for (let i = 0; i <= turns; i++) s.wait();
+    ok(s.player.form === null, '变形到期自动恢复');
+    ok(
+      s.messages.some((m) => m.key === 'msg.polyEnd'),
+      '恢复原形有提示',
+    );
+  }
+
+  // 变形陷阱：踩中后变成怪物形态。
+  {
+    const s = new GameSession({ seed: 777 });
+    const p = s.player;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      if (!isWalkable(s.level.tiles[index(p.x + dx, p.y + dy)])) continue;
+      if (s.level.monsters.some((m) => m.x === p.x + dx && m.y === p.y + dy)) continue;
+      s.level.traps.set(index(p.x + dx, p.y + dy), { type: 'POLY_TRAP', seen: false });
+      s.movePlayer(dx, dy);
+      break;
+    }
+    ok(!!s.player.form, `变形陷阱让玩家变形（${s.player.form?.id}）`);
+  }
+
+  // 怪物攻击变形：AD_POLY 也换成形态而不是混乱。
+  {
+    const s = new GameSession({ seed: 5 });
+    const ant = monById.get('GIANT_ANT') as MonsterData;
+    const mon = new Monster(ant, s.player.x + 1, s.player.y, createRng(3));
+    mon.data = { ...ant, attacks: [{ at: 'AT_CLAW', ad: 'AD_POLY', dice: [1, 4] }] };
+    mon.mlev = 40;
+    mon.asleep = false;
+    s.monsterAttack(mon);
+    ok(!!s.player.form, `AD_POLY 让玩家变形（${s.player.form?.id}）`);
+  }
+
+  // 存档往返保留形态。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.polymorph();
+    const id = s.player.form?.id;
+    const restored = restoreSession(serializeSession(s));
+    ok(restored.player.form?.id === id, `变形形态随存档保留（${id}）`);
+    ok(restored.player.form?.turns === s.player.form?.turns, '变形剩余回合随存档保留');
+  }
+});
+section('许愿', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { resolveWish } = await import('../src/game/wish');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory, INVENTORY_LIMIT } = await import('../src/game/inventory');
+  const { objById } = await import('../src/data/index');
+  const { createRng } = await import('../src/core/rng');
+
+  // 文字解析：英文全名、中文名、id、数量前缀与金币。
+  {
+    const rng = createRng(1);
+    const healing = resolveWish(rng, 'potion of healing');
+    ok(healing.kind === 'item' && healing.proto.id === 'POT_HEALING', '英文全名可以许愿');
+    const plural = resolveWish(rng, '2 potions of healing');
+    ok(
+      plural.kind === 'item' && plural.proto.id === 'POT_HEALING' && plural.quantity === 2,
+      '数量前缀生效',
+    );
+    const zh = resolveWish(rng, '治疗药水');
+    ok(zh.kind === 'item' && zh.proto.id === 'POT_HEALING', '中文名可以许愿');
+    const byId = resolveWish(rng, 'POT_HEALING');
+    ok(byId.kind === 'item' && byId.proto.id === 'POT_HEALING', '内部 id 可以许愿');
+    const pluralTool = resolveWish(rng, 'arrows');
+    ok(pluralTool.kind === 'item' && pluralTool.proto.id === 'ARROW', '英文复数可以许愿');
+    const gold = resolveWish(rng, '金币');
+    ok(
+      gold.kind === 'gold' && gold.amount > 0,
+      `金币愿望给出数量（${gold.kind === 'gold' ? gold.amount : 0}）`,
+    );
+    ok(resolveWish(rng, 'banana sword').kind === 'none', '无关的愿望匹配不到');
+    ok(resolveWish(rng, '').kind === 'none', '空愿望匹配不到');
+  }
+
+  // 许愿魔杖：消耗充能，记下待处理愿望；兑现后入包。
+  {
+    const s = new GameSession({ seed: 42 });
+    const wand = makeItem(objById.get('WAN_WISHING') as ObjectData, s.rng);
+    addToInventory(s.player, wand);
+    const charges = wand.charges ?? 0;
+    const r = s.useItem(wand, 'zap');
+    ok(r.key === 'use.zapWish' && s.pendingWishes === 1, '许愿魔杖产生愿望');
+    ok(wand.charges === charges - 1, '许愿消耗一点充能');
+    const granted = s.grantWish('potion of healing');
+    ok(granted.ok && s.player.inventory.some((i) => i.proto.id === 'POT_HEALING'), '愿望变成物品');
+    ok(s.pendingWishes === 0, '兑现后愿望清空');
+  }
+
+  // 匹配不到时不消耗愿望，可以重试；金币入堆。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.openWish();
+    ok(!s.grantWish('banana sword').ok && s.pendingWishes === 1, '未知愿望不消耗');
+    ok(s.grantWish('金币').ok && s.pendingWishes === 0, '重试后成功');
+    ok(
+      s.level.objects.some(
+        (p) => p.x === s.player.x && p.y === s.player.y && p.items.some((i) => i.gold),
+      ),
+      '金币堆在脚下',
+    );
+  }
+
+  // 魔法灯：摩擦一次得到愿望，之后失效。
+  {
+    const s = new GameSession({ seed: 42 });
+    const lamp = makeItem(objById.get('MAGIC_LAMP') as ObjectData, s.rng);
+    addToInventory(s.player, lamp);
+    const first = s.useItem(lamp, 'apply');
+    ok(first.key === 'use.wishLamp' && s.pendingWishes === 1, '魔法灯产生愿望');
+    s.grantWish('long sword');
+    const spent = s.useItem(lamp, 'apply');
+    ok(spent.key === 'use.lampSpent' && s.pendingWishes === 0, '灯用尽后不再产生愿望');
+  }
+
+  // 背包放不下时，愿望物品丢在脚下。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.openWish();
+    s.player.inventory = s.player.inventory.slice(0, 1);
+    while (s.player.inventory.length < INVENTORY_LIMIT) {
+      s.player.inventory.push(s.player.inventory[0]);
+    }
+    ok(s.grantWish('leather armor').ok, '背包满时愿望仍兑现');
+    ok(
+      s.level.objects.some(
+        (p) =>
+          p.x === s.player.x &&
+          p.y === s.player.y &&
+          p.items.some((i) => i.proto.id === 'LEATHER_ARMOR'),
+      ),
+      '放不下的愿望物品丢在脚下',
+    );
+  }
+});
+section('宠物', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById, objById } = await import('../src/data/index');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { createRng } = await import('../src/core/rng');
+
+  const newSession = () => new GameSession({ seed: 20240101 });
+  const petOf = (s: InstanceType<typeof GameSession>) => s.level.monsters.find((m) => m.tame);
+
+  // 新游戏自带一只驯服的宠物，且贴着玩家。
+  {
+    const s = newSession();
+    const pet = petOf(s);
+    ok(!!pet && pet.tame, `新游戏带宠物（${pet?.data.id}）`);
+    if (pet) {
+      const dist = Math.max(Math.abs(pet.x - s.player.x), Math.abs(pet.y - s.player.y));
+      ok(dist <= 1, `宠物在玩家身边（距离 ${dist}）`);
+    }
+  }
+
+  // 宠物不攻击玩家。
+  {
+    const s = newSession();
+    s.level.monsters = s.level.monsters.filter((m) => m.tame);
+    const hp = s.player.hp;
+    for (let i = 0; i < 20; i++) s.wait();
+    ok(s.player.hp >= hp, `宠物不会伤害玩家（${s.player.hp}/${hp}）`);
+  }
+
+  // 跟随：把宠物放到远处，玩家不动，距离应当缩短。
+  {
+    const s = newSession();
+    s.level.monsters = s.level.monsters.filter((m) => m.tame);
+    const pet = petOf(s);
+    let spot: { x: number; y: number } | null = null;
+    for (let r = 5; r >= 3 && !spot; r--) {
+      for (const [dx, dy] of [
+        [r, 0],
+        [-r, 0],
+        [0, r],
+        [0, -r],
+      ]) {
+        const x = s.player.x + dx;
+        const y = s.player.y + dy;
+        if (isWalkable(s.level.tiles[index(x, y)])) {
+          spot = { x, y };
+          break;
+        }
+      }
+    }
+    if (pet && spot) {
+      pet.x = spot.x;
+      pet.y = spot.y;
+      const before = Math.max(Math.abs(pet.x - s.player.x), Math.abs(pet.y - s.player.y));
+      for (let i = 0; i < 12; i++) s.monsterTurns();
+      const after = Math.max(Math.abs(pet.x - s.player.x), Math.abs(pet.y - s.player.y));
+      ok(after < before, `宠物会靠近玩家（${before} -> ${after}）`);
+    } else {
+      fail('跟随测试需要宠物与空地');
+    }
+  }
+
+  // 宠物主动攻击敌对怪物。
+  {
+    const s = newSession();
+    s.level.monsters = s.level.monsters.filter((m) => m.tame);
+    const pet = petOf(s);
+    const ant = new Monster(
+      monById.get('GIANT_ANT') as MonsterData,
+      (pet?.x ?? 0) + 1,
+      pet?.y ?? 0,
+      createRng(9),
+    );
+    ant.asleep = false;
+    ant.mhp = ant.mhpmax = 60;
+    s.level.monsters.push(ant);
+    if (pet) {
+      for (let i = 0; i < 30 && !ant.dead; i++) {
+        pet.mv += 12;
+        s.monsterAction(pet);
+      }
+      ok(ant.mhp < 60 || ant.dead, `宠物会攻击敌对怪物（${ant.mhp}）`);
+      ok(
+        s.messages.some((m) => m.key === 'msg.petHits'),
+        '宠物攻击有独立消息',
+      );
+    } else {
+      fail('参战测试需要宠物');
+    }
+  }
+
+  // 走进宠物时交换位置，而不是发起攻击。
+  {
+    const s = newSession();
+    const pet = petOf(s);
+    const dir = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ].find(([dx, dy]) => isWalkable(s.level.tiles[index(s.player.x + dx, s.player.y + dy)]));
+    if (pet && dir) {
+      pet.x = s.player.x + dir[0];
+      pet.y = s.player.y + dir[1];
+      const fromX = s.player.x;
+      const fromY = s.player.y;
+      s.movePlayer(dir[0], dir[1]);
+      ok(s.player.x === fromX + dir[0] && pet.x === fromX && pet.y === fromY, '走进宠物时交换位置');
+    } else {
+      fail('交换测试需要宠物与空地');
+    }
+  }
+
+  // 攻击宠物会失去信任。
+  {
+    const s = newSession();
+    const pet = petOf(s);
+    if (pet) {
+      s.player.hitInc = 100;
+      s.attackMonster(pet);
+      ok(!pet.tame, '攻击宠物后不再驯服');
+      ok(
+        s.messages.some((m) => m.key === 'msg.petBetrayed'),
+        '背叛宠物有提示',
+      );
+    } else {
+      fail('背叛测试需要宠物');
+    }
+  }
+
+  // 换层时宠物跟随，且存档保留驯服标记。
+  {
+    const s = newSession();
+    const pet = petOf(s);
+    s.changeDepth(2, 'down');
+    ok(!!pet && s.level.monsters.includes(pet), '宠物跟随玩家换层');
+    ok(!pet || !s.levels.get(1)?.monsters.includes(pet), '原层不再留有宠物');
+    const restored = restoreSession(serializeSession(s));
+    ok(
+      restored.level.monsters.some((m) => m.tame),
+      '驯服标记随存档保留',
+    );
+  }
+
+  // 喂食：消耗食物、恢复生命、提升驯服度，满值后成长。
+  {
+    const s = newSession();
+    s.level.monsters = s.level.monsters.filter((m) => m.tame);
+    const pet = petOf(s);
+    addToInventory(s.player, makeItem(objById.get('FOOD_RATION') as ObjectData, s.rng));
+    if (pet) {
+      pet.mhp = 1;
+      const before = s.player.inventory.length;
+      s.feedPet();
+      ok(s.player.inventory.length === before - 1, '喂食消耗一份食物');
+      ok(pet.mhp > 1, `喂食恢复宠物生命（${pet.mhp}）`);
+      ok(pet.tameness >= 12, `喂食提升驯服度（${pet.tameness}）`);
+      ok(
+        s.messages.some((m) => m.key === 'msg.petEats'),
+        '喂食有提示',
+      );
+      // 满驯服度成长。
+      pet.tameness = 19;
+      addToInventory(s.player, makeItem(objById.get('FOOD_RATION') as ObjectData, s.rng));
+      const beforeId = pet.data.id;
+      s.feedPet();
+      ok(pet.data.id !== beforeId, `宠物成长（${beforeId} -> ${pet.data.id}）`);
+      ok(
+        s.messages.some((m) => m.key === 'msg.petGrows'),
+        '成长有提示',
+      );
+    } else {
+      fail('喂食测试需要宠物');
+    }
+  }
+
+  // 没有宠物或没有食物时不消耗回合。
+  {
+    const s = newSession();
+    s.level.monsters = [];
+    const turn = s.turn;
+    s.feedPet();
+    ok(s.turn === turn && s.messages.some((m) => m.key === 'msg.petNone'), '没有宠物时喂食无效');
+  }
+  {
+    const s = newSession();
+    s.level.monsters = s.level.monsters.filter((m) => m.tame);
+    s.player.inventory = s.player.inventory.filter((i) => i.proto.cls !== 'food');
+    const turn = s.turn;
+    s.feedPet();
+    ok(s.turn === turn && s.messages.some((m) => m.key === 'msg.petNoFood'), '没有食物时喂食无效');
+  }
+
+  // 骑乘：中大型驯服宠物可骑，攻击有冲锋，存档保留坐骑。
+  {
+    const s = newSession();
+    const pony = new Monster(
+      monById.get('PONY') as MonsterData,
+      s.player.x + 1,
+      s.player.y,
+      createRng(7),
+    );
+    pony.tame = true;
+    s.level.monsters = [pony];
+    pony.x = s.player.x + 1;
+    pony.y = s.player.y;
+    ok(s.canMount() === pony, '中大型宠物可以骑乘');
+    const mounted = s.mountPet();
+    ok(
+      mounted.result === 'used' && s.ride === pony && !s.level.monsters.includes(pony),
+      '骑上后坐骑离开地图',
+    );
+    const ant = new Monster(
+      monById.get('GIANT_ANT') as MonsterData,
+      s.player.x,
+      s.player.y + 1,
+      createRng(8),
+    );
+    ant.asleep = false;
+    ant.mhp = ant.mhpmax = 999;
+    s.level.monsters.push(ant);
+    s.player.hitInc = 100;
+    s.attackMonster(ant);
+    ok(
+      s.messages.some((m) => m.key === 'msg.mountStrike'),
+      '骑乘攻击有冲锋伤害',
+    );
+    s.dismount();
+    ok(s.ride === null && s.level.monsters.includes(pony), '下马后坐骑回到地图');
+  }
+
+  // 小型宠物不能骑。
+  {
+    const s = newSession();
+    s.level.monsters = s.level.monsters.filter((m) => m.tame);
+    const pet = petOf(s);
+    if (pet && pet.data.size === 'MZ_SMALL') {
+      ok(s.canMount() === null, '小型宠物不能骑乘');
+    } else {
+      ok(true, '随机宠物不是小型，跳过');
+    }
+  }
+
+  // 坐骑随存档保留。
+  {
+    const s = newSession();
+    const pony = new Monster(
+      monById.get('PONY') as MonsterData,
+      s.player.x + 1,
+      s.player.y,
+      createRng(9),
+    );
+    pony.tame = true;
+    s.level.monsters = [pony];
+    pony.x = s.player.x + 1;
+    s.mountPet();
+    const restored = restoreSession(serializeSession(s));
+    ok(restored.ride?.data.id === 'PONY', '坐骑随存档保留');
+    ok(!restored.level.monsters.some((m) => m.data.id === 'PONY'), '读档后坐骑不在怪物列表');
+  }
+});
+section('特殊楼层', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { SPECIAL_LEVELS, specialLevelFor } = await import('../src/game/special');
+
+  ok(specialLevelFor(7) === null, '普通深度没有特殊楼层');
+  ok(SPECIAL_LEVELS[5]?.id === 'big_room', '第五层登记为大房间');
+
+  // 大房间：一间大厅、没有门，楼梯齐全。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(5, 'down');
+    const level = s.level;
+    ok(level.special === 'big_room', `五层标记为大房间（${level.special}）`);
+    ok(level.rooms.length === 1, `大房间只有一间房（${level.rooms.length}）`);
+    const room = level.rooms[0];
+    ok(!!room && room.hx - room.lx > 50, '大房间覆盖大半张地图');
+    ok(level.doors.size === 0, '大房间没有门');
+    ok(!!level.up && !!level.down, '大房间楼梯齐全');
+    ok(
+      s.messages.some((m) => m.key === 'msg.specialLevel'),
+      '进入特殊楼层有提示',
+    );
+  }
+
+  // 美杜莎：保证出现，周围散布雕像。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(20, 'down');
+    ok(s.level.special === 'medusa', `第二十层是美杜莎（${s.level.special}）`);
+    ok(
+      s.level.monsters.some((m) => m.data.id === 'MEDUSA'),
+      '美杜莎保证出现',
+    );
+    const statues = s.level.objects.flatMap((p) => p.items).filter((i) => i.proto.id === 'STATUE');
+    ok(statues.length === 6, `雕像数量正确（${statues.length}）`);
+  }
+
+  // 大墓地：怪物全部是不死生物，坟墓更多。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(25, 'down');
+    ok(s.level.special === 'valley', `第二十五层是大墓地（${s.level.special}）`);
+    const spawned = s.level.monsters.filter((m) => !m.tame && m.data.id !== 'SHOPKEEPER');
+    ok(
+      spawned.length > 0 && spawned.every((m) => m.data.flags.includes('M2_UNDEAD')),
+      `大墓地只有不死生物（${spawned.length} 只）`,
+    );
+    const graves = [...s.level.features.values()].filter((f) => f.type === 'GRAVE').length;
+    ok(graves >= 4, `大墓地坟墓更多（${graves}）`);
+  }
+
+  // 神谕所：神谕在场、喷泉更多；付费咨询给出提示。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(8, 'down');
+    ok(s.level.special === 'oracle', `第八层是神谕所（${s.level.special}）`);
+    ok(
+      s.level.monsters.some((m) => m.data.id === 'ORACLE'),
+      '神谕保证出现',
+    );
+    const fountains = [...s.level.features.values()].filter((f) => f.type === 'FOUNTAIN').length;
+    ok(fountains >= 3, `神谕所喷泉更多（${fountains}）`);
+    s.player.gold = 5;
+    const turn = s.turn;
+    s.consultOracle();
+    ok(s.player.gold === 5 && s.turn === turn, '付不起时咨询不扣回合');
+    ok(
+      s.messages.some((m) => m.key === 'msg.oraclePoor'),
+      '付不起时有提示',
+    );
+    s.player.gold = 50;
+    s.consultOracle();
+    ok(s.player.gold === 30, `咨询扣 20 金币（${s.player.gold}）`);
+    const said = s.messages.find((m) => m.key === 'msg.oracleSays');
+    ok(
+      !!said && /oracle\.tip\d+/.test(String(said.vars.tip)),
+      `咨询给出提示（${String(said?.vars.tip)}）`,
+    );
+  }
+
+  // 每条神谕提示都有文案。
+  {
+    const { t } = await import('../src/i18n/index');
+    let missing = 0;
+    for (let i = 1; i <= 12; i++) if (t(`oracle.tip${i}`) === `oracle.tip${i}`) missing++;
+    ok(missing === 0, `12 条神谕提示都有文案（缺 ${missing}）`);
+  }
+
+  // 要塞：士兵把守，还有一根许愿魔杖。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(27, 'down');
+    ok(s.level.special === 'castle', `第二十七层是要塞（${s.level.special}）`);
+    const ids = new Set(s.level.monsters.map((m) => m.data.id));
+    for (const id of ['SOLDIER', 'SERGEANT', 'LIEUTENANT', 'CAPTAIN']) {
+      ok(ids.has(id), `要塞里有 ${id}`);
+    }
+    const wish = s.level.objects
+      .flatMap((p) => p.items)
+      .filter((i) => i.proto.id === 'WAN_WISHING');
+    ok(wish.length === 1, `要塞里有许愿魔杖（${wish.length}）`);
+  }
+
+  // 圣所：怪物全部是恶魔。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(29, 'down');
+    ok(s.level.special === 'sanctum', `第二十九层是圣所（${s.level.special}）`);
+    const spawned = s.level.monsters.filter((m) => !m.tame && m.data.id !== 'SHOPKEEPER');
+    ok(
+      spawned.length > 0 && spawned.every((m) => m.data.flags.includes('M2_DEMON')),
+      `圣所只有恶魔（${spawned.length} 只）`,
+    );
+  }
+
+  // 巫妖塔：入口第 16 层，4 层不死主题，底层有 BOSS 与额外财富。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    const main16 = s.getLevel(16);
+    const exit2 = main16.stairs.find((st) => st.dir === 'branch' && st.branch === 'vlad');
+    ok(!!exit2, '第 16 层有巫妖塔楼梯');
+    s.changeDepth(1, 'down', 'vlad');
+    ok(s.branch === 'vlad' && s.depth === 1, `进入巫妖塔（${s.branch} ${s.depth}）`);
+    const undead = s.level.monsters.filter((m) => !m.tame && m.data.id !== 'SHOPKEEPER');
+    ok(
+      undead.length > 0 && undead.every((m) => m.data.flags.includes('M2_UNDEAD')),
+      `巫妖塔只有不死生物（${undead.length} 只）`,
+    );
+    for (let d = 2; d <= 4; d++) s.changeDepth(d, 'down');
+    ok(s.depth === 4 && !s.level.down, '巫妖塔底层没有下行楼梯');
+    ok(
+      s.level.monsters.some((m) => m.data.id === 'VAMPIRE_LEADER'),
+      '巫妖塔底层有首领',
+    );
+    const loot = s.level.objects.flatMap((p) => p.items);
+    ok(
+      loot.some((i) => i.gold && i.quantity >= 400),
+      '巫妖塔底层有厚宝藏',
+    );
+    ok(
+      loot.filter((i) => i.proto.cls !== 'coin').length >= 2,
+      `巫妖塔底层有额外物品（${loot.length} 件）`,
+    );
+    s.changeDepth(16, 'up', 'main');
+    ok(s.branch === 'main' && s.depth === 16, '从巫妖塔回到主地牢');
+  }
+
+  // 生成可复现：同一种子得到同样的特殊楼层与怪物组合。
+  {
+    const a = new GameSession({ seed: 4242 });
+    const b = new GameSession({ seed: 4242 });
+    a.changeDepth(25, 'down');
+    b.changeDepth(25, 'down');
+    const ids = (s: InstanceType<typeof GameSession>) =>
+      s.level.monsters
+        .map((m) => m.data.id)
+        .sort()
+        .join(',');
+    ok(ids(a) === ids(b), '特殊楼层的怪物组合可复现');
+  }
+});
+section('骨头文件', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { saveBones, loadBones, clearBones } = await import('../src/game/bones');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+  const { objById } = await import('../src/data/index');
+
+  clearBones();
+  ok(loadBones() === null, '初始没有骨头文件');
+
+  // 死亡现场写入后可以读回。
+  {
+    const s = new GameSession({ seed: 111 });
+    const sword = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+    addToInventory(s.player, sword);
+    saveBones(s);
+    const bones = loadBones();
+    ok(bones?.depth === s.depth, `骨头记录死亡层数（${bones?.depth}）`);
+    ok(
+      bones?.inventory.some((i) => i.p === 'LONG_SWORD'),
+      '骨头保留死亡时的背包',
+    );
+  }
+
+  // 新一局到达同一层：遗物出现、幽灵看守、记录清空。
+  {
+    const s = new GameSession({ seed: 222 });
+    const items = s.level.objects.flatMap((p) => p.items);
+    ok(
+      items.some((i) => i.proto.id === 'LONG_SWORD'),
+      '同层发现遗物',
+    );
+    ok(
+      s.level.monsters.some((m) => m.data.id === 'GHOST'),
+      '幽灵看守遗物',
+    );
+    ok(
+      s.messages.some((m) => m.key === 'msg.bonesFound'),
+      '发现遗物有提示',
+    );
+    ok(loadBones() === null, '取出后骨头文件清空');
+  }
+
+  // 遗物只出现一次。
+  {
+    const s = new GameSession({ seed: 333 });
+    ok(
+      !s.level.objects.flatMap((p) => p.items).some((i) => i.proto.id === 'LONG_SWORD'),
+      '遗物不会重复出现',
+    );
+  }
+  clearBones();
+  ok(loadBones() === null, '清理后没有骨头文件');
+});
+section('分支地牢', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { BRANCHES, branchByEntrance } = await import('../src/game/branches');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { shopRoom } = await import('../src/game/dungeon');
+  const { T, COLNO } = await import('../src/core/constants');
+
+  ok(branchByEntrance(4)?.id === 'mines', '第 4 层是矿坑入口');
+  ok(BRANCHES.mines?.levels === 8, '矿坑共 8 层');
+
+  // 主地牢入口层有一段分支楼梯。
+  const s = new GameSession({ seed: 20240101 });
+  const main4 = s.getLevel(4);
+  const exit = main4.stairs.find((st) => st.dir === 'branch');
+  ok(!!exit && exit.branch === 'mines', '入口层有通往矿坑的楼梯');
+  if (exit) {
+    ok(main4.tiles[exit.y * COLNO + exit.x] === T.STAIRS, '分支楼梯铺在楼梯地形上');
+  }
+
+  // 进入矿坑：层号独立、主题怪物、底层宝藏、没有向下楼梯。
+  s.changeDepth(1, 'down', 'mines');
+  ok(s.branch === 'mines' && s.depth === 1, `进入矿坑第一层（${s.branch} ${s.depth}）`);
+  ok(s.level.branch === 'mines', '矿坑关卡带分支标记');
+  ok(!!s.level.up, '矿坑第一层有回到主地牢的楼梯');
+  const names = s.level.monsters.filter((m) => !m.tame).map((m) => m.data.id);
+  ok(
+    names.some((n) => n.includes('GNOME') || n.includes('DWARF')),
+    `矿坑有侏儒矮人（${names.slice(0, 4).join('、')}）`,
+  );
+  for (let d = 2; d <= 8; d++) s.changeDepth(d, 'down');
+  ok(s.depth === 8 && !s.level.down, '矿坑底层没有下行楼梯');
+  const gold = s.level.objects
+    .flatMap((p) => p.items)
+    .filter((i) => i.gold)
+    .reduce((n, i) => n + i.quantity, 0);
+  ok(gold >= 300, `矿坑底层有厚宝藏（${gold} 金币）`);
+  // 矿镇：底层是市集，必有商店与额外喷泉。
+  ok(!!shopRoom(s.level), '矿镇有商店');
+  const mineFountains = [...s.level.features.values()].filter((f) => f.type === 'FOUNTAIN').length;
+  ok(mineFountains >= 3, `矿镇喷泉更多（${mineFountains}）`);
+
+  // 回到入口层，落点是分支楼梯。
+  s.changeDepth(4, 'up', 'main');
+  ok(s.branch === 'main' && s.depth === 4, '回到主地牢入口层');
+  ok(!!exit && s.player.x === exit.x && s.player.y === exit.y, '落点在分支楼梯上');
+
+  // 生成可复现：同样的种子得到同样的矿坑地形。
+  {
+    const a = new GameSession({ seed: 4242 });
+    const b = new GameSession({ seed: 4242 });
+    const ka = a.getBranchLevel('mines', 1);
+    const kb = b.getBranchLevel('mines', 1);
+    ok(Array.from(ka.tiles).join('') === Array.from(kb.tiles).join(''), '矿坑地形可复现');
+  }
+
+  // 存档往返保留分支位置与矿坑关卡。
+  {
+    const sv = new GameSession({ seed: 777 });
+    sv.changeDepth(1, 'down', 'mines');
+    sv.changeDepth(2, 'down');
+    const restored = restoreSession(serializeSession(sv));
+    ok(restored.branch === 'mines' && restored.depth === 2, '存档保留分支位置');
+    ok(restored.level.branch === 'mines', '存档恢复矿坑关卡');
+    ok(restored.branchCache.has('mines:1'), '分支关卡随存档保留');
+  }
+});
+section('祝福与诅咒', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+  const { objById } = await import('../src/data/index');
+
+  // 圣水与诅咒之水改变整包 BUC。
+  {
+    const s = new GameSession({ seed: 42 });
+    const water = makeItem(objById.get('POT_WATER') as ObjectData, s.rng);
+    water.buc = 'blessed';
+    addToInventory(s.player, water);
+    const r = s.useItem(water);
+    ok(r.key === 'use.holyWater', '圣水有独立消息');
+    ok(
+      s.player.inventory.every((i) => i.buc === 'blessed'),
+      '圣水祝福整包物品',
+    );
+  }
+  {
+    const s = new GameSession({ seed: 42 });
+    const water = makeItem(objById.get('POT_WATER') as ObjectData, s.rng);
+    water.buc = 'cursed';
+    addToInventory(s.player, water);
+    const r = s.useItem(water);
+    ok(r.key === 'use.unholyWater', '诅咒之水有独立消息');
+    ok(
+      s.player.inventory.every((i) => i.buc === 'cursed'),
+      '诅咒之水污染整包物品',
+    );
+  }
+
+  // 祝福与诅咒影响药水效果。
+  {
+    const s = new GameSession({ seed: 42 });
+    const pot = makeItem(objById.get('POT_EXTRA_HEALING') as ObjectData, s.rng);
+    pot.buc = 'blessed';
+    addToInventory(s.player, pot);
+    const max = s.player.maxHp;
+    s.useItem(pot);
+    ok(s.player.maxHp > max, `祝福治疗提高生命上限（${max} -> ${s.player.maxHp}）`);
+  }
+  {
+    const s = new GameSession({ seed: 42 });
+    const pot = makeItem(objById.get('POT_GAIN_ABILITY') as ObjectData, s.rng);
+    pot.buc = 'cursed';
+    addToInventory(s.player, pot);
+    const luck = s.player.luck;
+    const r = s.useItem(pot);
+    ok(s.player.luck < luck && r.key === 'use.badPotion', '诅咒能力药水降低幸运');
+  }
+
+  // 卷轴：祝福鉴定全鉴，诅咒卷轴失效，移除诅咒可解装备。
+  {
+    const s = new GameSession({ seed: 42 });
+    for (const i of s.player.inventory) i.known = false;
+    const scr = makeItem(objById.get('SCR_IDENTIFY') as ObjectData, s.rng);
+    scr.buc = 'blessed';
+    addToInventory(s.player, scr);
+    s.useItem(scr);
+    ok(
+      s.player.inventory.every((i) => i.known),
+      '祝福鉴定卷轴鉴定全部物品',
+    );
+  }
+  {
+    const s = new GameSession({ seed: 42 });
+    const scr = makeItem(objById.get('SCR_REMOVE_CURSE') as ObjectData, s.rng);
+    scr.buc = 'cursed';
+    addToInventory(s.player, scr);
+    const r = s.useItem(scr);
+    ok(r.key === 'use.badScroll', '诅咒的移除诅咒卷轴失效');
+  }
+  {
+    const s = new GameSession({ seed: 42 });
+    const armor = s.player.equipment.suit;
+    if (armor) {
+      armor.buc = 'cursed';
+      const stuck = s.useItem(armor, 'remove');
+      ok(stuck.key === 'msg.cursedStuck' && s.player.equipment.suit === armor, '诅咒装备取不下来');
+      const scr = makeItem(objById.get('SCR_REMOVE_CURSE') as ObjectData, s.rng);
+      addToInventory(s.player, scr);
+      s.useItem(scr);
+      ok(String(armor.buc) === 'uncursed', '移除诅咒解开装备');
+      s.useItem(armor, 'remove');
+      ok(s.player.equipment.suit === undefined, '解除诅咒后可以取下');
+    } else {
+      fail('诅咒装备测试需要盔甲');
+    }
+  }
+});
+section('充能与充能卷轴', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+  const { objById } = await import('../src/data/index');
+
+  /** 造一根充能较低的法杖与一张指定 BUC 的充能卷轴。 */
+  const setup = (buc: 'blessed' | 'uncursed' | 'cursed') => {
+    const s = new GameSession({ seed: 42 });
+    const wand = makeItem(objById.get('WAN_FIRE') as ObjectData, s.rng);
+    wand.charges = 2;
+    addToInventory(s.player, wand);
+    const scroll = makeItem(objById.get('SCR_CHARGING') as ObjectData, s.rng);
+    scroll.buc = buc;
+    addToInventory(s.player, scroll);
+    return { s, wand, scroll };
+  };
+
+  {
+    const { s, wand, scroll } = setup('uncursed');
+    const r = s.useItem(scroll);
+    ok(wand.charges === 4, `普通充能卷轴补 2 点（${wand.charges}）`);
+    ok(r.key === 'use.charging', '充能有独立消息');
+  }
+  {
+    const { s, wand, scroll } = setup('blessed');
+    s.useItem(scroll);
+    ok(wand.charges === 5, `祝福充能卷轴补 3 点（${wand.charges}）`);
+  }
+  {
+    const { s, wand, scroll } = setup('cursed');
+    const r = s.useItem(scroll);
+    ok(wand.charges === 1, `诅咒充能卷轴倒扣 1 点（${wand.charges}）`);
+    ok(r.key === 'use.chargingDrain', '倒扣有独立消息');
+  }
+
+  // 用尽的魔法灯可以重新蓄力。
+  {
+    const s = new GameSession({ seed: 42 });
+    const lamp = makeItem(objById.get('MAGIC_LAMP') as ObjectData, s.rng);
+    lamp.charges = 0;
+    addToInventory(s.player, lamp);
+    const scroll = makeItem(objById.get('SCR_CHARGING') as ObjectData, s.rng);
+    addToInventory(s.player, scroll);
+    const r = s.useItem(scroll);
+    ok(lamp.charges === 1 && r.key === 'use.chargingLamp', '用尽的魔法灯重新蓄力');
+  }
+
+  // 没有目标时卷轴失效。
+  {
+    const s = new GameSession({ seed: 42 });
+    const scroll = makeItem(objById.get('SCR_CHARGING') as ObjectData, s.rng);
+    addToInventory(s.player, scroll);
+    const r = s.useItem(scroll);
+    ok(r.key === 'use.nothingHappens', '没有目标时充能卷轴失效');
+  }
+});
+section('投掷与射击', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById, objById } = await import('../src/data/index');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+  const { createRng } = await import('../src/core/rng');
+
+  /** 造一只近处的怪物并保证玩家看得见。 */
+  const foe = (s: InstanceType<typeof GameSession>, id: string, hp = 50) => {
+    const data = monById.get(id) as MonsterData;
+    const mon = new Monster(data, s.player.x + 1, s.player.y, createRng(3));
+    mon.asleep = false;
+    mon.mhp = mon.mhpmax = hp;
+    s.level.monsters = [mon];
+    s.refreshFov();
+    return mon;
+  };
+
+  // 投掷武器：造成伤害，物品落在目标格。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.player.hitInc = 100;
+    const target = foe(s, 'GIANT_ANT');
+    const sword = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+    addToInventory(s.player, sword);
+    const r = s.throwItem(sword);
+    ok(r.result === 'used', '投掷消耗回合');
+    ok(target.mhp < 50, `投掷造成伤害（${target.mhp}）`);
+    ok(!s.player.inventory.includes(sword), '投出的武器离开背包');
+    ok(
+      s.level.objects.some((p) => p.x === target.x && p.y === target.y && p.items.includes(sword)),
+      '投掷物落在目标格',
+    );
+  }
+
+  // 投掷可堆叠物品：只消耗一件。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.player.hitInc = 100;
+    foe(s, 'GIANT_ANT');
+    const arrows = makeItem(objById.get('ARROW') as ObjectData, s.rng, { quantity: 5 });
+    addToInventory(s.player, arrows);
+    s.throwItem(arrows);
+    ok(arrows.quantity === 4, `投掷只消耗一件（剩 ${arrows.quantity}）`);
+  }
+
+  // 射击：需要持握弓，命中加成。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.player.hitInc = 100;
+    const target = foe(s, 'GIANT_ANT');
+    const arrow = makeItem(objById.get('ARROW') as ObjectData, s.rng);
+    addToInventory(s.player, arrow);
+    const noBow = s.fireItem(arrow);
+    ok(noBow.result === 'nothing', '没有弓时无法射击');
+    const bow = makeItem(objById.get('BOW') as ObjectData, s.rng);
+    addToInventory(s.player, bow);
+    s.useItem(bow, 'wield');
+    const shot = s.fireItem(arrow);
+    ok(shot.result === 'used' && target.mhp < 50, `射击命中（${target.mhp}）`);
+    ok(
+      s.messages.some((m) => m.key === 'msg.fireHit'),
+      '射击有独立消息',
+    );
+  }
+
+  // 视野内没有目标时不消耗物品。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.level.monsters = [];
+    const rock = makeItem(objById.get('ROCK') as ObjectData, s.rng);
+    addToInventory(s.player, rock);
+    const r = s.throwItem(rock);
+    ok(r.result === 'nothing' && s.player.inventory.includes(rock), '没有目标时不消耗投掷物');
+    ok(
+      s.messages.some((m) => m.key === 'msg.throwNothing'),
+      '没有目标时有提示',
+    );
+  }
+});
+section('容器', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+  const { isContainer, containerCapacity, containerHasRoom } =
+    await import('../src/game/containers');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { objById } = await import('../src/data/index');
+
+  // 放进与取出。
+  {
+    const s = new GameSession({ seed: 42 });
+    const chest = makeItem(objById.get('CHEST') as ObjectData, s.rng);
+    const sword = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+    addToInventory(s.player, chest);
+    addToInventory(s.player, sword);
+    ok(isContainer(chest) && containerCapacity(chest) === 20, '箱子被识别为容器');
+    const put = s.putInContainer(sword);
+    ok(put.result === 'used' && !s.player.inventory.includes(sword), '物品放进容器');
+    ok(chest.contents?.includes(sword) === true, '容器内容正确');
+    const open = s.openContainer(chest);
+    ok(open.result === 'used' && s.player.inventory.includes(sword), '容器内容取回背包');
+    ok(chest.contents?.length === 0, '取出后容器为空');
+  }
+
+  // 容量上限与容器嵌套。
+  {
+    const s = new GameSession({ seed: 42 });
+    const sack = makeItem(objById.get('SACK') as ObjectData, s.rng);
+    addToInventory(s.player, sack);
+    sack.contents = [];
+    for (let n = 0; n < containerCapacity(sack); n++) {
+      sack.contents.push(makeItem(objById.get('ROCK') as ObjectData, s.rng));
+    }
+    ok(!containerHasRoom(sack), '容器装满后没有空间');
+    const extra = makeItem(objById.get('ROCK') as ObjectData, s.rng);
+    addToInventory(s.player, extra);
+    const full = s.putInContainer(extra, sack);
+    ok(full.result === 'nothing' && s.player.inventory.includes(extra), '满容器拒绝放入');
+    const other = makeItem(objById.get('SACK') as ObjectData, s.rng);
+    addToInventory(s.player, other);
+    const nest = s.putInContainer(other, sack);
+    ok(nest.result === 'nothing', '容器不能嵌套');
+  }
+
+  // 诅咒容器打不开；口袋袋放出怪物。
+  {
+    const s = new GameSession({ seed: 42 });
+    const chest = makeItem(objById.get('CHEST') as ObjectData, s.rng);
+    chest.buc = 'cursed';
+    addToInventory(s.player, chest);
+    const r = s.openContainer(chest);
+    ok(
+      r.result === 'nothing' && s.messages.some((m) => m.key === 'msg.containerStuck'),
+      '诅咒容器打不开',
+    );
+  }
+  {
+    const s = new GameSession({ seed: 42 });
+    const bag = makeItem(objById.get('BAG_OF_TRICKS') as ObjectData, s.rng);
+    addToInventory(s.player, bag);
+    const before = s.level.monsters.length;
+    s.openContainer(bag);
+    ok(s.level.monsters.length > before, '口袋袋放出怪物');
+    ok(
+      s.messages.some((m) => m.key === 'msg.bagOfTricks'),
+      '口袋袋有独立消息',
+    );
+  }
+
+  // 嵌套内容随存档保留。
+  {
+    const s = new GameSession({ seed: 42 });
+    const chest = makeItem(objById.get('CHEST') as ObjectData, s.rng);
+    const gem = makeItem(objById.get('DIAMOND') as ObjectData, s.rng);
+    addToInventory(s.player, chest);
+    addToInventory(s.player, gem);
+    s.putInContainer(gem, chest);
+    const restored = restoreSession(serializeSession(s));
+    const restoredChest = restored.player.inventory.find((i) => i.proto.id === 'CHEST');
+    ok(
+      restoredChest?.contents?.some((i) => i.proto.id === 'DIAMOND') === true,
+      '容器内容随存档保留',
+    );
+  }
+
+  // 地面容器：搜划把内容倒到地上；诅咒的地面容器搜划不开。
+  {
+    const s = new GameSession({ seed: 42 });
+    const chest = makeItem(objById.get('CHEST') as ObjectData, s.rng);
+    const gem = makeItem(objById.get('DIAMOND') as ObjectData, s.rng);
+    chest.contents = [gem];
+    const existing = s.level.objects.find((p) => p.x === s.player.x && p.y === s.player.y);
+    if (existing) existing.items.push(chest);
+    else s.level.objects.push({ x: s.player.x, y: s.player.y, items: [chest] });
+    const r = s.lootContainer();
+    ok(r.result === 'used', '搜划地面容器');
+    ok(s.level.objects.flatMap((p) => p.items).includes(gem), '搜划后内容在地上');
+    ok(chest.contents?.length === 0, '搜划后容器为空');
+  }
+  {
+    const s = new GameSession({ seed: 42 });
+    const chest = makeItem(objById.get('CHEST') as ObjectData, s.rng);
+    chest.buc = 'cursed';
+    chest.contents = [makeItem(objById.get('ROCK') as ObjectData, s.rng)];
+    const existing = s.level.objects.find((p) => p.x === s.player.x && p.y === s.player.y);
+    if (existing) existing.items.push(chest);
+    else s.level.objects.push({ x: s.player.x, y: s.player.y, items: [chest] });
+    const r = s.lootContainer();
+    ok(r.result === 'nothing' && chest.contents?.length === 1, '诅咒的地面容器搜划不开');
+  }
+  {
+    const s = new GameSession({ seed: 42 });
+    const before = s.level.monsters.length;
+    const r = s.lootContainer();
+    ok(r.result === 'nothing' && s.level.monsters.length === before, '没有容器时搜划无效');
+  }
+});
+section('小地图', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { minimapColor, minimapGrid, visiblePathPoints } = await import('../src/ui/minimap');
+  const { PALETTE } = await import('../src/render/palette');
+  const { COLNO, ROWNO, T } = await import('../src/core/constants');
+
+  const s = new GameSession({ seed: 20240101 });
+  const grid = minimapGrid(s);
+  ok(grid.length === COLNO * ROWNO, '小地图尺寸与关卡一致');
+  ok(
+    grid.some((v) => v === 0),
+    '未探索区域保持空白',
+  );
+  ok(
+    grid.some((v) => v > 0),
+    '已探索区域有内容',
+  );
+  let missing = 0;
+  for (let i = 0; i < grid.length; i++) {
+    if (s.level.seen[i] === 1 && grid[i] === 0) missing++;
+  }
+  ok(missing === 0, `已探索瓦片都有标记（缺 ${missing}）`);
+
+  // 揭示全图后不留空白。
+  s.revealLevel();
+  const full = minimapGrid(s);
+  ok(
+    full.every((v) => v > 0),
+    '揭示全图后小地图全部有内容',
+  );
+
+  // 颜色区分：设施、楼梯与普通地面。
+  ok(minimapColor(T.ALTAR, null) === PALETTE.altarGlow, '祭坛有独立颜色');
+  ok(minimapColor(T.ROOM, 'down') === PALETTE.stairsDown, '楼梯颜色覆盖地形');
+  ok(minimapColor(T.ROOM, null) === PALETTE.floorRoom, '普通地面用房间色');
+
+  // 路径只保留已探索的格子。
+  {
+    const fresh = new GameSession({ seed: 20240101 });
+    const level = fresh.level;
+    const points = [
+      { x: fresh.player.x, y: fresh.player.y },
+      { x: 0, y: 0 },
+      { x: COLNO - 1, y: ROWNO - 1 },
+    ];
+    const visible = visiblePathPoints(level, points);
+    ok(visible.length === 1, `路径点过滤未探索格（${visible.length}）`);
+    ok(visible[0]?.x === fresh.player.x, '保留的路径点是玩家所在已探索格');
+  }
+});
+section('武器技能', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById } = await import('../src/data/index');
+  const { createRng } = await import('../src/core/rng');
+  const { skillHitBonus, skillDamageBonus } = await import('../src/game/combat');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { FIXED_CHARACTER } = await import('./agent-lib');
+
+  ok(skillHitBonus(0) === 0 && skillHitBonus(7) === 3, '命中加值每两级 +1');
+  ok(skillDamageBonus(0) === 0 && skillDamageBonus(6) === 2, '伤害加值每三级 +1');
+
+  // 连续命中同一只怪物：使用次数累加，8 次后升到 1 级。
+  {
+    const s = new GameSession({ seed: 42, character: FIXED_CHARACTER });
+    s.player.hitInc = 100;
+    const data = monById.get('GIANT_ANT') as MonsterData;
+    const ant = new Monster(data, s.player.x + 1, s.player.y, createRng(3));
+    ant.asleep = false;
+    ant.mhp = ant.mhpmax = 999;
+    s.level.monsters = [ant];
+    s.refreshFov();
+    const skill = s.player.weapon?.proto.skill ?? '';
+    ok(skill.length > 0, `持握武器带技能（${skill}）`);
+    for (let i = 0; i < 8; i++) s.attackMonster(ant);
+    ok(s.player.skillUses[skill] === 8, `命中累计使用次数（${s.player.skillUses[skill]}）`);
+    ok(s.player.skillLevels[skill] === 1, `满 8 次升到 1 级（${s.player.skillLevels[skill]}）`);
+    ok(
+      s.messages.some((m) => m.key === 'msg.skillUp'),
+      '升熟练度有提示',
+    );
+
+    const restored = restoreSession(serializeSession(s));
+    ok(restored.player.skillLevels[skill] === 1, '熟练度随存档保留');
+    ok(restored.player.skillUses[skill] === 8, '使用次数随存档保留');
+  }
+});
+section('法术技能', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+  const { objById } = await import('../src/data/index');
+  const { castFailChance } = await import('../src/game/spells');
+
+  // 熟练度降低失败率。
+  {
+    const s = new GameSession({ seed: 42 });
+    const base = castFailChance(s.player, 3, 0);
+    ok(
+      castFailChance(s.player, 3, 5) < base,
+      `熟练度降低施法失败率（${base} → ${castFailChance(s.player, 3, 5)}）`,
+    );
+  }
+
+  // 连续施法：使用次数累加，8 次成功后升到 1 级。
+  {
+    const s = new GameSession({ seed: 42 });
+    const book = makeItem(objById.get('SPE_FORCE_BOLT') as ObjectData, s.rng);
+    addToInventory(s.player, book);
+    s.player.knownSpells.push('SPE_FORCE_BOLT');
+    // 无目标施法也算成功施法，避免靶子反击打断测试。
+    s.level.monsters = [];
+    const skill = book.proto.spellClass ?? '';
+    let successes = 0;
+    for (let i = 0; i < 60 && successes < 8; i++) {
+      s.player.pw = 500;
+      s.player.maxPw = Math.max(s.player.maxPw, 500);
+      const before = s.player.skillUses[skill] ?? 0;
+      s.castSpell(book);
+      if ((s.player.skillUses[skill] ?? 0) > before) successes++;
+    }
+    ok(s.player.skillUses[skill] === 8, `施法累计使用次数（${s.player.skillUses[skill]}）`);
+    ok(s.player.skillLevels[skill] === 1, `满 8 次升到 1 级（${s.player.skillLevels[skill]}）`);
+    ok(
+      s.messages.some((m) => m.key === 'msg.spellSkillUp'),
+      '法术升熟练度有提示',
+    );
+  }
+});
+section('职业神器', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { ARTIFACTS, artifactForRole } = await import('../src/game/artifacts');
+  const { roleById } = await import('../src/game/roles');
+  const { raceById } = await import('../src/game/roles');
+  const { objById } = await import('../src/data/index');
+  const { describeItem } = await import('../src/game/items');
+  const { itemName } = await import('../src/ui/itemName');
+  const { t } = await import('../src/i18n/index');
+  const { heroHits } = await import('../src/game/combat');
+  const { Monster } = await import('../src/game/monsters');
+  const { createRng } = await import('../src/core/rng');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+
+  // 每个职业都有神器，且基础原型存在。
+  let missing = 0;
+  for (const roleId of Object.keys(roleById)) {
+    const def = artifactForRole(roleId);
+    if (!def || !objById.has(def.proto)) missing++;
+  }
+  ok(missing === 0, `每个职业都有神器且原型存在（缺 ${missing}）`);
+  ok(
+    Object.keys(ARTIFACTS).length === Object.keys(roleById).length,
+    `神器表覆盖全部职业（${Object.keys(ARTIFACTS).length}）`,
+  );
+
+  // 附魔参与命中：同一目标下命中值相差附魔数。
+  {
+    const s = new GameSession({ seed: 42 });
+    const ant = new Monster(
+      (await import('../src/data/index')).monById.get('GIANT_ANT') as MonsterData,
+      s.player.x + 1,
+      s.player.y,
+      createRng(3),
+    );
+    const base = heroHits(s.player, ant, createRng(1), 0).roll;
+    const boosted = heroHits(s.player, ant, createRng(1), 5).roll;
+    ok(boosted === base + 5, '武器附魔计入命中（+5）');
+  }
+
+  // 圣所放置本职业神器，附魔与名字都写入物品。
+  {
+    const s = new GameSession({
+      seed: 7,
+      character: {
+        role: roleById.SAMURAI,
+        race: raceById.HUMAN,
+        align: 'lawful',
+        gender: 'male',
+      },
+    });
+    s.changeDepth(29, 'down');
+    const found = s.level.objects.flatMap((p) => p.items).find((i) => i.artifact);
+    ok(found?.artifact === 'tsurugi_of_muramasa', `圣所放着本职业神器（${found?.artifact}）`);
+    ok(found?.enchant === 5 && found?.known === true, '神器带附魔且已鉴定');
+    if (found) {
+      const desc = describeItem(found);
+      ok(desc.key === 'item.artifact', '神器使用专属描述键');
+      ok(
+        itemName(desc) === t('artifact.tsurugi_of_muramasa'),
+        `神器显示专属名字（${itemName(desc)}）`,
+      );
+    }
+    const restored = restoreSession(serializeSession(s));
+    const again = restored.level.objects.flatMap((p) => p.items).find((i) => i.artifact);
+    ok(again?.artifact === 'tsurugi_of_muramasa', '神器随存档保留');
+  }
+});
+section('远程吐息', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById, objById } = await import('../src/data/index');
+  const { makeItem } = await import('../src/game/items');
+  const { wearItem } = await import('../src/game/inventory');
+  const { createRng } = await import('../src/core/rng');
+
+  /** 在玩家同排距离 4 的可走格放一只怪物。 */
+  const place = (s: InstanceType<typeof GameSession>, id: string) => {
+    const spot = [
+      [4, 0],
+      [-4, 0],
+      [0, 4],
+      [0, -4],
+    ]
+      .map(([dx, dy]) => ({ x: s.player.x + dx, y: s.player.y + dy }))
+      .find((p) => isWalkable(s.level.tiles[index(p.x, p.y)]));
+    if (!spot) return null;
+    const mon = new Monster(monById.get(id) as MonsterData, spot.x, spot.y, createRng(5));
+    mon.asleep = false;
+    s.level.monsters = [mon];
+    s.refreshFov();
+    return { mon, home: spot };
+  };
+
+  // 红龙在远处吐火。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.player.maxHp = 200;
+    s.player.hp = 200;
+    const placed = place(s, 'RED_DRAGON');
+    ok(!!placed, '找得到放置红龙的位置');
+    if (placed) {
+      let hurt = false;
+      for (let i = 0; i < 60 && !hurt; i++) {
+        const hp = s.player.hp;
+        s.monsterAction(placed.mon);
+        if (s.player.hp < hp) hurt = true;
+        else {
+          placed.mon.x = placed.home.x;
+          placed.mon.y = placed.home.y;
+        }
+      }
+      ok(hurt, '红龙会在远距离吐息');
+    }
+  }
+
+  // 火焰抗性：不再徒劳远射，改为靠近。
+  {
+    const s = new GameSession({ seed: 42 });
+    const ring = makeItem(objById.get('RIN_FIRE_RESISTANCE') as ObjectData, s.rng);
+    wearItem(s.player, ring);
+    s.player.maxHp = 200;
+    s.player.hp = 200;
+    const placed = place(s, 'RED_DRAGON');
+    if (placed) {
+      const start = Math.max(
+        Math.abs(placed.mon.x - s.player.x),
+        Math.abs(placed.mon.y - s.player.y),
+      );
+      s.monsterAction(placed.mon);
+      s.monsterAction(placed.mon);
+      const now = Math.max(
+        Math.abs(placed.mon.x - s.player.x),
+        Math.abs(placed.mon.y - s.player.y),
+      );
+      ok(now < start, `被免疫的怪物改为靠近（${start} -> ${now}）`);
+    }
+    ok(s.player.hp === 200, '火焰抗性下不会被吐息伤到');
+    ok(
+      s.messages.every((m) => m.key !== 'msg.hitFire'),
+      '免疫时不再远射火焰',
+    );
+  }
+
+  // 纯近战怪物只会靠近，不会远程攻击。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.player.hp = 200;
+    s.player.maxHp = 200;
+    const placed = place(s, 'GIANT_ANT');
+    if (placed) {
+      for (let i = 0; i < 2; i++) s.monsterAction(placed.mon);
+      ok(s.player.hp === 200, '近战怪物不会远程攻击');
+      const dist = Math.max(
+        Math.abs(placed.mon.x - s.player.x),
+        Math.abs(placed.mon.y - s.player.y),
+      );
+      ok(dist < 4, `近战怪物会靠近（距离 ${dist}）`);
+    } else {
+      fail('远程吐息测试需要空地');
+    }
+  }
+});
+section('怪物呼救', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById } = await import('../src/data/index');
+  const { createRng } = await import('../src/core/rng');
+
+  // 一只怪物醒来后会唤醒 6 格内的同伴。
+  {
+    const s = new GameSession({ seed: 42 });
+    const data = monById.get('GIANT_ANT') as MonsterData;
+    const sleeper = new Monster(data, s.player.x + 2, s.player.y, createRng(3));
+    sleeper.asleep = true;
+    const buddy = new Monster(data, s.player.x + 3, s.player.y, createRng(4));
+    buddy.asleep = true;
+    s.level.monsters = [sleeper, buddy];
+    s.refreshFov();
+    for (let i = 0; i < 80 && sleeper.asleep; i++) s.monsterAction(sleeper);
+    ok(!sleeper.asleep, '怪物会从睡眠中醒来');
+    ok(!buddy.asleep, '醒来的怪物会唤醒附近同伴');
+    ok(
+      s.messages.some((m) => m.key === 'msg.monCalls'),
+      '呼救有提示',
+    );
+  }
+
+  // 宠物不会被呼救波及（驯服标记保持）。
+  {
+    const s = new GameSession({ seed: 42 });
+    const data = monById.get('GIANT_ANT') as MonsterData;
+    const sleeper = new Monster(data, s.player.x + 2, s.player.y, createRng(3));
+    sleeper.asleep = true;
+    const pet = new Monster(data, s.player.x + 3, s.player.y, createRng(4));
+    pet.asleep = true;
+    pet.tame = true;
+    s.level.monsters = [sleeper, pet];
+    s.refreshFov();
+    for (let i = 0; i < 80 && sleeper.asleep; i++) s.monsterAction(sleeper);
+    ok(pet.asleep === true && pet.tame === true, '呼救不会吵醒宠物');
+  }
+});
+section('怪物逃跑', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById } = await import('../src/data/index');
+  const { createRng } = await import('../src/core/rng');
+
+  // 重伤的怪物会逃跑。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.player.maxHp = 200;
+    s.player.hp = 200;
+    const ant = new Monster(
+      monById.get('GIANT_ANT') as MonsterData,
+      s.player.x + 2,
+      s.player.y,
+      createRng(3),
+    );
+    ant.asleep = false;
+    ant.mhp = 1;
+    ant.mhpmax = 40;
+    s.level.monsters = [ant];
+    for (let i = 0; i < 40 && !ant.fleeing; i++) s.monsterAction(ant);
+    ok(ant.fleeing, '重伤的怪物会逃跑');
+    ok(
+      s.messages.some((m) => m.key === 'msg.monFlees'),
+      '逃跑有提示',
+    );
+  }
+
+  // 健康的怪物不会逃跑。
+  {
+    const s = new GameSession({ seed: 42 });
+    s.player.maxHp = 200;
+    s.player.hp = 200;
+    const ant = new Monster(
+      monById.get('GIANT_ANT') as MonsterData,
+      s.player.x + 2,
+      s.player.y,
+      createRng(3),
+    );
+    ant.asleep = false;
+    s.level.monsters = [ant];
+    for (let i = 0; i < 20; i++) s.monsterAction(ant);
+    ok(!ant.fleeing, '健康的怪物不会逃跑');
+  }
+});
 section('施法', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');
@@ -922,7 +3115,10 @@ section('施法', async () => {
       ok(mon.mhp < hpBefore, `攻击法术造成伤害（${hpBefore} → ${mon.mhp}）`);
       ok(s.player.pw === pwBefore - profile.cost, `施法消耗 ${profile.cost} 点法力`);
       ok(s.turn > turnBefore, '施法消耗回合');
-      ok(s.messages.at(-1)?.key === 'msg.castHit', '命中提示');
+      ok(
+        s.messages.some((m) => m.key === 'msg.castHit'),
+        '命中提示',
+      );
     }
   }
 

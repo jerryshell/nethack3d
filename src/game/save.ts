@@ -2,65 +2,75 @@
  * 存档读写，使用 localStorage。
  *
  * 存档包含玩家、会话计数，以及所有到访楼层的可变状态
- * （迷雾、门、陷阱、物品、怪物）。关卡几何不落盘，
+ * （迷雾、门、陷阱、物品、怪物）。关卡几何不入档，
  * 由 `(seed, depth)` 确定性重建。
  */
 
 import type {
   EquipmentSlot,
+  FeatureState,
   GameMessage,
   ItemInstance,
   Level,
   Monster as MonsterState,
+  Rng,
   SaveData,
-  SerializedItem,
   SerializedLevel,
+  SerializedMonster,
 } from '../types';
 import { createLogger, LOG_NS } from '../core/log';
-import { generateLevel } from './dungeon';
+import { generateLevel, generateBranchLevel } from './dungeon';
+import { branchById } from './branches';
 import { GameSession } from './session';
 import { Monster } from './monsters';
-import { objById, monById } from '../data/index';
-import { nextItemId } from './items';
+import { monById } from '../data/index';
+import { deserializeItem, serializeItem } from './itemcodec';
 import { roleById, raceById } from './roles';
 
 const log = createLogger(LOG_NS.save);
 
 export const SAVE_KEY = 'nethack3d.save.v1';
 
-function serializeItem(item: ItemInstance): SerializedItem {
+export { deserializeItem, serializeItem };
+
+export function serializeMonster(m: MonsterState): SerializedMonster {
   return {
-    p: item.proto.id,
-    q: item.quantity,
-    e: item.enchant,
-    b: item.buc,
-    k: item.known ? 1 : 0,
-    a: item.appearance,
-    c: item.charges,
-    g: item.gold ? 1 : 0,
+    t: m.data.id,
+    x: m.x,
+    y: m.y,
+    hp: m.mhp,
+    max: m.mhpmax,
+    lv: m.mlev,
+    asleep: m.asleep ? 1 : 0,
+    fleeing: m.fleeing ? 1 : 0,
+    angry: m.angry ? 1 : 0,
+    tame: m.tame ? 1 : 0,
+    tameness: m.tameness ?? 0,
+    mv: m.mv,
   };
 }
 
-function deserializeItem(data: SerializedItem): ItemInstance | null {
-  const proto = objById.get(data.p);
+/** 反序列化一只怪物；原型缺失时返回 null。 */
+export function deserializeMonster(data: SerializedMonster, rng: Rng): MonsterState | null {
+  const proto = monById.get(data.t);
   if (!proto) return null;
-  return {
-    uid: nextItemId(),
-    proto,
-    id: proto.id,
-    quantity: data.q ?? 1,
-    enchant: data.e ?? 0,
-    buc: (data.b === 'blessed' || data.b === 'cursed' ? data.b : 'uncursed') as ItemInstance['buc'],
-    known: !!data.k,
-    appearance: data.a ?? null,
-    charges: data.c,
-    gold: !!data.g,
-  };
+  const mon = new Monster(proto, data.x, data.y, rng, { mlev: data.lv });
+  mon.mhp = data.hp;
+  mon.mhpmax = data.max;
+  mon.asleep = !!data.asleep;
+  mon.fleeing = !!data.fleeing;
+  mon.angry = !!data.angry;
+  mon.tame = !!data.tame;
+  mon.tameness = data.tameness ?? 0;
+  mon.mv = data.mv ?? 0;
+  return mon;
 }
 
 function serializeLevel(level: Level): SerializedLevel {
   return {
     depth: level.depth,
+    branch: level.branch ?? undefined,
+    ...(level.shopRestockAt !== undefined ? { shopRestockAt: level.shopRestockAt } : {}),
     seen: Array.from(level.seen),
     populated: !!level.populated,
     doors: [...level.doors].map(([i, d]): [number, boolean, boolean, boolean] => [
@@ -70,22 +80,17 @@ function serializeLevel(level: Level): SerializedLevel {
       d.broken,
     ]),
     traps: [...level.traps].map(([i, tp]): [number, string, boolean] => [i, tp.type, tp.seen]),
+    features: [...level.features].map(([i, f]): [number, 0 | 1, 0 | 1] => [
+      i,
+      f.depleted ? 1 : 0,
+      f.used ? 1 : 0,
+    ]),
     objects: level.objects.map((pile: Level['objects'][number]) => ({
       x: pile.x,
       y: pile.y,
       items: pile.items.map(serializeItem),
     })),
-    monsters: level.monsters.map((m) => ({
-      t: m.data.id,
-      x: m.x,
-      y: m.y,
-      hp: m.mhp,
-      max: m.mhpmax,
-      lv: m.mlev,
-      asleep: m.asleep ? 1 : 0,
-      fleeing: m.fleeing ? 1 : 0,
-      mv: m.mv,
-    })),
+    monsters: level.monsters.map((m) => serializeMonster(m)),
   };
 }
 
@@ -95,6 +100,8 @@ export function serializeSession(session: GameSession): SaveData {
     v: 1,
     seed: session.seed,
     depth: session.depth,
+    ...(session.branch !== 'main' ? { branch: session.branch } : {}),
+    ...(session.ride ? { ride: serializeMonster(session.ride) } : {}),
     turn: session.turn,
     kills: session.kills,
     dead: session.dead ? 1 : 0,
@@ -130,6 +137,13 @@ export function serializeSession(session: GameSession): SaveData {
       invisible: p.invisible ?? 0,
       sleep: p.sleep ?? 0,
       held: p.held ?? 0,
+      stun: p.stun ?? 0,
+      petrifying: p.petrifying ?? 0,
+      alignRecord: p.alignRecord ?? 0,
+      prayerTimeout: p.prayerTimeout ?? 0,
+      form: p.form ? { id: p.form.id, turns: p.form.turns } : null,
+      skillUses: { ...p.skillUses },
+      skillLevels: { ...p.skillLevels },
       seeInvisible: p.seeInvisible ?? false,
       knownSpells: p.knownSpells ?? [],
       inventory: p.inventory.map(serializeItem),
@@ -137,7 +151,7 @@ export function serializeSession(session: GameSession): SaveData {
         Object.entries(p.equipment).map(([slot, item]) => [slot, p.inventory.indexOf(item)]),
       ),
     },
-    levels: [...session.levels.values()].map(serializeLevel),
+    levels: [...session.levels.values(), ...session.branchCache.values()].map(serializeLevel),
     messages: session.messages.slice(-40),
   };
 }
@@ -216,6 +230,13 @@ export function restoreSession(data: SaveData): GameSession {
   player.invisible = p.invisible ?? 0;
   player.sleep = p.sleep ?? 0;
   player.held = p.held ?? 0;
+  player.stun = p.stun ?? 0;
+  player.petrifying = p.petrifying ?? 0;
+  player.alignRecord = p.alignRecord ?? 0;
+  player.prayerTimeout = p.prayerTimeout ?? 0;
+  player.form = p.form ? { id: p.form.id, turns: p.form.turns } : null;
+  player.skillUses = { ...p.skillUses };
+  player.skillLevels = { ...p.skillLevels };
   player.seeInvisible = p.seeInvisible ?? false;
   player.knownSpells = p.knownSpells ?? [];
 
@@ -229,8 +250,16 @@ export function restoreSession(data: SaveData): GameSession {
 
   // Restore visited levels.
   session.levels = new Map();
+  session.branchCache = new Map();
   for (const ld of data.levels ?? []) {
-    const level = generateLevel({ gameSeed: session.seed, depth: ld.depth });
+    const level = ld.branch
+      ? generateBranchLevel({
+          gameSeed: session.seed,
+          branch: ld.branch,
+          depth: ld.depth,
+          levels: branchById(ld.branch)?.levels ?? ld.depth,
+        })
+      : generateLevel({ gameSeed: session.seed, depth: ld.depth });
     level.depth = ld.depth;
     level.seen = Uint8Array.from(ld.seen ?? []);
     level.populated = !!ld.populated;
@@ -241,33 +270,42 @@ export function restoreSession(data: SaveData): GameSession {
       ]),
     );
     level.traps = new Map((ld.traps ?? []).map(([i, type, seen]) => [i, { type, seen: !!seen }]));
+    if (ld.features) {
+      // 只保留存档里仍存在的设施：消失的王座与碎裂的水槽不会复活。
+      const kept = new Map<number, FeatureState>();
+      for (const [i, depleted, used] of ld.features) {
+        const feature = level.features.get(i);
+        if (!feature) continue;
+        if (depleted) feature.depleted = true;
+        if (used) feature.used = true;
+        kept.set(i, feature);
+      }
+      level.features = kept;
+    }
     level.objects = (ld.objects ?? []).map((pile) => ({
       x: pile.x,
       y: pile.y,
       items: pile.items.map(deserializeItem).filter((i): i is ItemInstance => !!i),
     }));
     level.monsters = (ld.monsters ?? [])
-      .map((m: SerializedLevel['monsters'][number]) => {
-        const data2 = monById.get(m.t);
-        if (!data2) return null;
-        const mon = new Monster(data2, m.x, m.y, session.rng, { mlev: m.lv });
-        mon.mhp = m.hp;
-        mon.mhpmax = m.max;
-        mon.asleep = !!m.asleep;
-        mon.fleeing = !!m.fleeing;
-        mon.mv = m.mv ?? 0;
-        return mon;
-      })
+      .map((m: SerializedMonster) => deserializeMonster(m, session.rng))
       .filter((m): m is MonsterState => !!m);
     session.levels.set(ld.depth, level);
+    if (ld.branch) session.branchCache.set(`${ld.branch}:${ld.depth}`, level);
+    if (ld.shopRestockAt !== undefined) level.shopRestockAt = ld.shopRestockAt;
   }
 
   session.depth = data.depth;
+  session.branch = data.branch ?? 'main';
+  session.ride = data.ride ? deserializeMonster(data.ride, session.rng) : null;
   session.turn = data.turn ?? 0;
   session.kills = data.kills ?? 0;
   session.dead = !!data.dead;
   session.messages = (data.messages ?? []).map((m: GameMessage) => Object.assign({}, m));
-  session.level = session.getLevel(data.depth);
+  session.level =
+    session.branch === 'main'
+      ? session.getLevel(data.depth)
+      : session.getBranchLevel(session.branch, data.depth);
   session.refreshFov();
   return session;
 }

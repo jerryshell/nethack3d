@@ -71,12 +71,12 @@ export function spellProfile(proto: ObjectData): SpellProfile {
   return profile;
 }
 
-/** 施法失败的几率，0 到 0.85。 */
-export function castFailChance(player: Player, level: number): number {
+/** 施法失败的几率，0 到 0.85；战斗/法术流派熟练度会降低失败率。 */
+export function castFailChance(player: Player, level: number, skillLevel = 0): number {
   const base = 0.08 + level * 0.07;
   const skill = (player.int - 10) * 0.03;
   const roleBonus = CASTER_ROLES.has(player.role.id) ? 0.15 : 0;
-  return Math.max(0, Math.min(0.85, base - skill - roleBonus));
+  return Math.max(0, Math.min(0.85, base - skill - roleBonus - skillLevel * 0.03));
 }
 
 /** 施法结果。 */

@@ -10,8 +10,10 @@ import type {
   Equipment,
   EquipmentSlot,
   ItemInstance,
+  MonsterData,
   MonsterSize,
   Player as PlayerState,
+  PolymorphForm,
   RaceData,
   RoleData,
   Rng,
@@ -20,6 +22,7 @@ import type {
 } from '../types';
 import { rollAttributes, buildStartingKit } from './roles';
 import { dbon, xpForLevel } from './combat';
+import { monById } from '../data/index';
 
 /** 初始装备的佩戴方式转成装备槽位。 */
 function slotFor(item: ItemInstance, equip: string): EquipmentSlot {
@@ -83,6 +86,18 @@ export class Player implements PlayerState {
   invisible: number;
   sleep: number;
   held: number;
+  /** 眩晕剩余回合。 */
+  stun: number;
+  /** 石化剩余回合；归零即死亡。 */
+  petrifying: number;
+  /** 阵营记录与祈祷冷却。 */
+  alignRecord: number;
+  prayerTimeout: number;
+  /** 当前变形形态；为空表示原形。 */
+  form: PolymorphForm | null;
+  /** 武器技能使用次数与等级。 */
+  skillUses: Record<string, number>;
+  skillLevels: Record<string, number>;
   seeInvisible: boolean;
   knownSpells: string[];
 
@@ -133,12 +148,26 @@ export class Player implements PlayerState {
     this.invisible = 0;
     this.sleep = 0;
     this.held = 0;
+    this.stun = 0;
+    this.petrifying = 0;
+    this.alignRecord = 0;
+    this.prayerTimeout = 0;
+    this.form = null;
+    this.skillUses = {};
+    this.skillLevels = {};
     this.seeInvisible = false;
     this.knownSpells = [];
   }
 
-  /** 护甲等级：10 为无甲，数值越低越好。 */
+  /** 当前变形形态的原型；未变形或数据缺失时为空。 */
+  get formData(): MonsterData | null {
+    return this.form ? (monById.get(this.form.id) ?? null) : null;
+  }
+
+  /** 护甲等级：10 为无甲，数值越低越好；变形时改用怪物的护甲。 */
   get ac(): number {
+    const form = this.formData;
+    if (form) return form.ac - this.acBonus;
     let bonus = this.acBonus;
     for (const item of Object.values(this.equipment)) {
       if (item && item.proto.cls === 'armor') bonus += item.proto.ac ?? 0;
@@ -163,6 +192,12 @@ export class Player implements PlayerState {
 
   /** 当前武器对指定体型目标的伤害骰。 */
   weaponDamageSpec(targetSize: MonsterSize): string {
+    // 变形后徒手使用怪物形态的天然武器。
+    const form = this.formData;
+    if (form) {
+      const atk = form.attacks.find((a) => a.at !== 'AT_NONE' && a.dice[0] > 0 && a.dice[1] > 0);
+      return atk ? `${atk.dice[0]}d${atk.dice[1]}` : '1d2';
+    }
     const large =
       targetSize === 'MZ_LARGE' || targetSize === 'MZ_HUGE' || targetSize === 'MZ_GIGANTIC';
     const w = this.weapon;

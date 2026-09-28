@@ -24,10 +24,15 @@
 NetHack 的版权归其作者所有，主要包括：Stichting Mathematisch Centrum（1985 年起）、
 M. Stephenson，以及后续的贡献者。逐文件的版权声明见上游源码文件头部。
 
-## 2. 模型素材：CC0
+## 2. 模型与音效素材：CC0
 
-`public/assets/kenney/` 下的模型来自 Kenney 的 Mini Dungeon 包，
-采用 CC0 1.0（公共领域贡献）许可，可自由使用、修改与再分发，无需署名。
+`public/assets/kenney/` 下的素材来自 Kenney，采用 CC0 1.0（公共领域贡献）许可，
+可自由使用、修改与再分发，无需署名：
+
+- 地牢模型：`3D assets/Mini Dungeon`。
+- 人物模型：`3D assets/Mini Characters`，以及 Mini Dungeon 内的 `character-*.glb`。
+- 音效：`Audio/Impact Sounds`、`Audio/RPG Audio`、`Audio/Interface Sounds`。
+
 来源与散列记录在 `public/assets/kenney/manifest.json`，许可原文见
 `public/assets/kenney/LICENSE.txt`。
 

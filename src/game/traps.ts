@@ -1,11 +1,10 @@
 /**
  * 陷阱的效果表。
  *
- * 陷阱的生成、渲染与存档早已就位，这里补上踩中之后的结算规则。
  * 每种陷阱归到少数几种「效果类型」，会话层按类型执行，
  * 因此新增陷阱类型只是往表里加一行。
  *
- * 少数陷阱在本作里没有对应机制（变形、雕像），表里标为 `flavor`，
+ * 少数陷阱在本作里没有对应机制（雕像、振动方块），表里标为 `flavor`，
  * 只给出提示，边界记录在 docs/COGNITION.md。
  */
 
@@ -21,6 +20,7 @@ export type TrapKind =
   | 'levelTeleport'
   | 'hole'
   | 'magic'
+  | 'polymorph'
   | 'flavor';
 
 export interface TrapEffect {
@@ -53,8 +53,8 @@ export const TRAP_EFFECTS: Record<string, TrapEffect> = {
   HOLE: { kind: 'hole', message: 'msg.trapHole' },
   ANTI_MAGIC: { kind: 'drainPw', message: 'msg.trapDrainPw' },
   MAGIC_TRAP: { kind: 'magic', message: 'msg.trapMagic' },
+  POLY_TRAP: { kind: 'polymorph', message: 'msg.trapPolymorph' },
   STATUE_TRAP: { kind: 'flavor', message: 'msg.trapFlavor' },
-  POLY_TRAP: { kind: 'flavor', message: 'msg.trapFlavor' },
   VIBRATING_SQUARE: { kind: 'flavor', message: 'msg.trapFlavor' },
 };
 

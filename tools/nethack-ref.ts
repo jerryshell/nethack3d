@@ -48,7 +48,7 @@ export interface ReferenceState {
   counts: { monsters: number; objects: number };
 }
 
-/** 落盘的记录。 */
+/** 写入文件的记录。 */
 export interface RecordedReference extends ReferenceState {
   version: 1;
   recordedAt: string;
@@ -221,7 +221,7 @@ export function readReferenceState(
   };
 }
 
-/** 读取落盘记录；文件缺失或损坏时返回 null。 */
+/** 读取记录文件；文件缺失或损坏时返回 null。 */
 export function loadRecordedReference(): RecordedReference | null {
   try {
     if (!fs.existsSync(REFERENCE_RECORD_PATH)) return null;
@@ -233,7 +233,7 @@ export function loadRecordedReference(): RecordedReference | null {
 }
 
 /**
- * 写入落盘记录。
+ * 写入记录文件。
  *
  * 参考仓库路径以相对项目根目录的形式保存，避免把机器相关的绝对路径提交进仓库。
  */

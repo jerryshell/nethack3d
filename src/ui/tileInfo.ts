@@ -11,6 +11,7 @@ import { T, isWalkable } from '../core/constants';
 import { index } from '../game/dungeon';
 import { t } from '../i18n/index';
 import { monsterName } from '../data/index';
+import { alignDisplayName } from '../data/i18n';
 import { describeItem } from '../game/items';
 import { itemName } from './itemName';
 
@@ -116,6 +117,13 @@ export function describeTile(session: GameSession, x: number, y: number): TileIn
 
   const stair = level.stairs.find((s) => s.x === x && s.y === y);
   if (stair) {
+    if (stair.dir === 'branch') {
+      return {
+        title: t('tile.branchStairs', { branch: t(`branch.${stair.branch ?? 'main'}`) }),
+        hint: t('tile.branchHint'),
+        kind: 'stairs',
+      };
+    }
     return {
       title: t(stair.dir === 'down' ? 'tile.stairsDown' : 'tile.stairsUp'),
       hint: stair.dir === 'down' ? t('tile.descendHint') : t('tile.ascendHint'),
@@ -136,7 +144,12 @@ export function describeTile(session: GameSession, x: number, y: number): TileIn
   const feature = level.features.get(i);
   if (feature) {
     const key = TERRAIN_KEYS[level.tiles[i]] ?? 'stone';
-    return { title: t(`terrain.${key}`), hint: t('tile.featureHint'), kind: 'terrain' };
+    const base = t(`terrain.${key}`);
+    // 祭坛标出归属，方便玩家判断该不该在这里祈祷。
+    const title = feature.align
+      ? t('terrain.aligned', { terrain: base, align: alignDisplayName(feature.align) })
+      : base;
+    return { title, hint: t('tile.featureHint'), kind: 'terrain' };
   }
 
   const tile = level.tiles[i];

@@ -220,8 +220,8 @@ function buildDoor(level: Level, x: number, y: number, door: DoorState): THREE.G
       panelMat,
     );
   }
-  // 转轴在格子边缘，门板相对转轴再偏移半格，闭合时正好落在格子中央。
-  // 注意 panel.position 是相对于转轴的，写成 -half 会让整扇门偏出半格。
+  // 转轴在格子边缘，门板相对转轴偏移半格，闭合时正好落在格子中央。
+  // panel.position 是相对转轴的偏移，不是绝对坐标。
   if (passageAlongX) {
     pivot.position.set(0, 0.48, -half);
     panel.position.z = half;
@@ -245,9 +245,10 @@ function buildDoor(level: Level, x: number, y: number, door: DoorState): THREE.G
   return g;
 }
 
-function buildStairs(direction: 'up' | 'down'): THREE.Group {
+function buildStairs(direction: 'up' | 'down' | 'branch'): THREE.Group {
   const g = new THREE.Group();
-  const down = direction === 'down';
+  // 分支楼梯按下行处理：同样通向地下。
+  const down = direction !== 'up';
   const model = modelGeometry('stairs');
   const modelMat = modelMaterial();
   if (model && modelMat) {

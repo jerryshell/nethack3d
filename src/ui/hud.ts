@@ -1,5 +1,5 @@
 /**
- * 游戏内 HUD：状态栏、目标提示、情境操作、消息日志与语言切换按钮。
+ * 游戏内 HUD：状态栏、目标提示、情境操作、消息日志、状态转储与语言切换按钮。
  *
  * 消息变量里保存的是实体 ID（mon、obj、roleId、raceId），
  * 在这里解析成当前语言的名称，因此切换语言后历史消息也会重新翻译。
@@ -8,37 +8,14 @@
  * 常驻显示当前目标；把此刻可做的操作做成按钮，不必先背下按键。
  */
 
-import type { GameMessage, ItemDescription } from '../types';
 import type { GameSession } from '../game/session';
 import { MAX_DEPTH } from '../game/session';
 import { t, applyI18n, onLocaleChange, setLocale, nextLocale, LOCALES } from '../i18n/index';
-import { monsterName, objectName } from '../data/index';
-import { itemName } from './itemName';
-import { roleDisplayName, raceDisplayName, alignDisplayName } from '../data/i18n';
+import { formatMessage } from './message';
+import { createMinimap } from './minimap';
+import { buildDump, dumpFileName } from './dump';
+import { alignDisplayName } from '../data/i18n';
 import { isMuted, setMuted } from '../core/audio';
-
-/** 把消息变量里的实体 ID 解析成当前语言的可读名称。 */
-function resolveVars(vars: GameMessage['vars']): Record<string, string | number> {
-  const out: Record<string, string | number> = {};
-  for (const [key, value] of Object.entries(vars ?? {})) {
-    if (key === 'mon') out.mon = monsterName(value as string);
-    else if (key === 'item' && value && typeof value === 'object')
-      out.item = itemName(value as ItemDescription);
-    else if (key === 'obj') out.obj = value ? objectName(value as string) : '';
-    else if (key === 'roleId') out.role = roleDisplayName(value as string);
-    else if (key === 'raceId') out.race = raceDisplayName(value as string);
-    else if (key === 'trap') out.trap = t(value as string);
-    else if (key === 'align')
-      out.align = alignDisplayName(value as Parameters<typeof alignDisplayName>[0]);
-    else out[key] = value as string | number;
-  }
-  return out;
-}
-
-/** 渲染一条会话消息；导出以便测试。 */
-export function formatMessage(message: GameMessage): string {
-  return t(message.key, resolveVars(message.vars));
-}
 
 /** 情境操作：由调用方根据当前局面生成。 */
 export interface HudAction {
@@ -60,8 +37,15 @@ export interface HudOptions {
 export interface HudHandle {
   el: HTMLElement;
   render(session?: GameSession | null): void;
-  /** 更新情境操作按钮。 */
+  /**
+   * 更新情境操作按钮。 */
   setActions(actions: HudAction[]): void;
+  /** 同步旅行路径到小地图。 */
+  setPath(points: { x: number; y: number }[]): void;
+  /** 转储弹窗是否打开。 */
+  dumpOpen(): boolean;
+  /** 关闭转储弹窗；未打开时返回 false。 */
+  closeDump(): boolean;
   destroy(): void;
 }
 
@@ -102,12 +86,18 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     paintMute();
   });
 
+  const dumpBtn = document.createElement('button');
+  dumpBtn.className = 'btn ghost small';
+  dumpBtn.dataset.i18n = 'hud.dump';
+  dumpBtn.title = t('hud.dumpHint');
+  dumpBtn.addEventListener('click', () => openDump());
+
   const exitBtn = document.createElement('button');
   exitBtn.className = 'btn ghost small';
   exitBtn.dataset.i18n = 'menu.back';
   exitBtn.addEventListener('click', () => onExit?.());
 
-  actions.append(langBtn, muteBtn, exitBtn);
+  actions.append(langBtn, muteBtn, dumpBtn, exitBtn);
   top.append(stats, actions);
 
   const center = document.createElement('div');
@@ -130,7 +120,9 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
   help.className = 'hud-help';
   help.dataset.i18n = 'hud.controls';
 
-  el.append(top, center, log, help);
+  const minimap = createMinimap();
+
+  el.append(top, center, log, help, minimap.el);
   applyI18n(el);
 
   /** 状态格：小号标签加数值，数值用等宽数字避免跳动。 */
@@ -141,6 +133,8 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
   ): HTMLElement {
     const cell = document.createElement('div');
     cell.className = 'hud-stat';
+    // 供自动化读取：数据键与 i18n 键一致，如 hud.seed。
+    cell.dataset.stat = key;
     const label = document.createElement('span');
     label.className = 'hud-stat-label';
     label.textContent = t(labelKey);
@@ -187,7 +181,12 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
       statCell('hud.power', 'hud.powerLabel', { pw: s.pw, max: s.maxPw }),
       statCell('hud.armorClass', 'hud.armorClassLabel', { ac: s.ac }),
       statCell('hud.gold', 'hud.goldLabel', { gold: s.gold }),
+      statCell('hud.align', 'hud.alignLabel', {
+        align: alignDisplayName(session.player.align),
+        record: `${session.player.alignRecord >= 0 ? '+' : ''}${session.player.alignRecord}`,
+      }),
       statCell('hud.turn', 'hud.turnLabel', { turn: s.turn }),
+      statCell('hud.seed', 'hud.seedLabel', { seed: session.seed }),
     );
     const hunger = hungerCell(session);
     if (hunger) stats.append(hunger);
@@ -199,10 +198,20 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
       objective.dataset.state = 'done';
       return;
     }
-    objective.textContent =
-      session.depth < MAX_DEPTH
+    if (session.branch !== 'main') {
+      objective.textContent = t('hud.branchGoal', {
+        branch: t(`branch.${session.branch}`),
+        depth: session.depth,
+        max: session.maxDepth,
+      });
+      objective.dataset.state = 'active';
+      return;
+    }
+    objective.textContent = session.carryingAmulet
+      ? t('hud.goalEscape')
+      : session.depth < MAX_DEPTH
         ? t('hud.goalStairs', { depth: session.depth + 1, total: MAX_DEPTH })
-        : t('hud.goalAmulet');
+        : t('hud.goalAmulet', { depth: MAX_DEPTH });
     objective.dataset.state = 'active';
   }
 
@@ -240,12 +249,111 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
   function render(session: GameSession | null = null): void {
     paintLang();
     paintMute();
+    dumpBtn.title = t('hud.dumpHint');
     applyI18n(el);
     if (session) {
+      current = session;
       renderStats(session);
       renderObjective(session);
       renderLog(session);
+      minimap.update(session);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // 状态转储弹窗
+  // -------------------------------------------------------------------------
+
+  /** 转储弹窗：只保留一份，关掉即销毁。 */
+  let dumpMask: HTMLElement | null = null;
+  /** 最近一次渲染的会话，转储按钮据此取状态。 */
+  let current: GameSession | null = null;
+
+  function closeDump(): boolean {
+    if (!dumpMask) return false;
+    dumpMask.remove();
+    dumpMask = null;
+    return true;
+  }
+
+  function openDump(): void {
+    const session = current;
+    if (!session || dumpMask) return;
+    const text = buildDump(session);
+
+    const mask = document.createElement('div');
+    mask.className = 'mask dump-mask';
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog dump';
+
+    const title = document.createElement('h2');
+    title.dataset.i18n = 'dump.title';
+    const hint = document.createElement('p');
+    hint.className = 'muted dump-hint';
+    hint.dataset.i18n = 'dump.hint';
+
+    const area = document.createElement('textarea');
+    area.className = 'dump-text';
+    area.readOnly = true;
+    area.spellcheck = false;
+    area.value = text;
+
+    const bar = document.createElement('div');
+    bar.className = 'dump-actions';
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn primary';
+    copyBtn.dataset.i18n = 'dump.copy';
+    copyBtn.addEventListener('click', () => {
+      void (async () => {
+        let copied = true;
+        try {
+          await navigator.clipboard.writeText(area.value);
+        } catch {
+          // 非安全上下文里没有剪贴板权限：退化为全选，让玩家手动复制。
+          copied = false;
+          area.focus();
+          area.select();
+        }
+        if (copied) {
+          copyBtn.textContent = t('dump.copied');
+          setTimeout(() => {
+            copyBtn.textContent = t('dump.copy');
+          }, 1200);
+        } else {
+          hint.textContent = t('dump.selectHint');
+        }
+      })();
+    });
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'btn';
+    downloadBtn.dataset.i18n = 'dump.download';
+    downloadBtn.addEventListener('click', () => {
+      const blob = new Blob([area.value], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = dumpFileName(session);
+      link.click();
+      URL.revokeObjectURL(url);
+    });
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn ghost';
+    closeBtn.dataset.i18n = 'dump.close';
+    closeBtn.addEventListener('click', () => closeDump());
+    bar.append(copyBtn, downloadBtn, closeBtn);
+
+    dialog.append(title, hint, area, bar);
+    mask.append(dialog);
+    mask.addEventListener('click', (event) => {
+      if (event.target === mask) closeDump();
+    });
+    el.append(mask);
+    dumpMask = mask;
+    applyI18n(mask);
+    area.focus();
+    area.setSelectionRange(0, 0);
+    // focus 后浏览器可能把视口带到文末，显式回到开头，先看到种子与地图。
+    area.scrollTop = 0;
   }
 
   const offLocale = onLocaleChange(() => render());
@@ -254,7 +362,11 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     el,
     render,
     setActions,
+    setPath: (points) => minimap.setPath(points),
+    dumpOpen: () => dumpMask !== null,
+    closeDump,
     destroy() {
+      closeDump();
       offLocale();
       el.remove();
     },

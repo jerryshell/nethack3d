@@ -50,9 +50,9 @@ function diagonalAllowed(level: Level, from: Point, step: Step): boolean {
   return passable(level, from.x + step.dx, from.y) && passable(level, from.x, from.y + step.dy);
 }
 
-/** 该格是否有怪物。 */
+/** 该格是否有挡路的怪物：宠物可以交换位置，不算阻挡。 */
 function hasMonster(level: Level, x: number, y: number): boolean {
-  return level.monsters.some((m) => m.x === x && m.y === y && m.mhp > 0);
+  return level.monsters.some((m) => m.x === x && m.y === y && m.mhp > 0 && !m.tame);
 }
 
 /**

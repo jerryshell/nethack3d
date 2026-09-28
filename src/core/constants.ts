@@ -1,7 +1,7 @@
 /**
  * 全局常量：关卡尺寸、瓦片类型、方向、陷阱表、物品生成权重与材质配色。
  *
- * 瓦片编号对齐 NetHack 的 include/rm.h，便于与参考源码对照；
+ * 瓦片编号取自 NetHack 的 include/rm.h，便于与参考源码对照；
  * 当前只生成其中一部分类型。
  */
 
@@ -10,6 +10,9 @@ import type { ObjectClass } from '../types';
 /** NetHack 的屏幕级关卡尺寸：宽 80、高 21。 */
 export const COLNO = 80;
 export const ROWNO = 21;
+
+/** 地牢总层数，底层放着通关用的尤恩多护身符。 */
+export const MAX_DEPTH = 30;
 
 /** 瓦片类型。编号沿用 NetHack include/rm.h。 */
 export const T = {

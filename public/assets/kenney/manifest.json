@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "pack": "3D assets/Mini Dungeon",
+  "packs": ["3D assets/Mini Dungeon", "3D assets/Mini Characters", "Audio"],
   "license": "CC0-1.0",
   "source": "https://kenney.nl",
   "files": {

@@ -27,7 +27,7 @@ import path from 'node:path';
 import * as THREE from 'three';
 import type { AgentReport, Failure, ReferenceStatus, ScenarioResult } from './agent-lib';
 import {
-  auditDoorOrientations,
+  auditDoors,
   checkInvariants,
   createSeenTracker,
   doorBlocksEastWest,
@@ -212,7 +212,7 @@ function runFuzz(options: Options): FuzzOutcome {
 interface MapFuzzOutcome {
   levels: number;
   doors: number;
-  clear: number;
+  proper: number;
   panels: number;
   failures: Failure[];
   dumps: { seed: number; depth: number; text: string }[];
@@ -231,7 +231,7 @@ function runMapFuzz(options: Options): MapFuzzOutcome {
   const outcome: MapFuzzOutcome = {
     levels: 0,
     doors: 0,
-    clear: 0,
+    proper: 0,
     panels: 0,
     failures: [],
     dumps: [],
@@ -240,10 +240,10 @@ function runMapFuzz(options: Options): MapFuzzOutcome {
     const seed = (options.seed + i * 7919) >>> 0;
     const depth = 1 + ((i * 13 + 5) % 30);
     const level = generateLevel({ gameSeed: seed, depth });
-    const audit = auditDoorOrientations(level);
+    const audit = auditDoors(level);
     outcome.levels++;
     outcome.doors += audit.doors;
-    outcome.clear += audit.clear;
+    outcome.proper += audit.proper;
     for (const problem of audit.problems) {
       if (outcome.failures.length >= MAP_FUZZ_MAX_FAILURES) continue;
       outcome.failures.push({
@@ -413,7 +413,7 @@ function printSummary(report: AgentReport, options: Options): void {
   if (totals.mapLevels > 0) {
     console.log(
       `地图模糊 ${totals.mapLevels} 层 · 门 ${totals.mapDoors} 扇 · ` +
-        `通道核对 ${totals.mapClear} 项 · 门板抽检 ${totals.mapPanels} 扇`,
+        `形状合规 ${totals.mapProper} 项 · 门板抽检 ${totals.mapPanels} 扇`,
     );
   }
   if (!options.skipGolden) {
@@ -537,7 +537,7 @@ async function main(): Promise<void> {
       fuzzRuns: fuzz?.runs ?? 0,
       mapLevels: mapFuzz?.levels ?? 0,
       mapDoors: mapFuzz?.doors ?? 0,
-      mapClear: mapFuzz?.clear ?? 0,
+      mapProper: mapFuzz?.proper ?? 0,
       mapPanels: mapFuzz?.panels ?? 0,
     },
     scenarios,
@@ -553,7 +553,7 @@ async function main(): Promise<void> {
     fuzz ?? { runs: 0, actions: 0, invariantChecks: 0, failures: [], dumps: [] },
     mapFuzz,
   );
-  // 先补齐提示再写盘，保证落盘报告与终端输出一致。
+  // 先补齐提示再写文件，保证报告文件与终端输出一致。
   report.hints = buildHints(report, golden, dumps);
   await Bun.write(
     path.join(options.artifactsDir, 'report.json'),

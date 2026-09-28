@@ -203,7 +203,8 @@ export interface Room {
   hx: number;
   hy: number;
   index: number;
-  type: 'room';
+  /** 商店房间由会话在其中摆放店主与货物。 */
+  type: 'room' | 'shop';
   lit: boolean;
 }
 
@@ -221,11 +222,19 @@ export interface TrapState {
 export interface StairRef {
   x: number;
   y: number;
-  dir: 'up' | 'down';
+  dir: 'up' | 'down' | 'branch';
+  /** dir 为 branch 时，通往哪个分支。 */
+  branch?: string;
 }
 
 export interface FeatureState {
   type: string;
+  /** 喷泉干涸、水槽损坏、坟墓挖开。 */
+  depleted?: boolean;
+  /** 王座坐过一次后不再有效果。 */
+  used?: boolean;
+  /** 祭坛归属的阵营；未设置表示中立神坛（摩洛克）。 */
+  align?: Alignment;
 }
 
 export interface GroundPile {
@@ -256,6 +265,12 @@ export interface Level {
   monsters: Monster[];
   /** 是否已经生成过怪物与物品。 */
   populated?: boolean;
+  /** 商店下次补货的回合。 */
+  shopRestockAt?: number;
+  /** 特殊楼层标识；普通楼层为空。 */
+  special?: string | null;
+  /** 分支标识；主地牢为空。 */
+  branch?: string | null;
   /** 玩家是否到过该层。 */
   visited?: boolean;
 }
@@ -277,6 +292,12 @@ export interface ItemInstance {
   appearance: string | null;
   charges?: number;
   gold?: boolean;
+  /** 职业神器标识；设置后显示神器名。 */
+  artifact?: string;
+  /** 容器内部物品（箱子、袋子等）。 */
+  contents?: ItemInstance[];
+  /** 商店货品：尚未付款，结账或卖出时翻转。 */
+  unpaid?: boolean;
   /** 起始装备标记，装备后清空。 */
   equipped?: EquipIntent | null;
 }
@@ -303,6 +324,12 @@ export interface Monster {
   asleep: boolean;
   fleeing: boolean;
   dead: boolean;
+  /** 被玩家挑衅过的和平生物转为敌对。 */
+  angry: boolean;
+  /** 驯服的宠物：跟随玩家、攻击敌对怪物，不会攻击玩家。 */
+  tame: boolean;
+  /** 驯服度：喂食提升，达到上限后成长一次。 */
+  tameness: number;
 }
 
 export type EquipmentSlot =
@@ -363,8 +390,28 @@ export interface Player {
   sleep: number;
   /** 被缠住剩余回合；大于 0 时无法移动。 */
   held: number;
+  /** 眩晕剩余回合；大于 0 时行动可能失手。 */
+  stun: number;
+  /** 石化剩余回合；归零即死亡，完全治疗药水可解。 */
+  petrifying: number;
+  /** 阵营记录：正数表示神满意，负数表示失望，范围 [-128, 127]。 */
+  alignRecord: number;
+  /** 祈祷冷却：大于 0 时再次祈祷会触怒神明。 */
+  prayerTimeout: number;
+  /** 当前变形形态；为空表示原形。 */
+  form: PolymorphForm | null;
+  /** 武器技能使用次数，键为 P_* 技能名。 */
+  skillUses: Record<string, number>;
+  /** 武器技能等级，键为 P_* 技能名。 */
+  skillLevels: Record<string, number>;
   seeInvisible: boolean;
   knownSpells: string[];
+}
+
+/** 变形形态：只存怪物原型 id 与剩余回合，属性从数据查回。 */
+export interface PolymorphForm {
+  id: string;
+  turns: number;
 }
 
 /** 角色创建结果。 */
@@ -491,32 +538,55 @@ export interface SerializedItem {
   a: string | null;
   c?: number;
   g?: 0 | 1;
+  u?: 0 | 1;
+  /** 神器标识。 */
+  ar?: string;
+  /** 容器内容；递归存储。 */
+  n?: SerializedItem[];
+}
+
+/** 序列化的怪物：关卡与坐骑共用。 */
+export interface SerializedMonster {
+  t: string;
+  x: number;
+  y: number;
+  hp: number;
+  max: number;
+  lv: number;
+  asleep: 0 | 1;
+  fleeing: 0 | 1;
+  angry?: 0 | 1;
+  /** 是否驯服（宠物）。 */
+  tame?: 0 | 1;
+  /** 驯服度。 */
+  tameness?: number;
+  mv: number;
 }
 
 export interface SerializedLevel {
   depth: number;
+  /** 分支标识；主地牢省略。 */
+  branch?: string;
   seen: number[];
   populated: boolean;
   doors: [number, boolean, boolean, boolean][];
   traps: [number, string, boolean][];
+  /** 设施的可变状态：[下标, 是否失效, 是否用过]，省略时按生成时的默认值。 */
+  features?: [number, 0 | 1, 0 | 1][];
+  /** 商店下次补货的回合。 */
+  shopRestockAt?: number;
   objects: { x: number; y: number; items: SerializedItem[] }[];
-  monsters: {
-    t: string;
-    x: number;
-    y: number;
-    hp: number;
-    max: number;
-    lv: number;
-    asleep: 0 | 1;
-    fleeing: 0 | 1;
-    mv: number;
-  }[];
+  monsters: SerializedMonster[];
 }
 
 export interface SaveData {
   v: 1;
   seed: number;
   depth: number;
+  /** 当前分支；主地牢省略。 */
+  branch?: string;
+  /** 正在骑乘的坐骑；不在地图怪物列表里。 */
+  ride?: SerializedMonster;
   turn: number;
   kills: number;
   dead: 0 | 1;
@@ -540,6 +610,13 @@ export interface SaveData {
     invisible: number;
     sleep?: number;
     held?: number;
+    stun?: number;
+    petrifying?: number;
+    alignRecord?: number;
+    prayerTimeout?: number;
+    form?: { id: string; turns: number } | null;
+    skillUses?: Record<string, number>;
+    skillLevels?: Record<string, number>;
     seeInvisible: boolean;
     knownSpells: string[];
     inventory: SerializedItem[];

@@ -14,10 +14,21 @@
  * 关卡完全由 `(gameSeed, depth)` 决定，因此存档只需保存种子。
  */
 
-import { COLNO, ROWNO, T, isWall, isRoom, isCorr, randomTrapTypes } from '../core/constants';
+import {
+  COLNO,
+  MAX_DEPTH,
+  ROWNO,
+  T,
+  isWall,
+  isRoom,
+  isCorr,
+  randomTrapTypes,
+} from '../core/constants';
 import { createRng, deriveSeed } from '../core/rng';
 import { createLogger, LOG_NS } from '../core/log';
-import type { Level, Room, Rng } from '../types';
+import { specialLevelFor } from './special';
+import { branchById, branchByEntrance } from './branches';
+import type { Alignment, FeatureState, Level, Room, Rng } from '../types';
 
 const log = createLogger(LOG_NS.dungeon);
 
@@ -58,6 +69,26 @@ function roomCenter(r: { lx: number; ly: number; hx: number; hy: number }): {
   y: number;
 } {
   return { x: Math.floor((r.lx + r.hx) / 2), y: Math.floor((r.ly + r.hy) / 2) };
+}
+
+/** 矩形房间是否包含某格。 */
+export function inRoom(
+  r: { lx: number; ly: number; hx: number; hy: number },
+  x: number,
+  y: number,
+): boolean {
+  return x >= r.lx && x <= r.hx && y >= r.ly && y <= r.hy;
+}
+
+/** 本层的商店房间，没有时返回 null。 */
+export function shopRoom(level: Level): Room | null {
+  return level.rooms.find((r) => r.type === 'shop') ?? null;
+}
+
+/** 坐标是否位于商店房间内。 */
+export function inShopRoom(level: Level, x: number, y: number): boolean {
+  const room = shopRoom(level);
+  return !!room && inRoom(room, x, y);
 }
 
 /** 随机放置房间，返回房间列表。 */
@@ -130,14 +161,20 @@ export function insideRoom(level: Level, x: number, y: number): boolean {
   return false;
 }
 
-/** 该格是否与房间正交相邻。 */
+/**
+ * 该格是否与房间外圈相邻（含对角）。
+ *
+ * 外圈一圈含四个角都留给墙与门：走廊斜着切过房间角会蹭到门的两侧，
+ * 让门失去「左右是墙」的形状。中间的车道离房间两格，不受影响。
+ */
 function touchesRoom(level: Level, x: number, y: number): boolean {
-  return (
-    insideRoom(level, x - 1, y) ||
-    insideRoom(level, x + 1, y) ||
-    insideRoom(level, x, y - 1) ||
-    insideRoom(level, x, y + 1)
-  );
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      if (insideRoom(level, x + dx, y + dy)) return true;
+    }
+  }
+  return false;
 }
 
 /** 门朝向判定里算作「可通行」的瓦片。 */
@@ -148,11 +185,10 @@ function doorPassage(t: number): boolean {
 /**
  * 一扇门是否拦东西方向的通行，即门板是否竖着立在格子里。
  *
- * 先看通道：对侧都能走的轴就是玩家实际穿过的轴，门板必须垂直于它。
- * 走廊贴着房间外墙经过时，房间虽在东西侧，通道却可能拐向南北；
- * 只按房间判断会把门板横着架在走廊里。实测约 5% 的可判定门踩中此坑。
- * 通道不明确（拐角、十字口）时退回房间所在轴：房间在东或西就拦东西向。
- * 房间所在侧用矩形判断而不是瓦片类型，因为房间地面可能被楼梯或设施覆盖。
+ * 生成器保证每扇门都是「一个轴两侧是通道、另一个轴两侧是墙」，
+ * 对角都能走的轴就是玩家实际穿过的轴，门板垂直于它。
+ * 万一遇到不合规的门（地图被外部改动或旧数据），退回房间所在轴，
+ * 用房间矩形而不是瓦片类型判断，因为房间地面可能被楼梯或设施覆盖。
  */
 export function doorBlocksEastWest(level: Level, x: number, y: number): boolean {
   const open = (px: number, py: number): number =>
@@ -179,15 +215,15 @@ const CORRIDOR_DIRS: [number, number][] = [
 
 /** 转弯的额外代价：让路线倾向长直线，而不是每一步都拐一下。 */
 const TURN_COST = 0.35;
-/** 紧贴房间外墙的代价：只在无路可走时才从房间侧面擦过。 */
-const HUG_COST = 6;
 
 /**
  * 挖走廊用的最短路。
  *
  * 状态是「格子 + 进入方向」，因此可以给转弯加价：路线会尽量走直线，
  * 拐弯集中在少数几处，这与原版走廊的观感一致。
- * 房间内部不可穿越（终点除外），紧贴房间外墙的格子代价很高，
+ *
+ * 房间内部与**房间外墙一圈**都不可穿越：外墙一圈留给墙体和门。
+ * 走廊踩到外墙会把房间侧面凿出缺口，也会造出没有正对通道的拐角门。
  * 液体不可通过。
  */
 function findCorridorPath(level: Level, from: number, to: number): number[] | null {
@@ -238,6 +274,7 @@ function findCorridorPath(level: Level, from: number, to: number): number[] | nu
     const v = index(nx, ny);
     if (isLiquidTile(level.tiles[v])) continue;
     if (isRoom(level.tiles[v]) && v !== to) continue;
+    if (touchesRoom(level, nx, ny)) continue;
     const step = isCorr(level.tiles[v]) || level.tiles[v] === T.DOOR ? 0.5 : 1;
     const s = v * 4 + d;
     if (step < dist[s]) {
@@ -268,9 +305,8 @@ function findCorridorPath(level: Level, from: number, to: number): number[] | nu
       const t = level.tiles[v];
       if (isLiquidTile(t)) continue;
       if (isRoom(t) && v !== to) continue;
-      let step = 1;
-      if (isCorr(t) || t === T.DOOR) step = 0.5;
-      else if (touchesRoom(level, nx, ny)) step = HUG_COST;
+      if (touchesRoom(level, nx, ny)) continue;
+      const step = isCorr(t) || t === T.DOOR ? 0.5 : 1;
       const turn = nd === dir ? 0 : TURN_COST;
       const ns = v * 4 + nd;
       const alt = d + step + turn;
@@ -289,69 +325,147 @@ function findCorridorPath(level: Level, from: number, to: number): number[] | nu
   return path;
 }
 
+/** 一扇门的两个关键格：房间外圈的门位，以及门外一格的走廊起点。 */
+interface DoorExit {
+  door: { x: number; y: number };
+  outer: { x: number; y: number };
+}
+
 /**
- * 房间朝目标一侧的墙外开口格。
+ * 房间朝目标一侧的开口。
  *
- * 位置尽量对准目标，走廊因此接近直线；加上一点抖动避免每层都一样。
+ * 门位在房间外圈，门口方向与房间外墙垂直：门外一格是走廊起点，
+ * 两侧则是同一道外墙延伸出去的墙，因此天然满足「前后是通道、左右是墙」。
+ * 开口位置尽量对准目标，走廊因此接近直线；加上一点抖动避免每层都一样。
  */
 function exitPoint(
+  level: Level,
   room: { lx: number; ly: number; hx: number; hy: number },
   toward: { x: number; y: number },
   rng: Rng,
-): { x: number; y: number } {
+): DoorExit | null {
   const dx = toward.x < room.lx ? -1 : toward.x > room.hx ? 1 : 0;
   const dy = toward.y < room.ly ? -1 : toward.y > room.hy ? 1 : 0;
   const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
   const jitter = rng.rn2(3) - 1;
   const horizontalFirst = dx !== 0 && (dy === 0 || rng.rn2(2) === 0);
+  let door: { x: number; y: number };
+  let outward: { x: number; y: number };
   if (horizontalFirst) {
-    return {
+    door = {
       x: dx < 0 ? room.lx - 1 : room.hx + 1,
       y: clamp(Math.round(toward.y) + jitter, room.ly, room.hy),
     };
-  }
-  if (dy !== 0) {
-    return {
+    outward = { x: dx < 0 ? -1 : 1, y: 0 };
+  } else if (dy !== 0) {
+    door = {
       x: clamp(Math.round(toward.x) + jitter, room.lx, room.hx),
       y: dy < 0 ? room.ly - 1 : room.hy + 1,
     };
+    outward = { x: 0, y: dy < 0 ? -1 : 1 };
+  } else {
+    door = { x: room.hx + 1, y: clamp(Math.round(toward.y), room.ly, room.hy) };
+    outward = { x: 1, y: 0 };
   }
-  return { x: room.hx + 1, y: clamp(Math.round(toward.y), room.ly, room.hy) };
+  const outer = { x: door.x + outward.x, y: door.y + outward.y };
+  if (!inBounds(outer.x, outer.y)) return null;
+  // 门外一格不能贴着任何房间，否则那条走廊会把别的房间凿出缺口。
+  if (touchesRoom(level, outer.x, outer.y)) return null;
+  return { door, outer };
 }
 
-/** 紧贴房间的走廊格转为门。 */
-function placeDoorIfNeeded(level: Level, x: number, y: number, rng: Rng): void {
-  const i = index(x, y);
-  if (level.tiles[i] !== T.CORR || level.doors.has(i)) return;
-  if (!touchesRoom(level, x, y)) return;
-  level.doors.set(i, { closed: rng.rn2(3) !== 0, locked: rng.rn2(6) === 0, broken: false });
+/** 门位是否合规：只贴一间房，正面可通行，两侧是墙或石头。 */
+function doorShapeOk(level: Level, x: number, y: number): boolean {
+  if (!inBounds(x, y)) return false;
+  const roomEast = insideRoom(level, x + 1, y);
+  const roomWest = insideRoom(level, x - 1, y);
+  const roomNorth = insideRoom(level, x, y - 1);
+  const roomSouth = insideRoom(level, x, y + 1);
+  if ([roomEast, roomWest, roomNorth, roomSouth].filter(Boolean).length !== 1) return false;
+  const passable = (px: number, py: number): boolean => {
+    const t = level.tiles[index(px, py)];
+    return isCorr(t) || isRoom(t) || t === T.STAIRS || t === T.DOOR;
+  };
+  const solid = (px: number, py: number): boolean => {
+    const t = level.tiles[index(px, py)];
+    return !passable(px, py) && t !== T.DOOR;
+  };
+  if (roomEast || roomWest) {
+    const front = roomEast ? { x: x - 1, y } : { x: x + 1, y };
+    return passable(front.x, front.y) && solid(x, y - 1) && solid(x, y + 1);
+  }
+  const front = roomSouth ? { x, y: y - 1 } : { x, y: y + 1 };
+  return passable(front.x, front.y) && solid(x - 1, y) && solid(x + 1, y);
+}
+
+/** 把合规的门位落成门；形状不合规时原样保留走廊。 */
+function placeDoor(level: Level, at: { x: number; y: number }, rng: Rng): boolean {
+  if (!doorShapeOk(level, at.x, at.y)) return false;
+  const i = index(at.x, at.y);
+  if (!level.doors.has(i)) {
+    level.doors.set(i, { closed: rng.rn2(3) !== 0, locked: rng.rn2(6) === 0, broken: false });
+  }
   level.tiles[i] = T.DOOR;
-}
-
-/** 挖通两个房间：从双方正对的一面开口，沿最短路开挖，两端放门。 */
-function connectRooms(level: Level, a: Room, b: Room, rng: Rng): boolean {
-  const ca = roomCenter(a);
-  const cb = roomCenter(b);
-  const pa = exitPoint(a, cb, rng);
-  const pb = exitPoint(b, ca, rng);
-  const path = findCorridorPath(level, index(pa.x, pa.y), index(pb.x, pb.y));
-  if (!path) return false;
-
-  // 起点与终点（紧贴房间的开口）也要挖开。
-  const tiles = [index(pa.x, pa.y), ...path];
-  if (tiles[tiles.length - 1] !== index(pb.x, pb.y)) tiles.push(index(pb.x, pb.y));
-  for (const i of tiles) {
-    const tile = level.tiles[i];
-    if (tile === T.STONE || isWall(tile)) level.tiles[i] = T.CORR;
-  }
-  for (const t of [pa, pb]) placeDoorIfNeeded(level, t.x, t.y, rng);
   return true;
 }
 
-/** 连接所有房间：先按横向顺序连成链，再补若干随机连接。 */
+/**
+ * 挖通两个房间：从房间外圈开口，门外一格作为走廊起点，
+ * 走廊不碰任何房间外墙，末端落到对面的门口。
+ */
+function connectRooms(level: Level, a: Room, b: Room, rng: Rng): boolean {
+  const ca = roomCenter(a);
+  const cb = roomCenter(b);
+  // 抖动只影响开口位置；失败就重掷几次，换一处墙试试。
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const pa = exitPoint(level, a, cb, rng);
+    const pb = exitPoint(level, b, ca, rng);
+    if (!pa || !pb) continue;
+    const from = index(pa.outer.x, pa.outer.y);
+    const to = index(pb.outer.x, pb.outer.y);
+    const path = from === to ? [from] : findCorridorPath(level, from, to);
+    if (!path) continue;
+
+    const tiles = [...path];
+    if (tiles[0] !== from) tiles.unshift(from);
+    if (tiles[tiles.length - 1] !== to) tiles.push(to);
+    for (const i of tiles) {
+      const tile = level.tiles[i];
+      if (tile === T.STONE || isWall(tile)) level.tiles[i] = T.CORR;
+    }
+    const first = placeDoor(level, pa.door, rng);
+    const second = placeDoor(level, pb.door, rng);
+    // 至少落下一扇门时这条走廊就有效；两扇都被旁边的门挤掉才会重试。
+    if (first || second) return true;
+  }
+  return false;
+}
+
+/** 房间中心之间的曼哈顿距离，用于就近接入走廊网络。 */
+function roomDistance(a: Room, b: Room): number {
+  const ca = roomCenter(a);
+  const cb = roomCenter(b);
+  return Math.abs(ca.x - cb.x) + Math.abs(ca.y - cb.y);
+}
+
+/** 连接所有房间：每间房就近接入已连通的网络，再补若干随机连接。 */
 function makeCorridors(level: Level, rng: Rng): void {
   const sorted = [...level.rooms].sort((a, b) => a.lx - b.lx || a.ly - b.ly);
-  for (let i = 0; i < sorted.length - 1; i++) connectRooms(level, sorted[i], sorted[i + 1], rng);
+  const connected: Room[] = [];
+  for (const room of sorted) {
+    if (!connected.length) {
+      connected.push(room);
+      continue;
+    }
+    // 距离相同时按房间序号，保证同一颗种子得到同一条走廊。
+    const targets = [...connected].sort(
+      (a, b) => roomDistance(a, room) - roomDistance(b, room) || a.index - b.index,
+    );
+    for (const target of targets) {
+      if (connectRooms(level, target, room, rng)) break;
+    }
+    connected.push(room);
+  }
   // 额外连接避免地图退化成树形，原版同样会这样做。
   const extra = rng.rn2(sorted.length) + 4;
   for (let i = 0; i < extra && sorted.length > 2; i++) {
@@ -361,83 +475,106 @@ function makeCorridors(level: Level, rng: Rng): void {
   }
 }
 
-/** 门的规范化：去掉多余的门，并保证每个房间都有入口。 */
-function placeDoors(level: Level, rng: Rng): void {
-  const makeDoor = (i: number): void => {
-    level.tiles[i] = T.DOOR;
-    level.doors.set(i, { closed: rng.rn2(3) !== 0, locked: false, broken: false });
+/** 房间外圈上正对房间、且门外一格可用的所有门位。 */
+function ringDoorExits(level: Level, room: Room): DoorExit[] {
+  const out: DoorExit[] = [];
+  const push = (door: { x: number; y: number }, outer: { x: number; y: number }): void => {
+    if (!inBounds(outer.x, outer.y)) return;
+    if (touchesRoom(level, outer.x, outer.y)) return;
+    out.push({ door, outer });
   };
-  const openDoor = (i: number): void => {
-    level.tiles[i] = T.CORR;
-    level.doors.delete(i);
-  };
-  const adjacentToRoom = (x: number, y: number): boolean => touchesRoom(level, x, y);
-  const adjacentToDoor = (i: number): boolean => {
-    const x = i % COLNO;
-    const y = (i / COLNO) | 0;
-    return (
-      level.doors.has(index(x - 1, y)) ||
-      level.doors.has(index(x + 1, y)) ||
-      level.doors.has(index(x, y - 1)) ||
-      level.doors.has(index(x, y + 1))
-    );
-  };
+  for (let y = room.ly; y <= room.hy; y++) {
+    push({ x: room.lx - 1, y }, { x: room.lx - 2, y });
+    push({ x: room.hx + 1, y }, { x: room.hx + 2, y });
+  }
+  for (let x = room.lx; x <= room.hx; x++) {
+    push({ x, y: room.ly - 1 }, { x, y: room.ly - 2 });
+    push({ x, y: room.hy + 1 }, { x, y: room.hy + 2 });
+  }
+  return out;
+}
 
-  // 一、清掉连成排或不在房间入口的门。挖走廊时可能在同一处留下多个门，
-  //     相邻的门在画面上会变成一串门板。
+/** 从门外一格向外挖，接到最近的走廊；接不到就留一格死头，保证门外是通道。 */
+function reachCorridor(level: Level, from: { x: number; y: number }): void {
+  const start = index(from.x, from.y);
+  const prev = new Map<number, number>();
+  const queue = [start];
+  prev.set(start, -1);
+  let found = -1;
+  for (let head = 0; head < queue.length && found < 0; head++) {
+    const node = queue[head] as number;
+    const x = node % COLNO;
+    const y = (node / COLNO) | 0;
+    for (const [dx, dy] of CORRIDOR_DIRS) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!inBounds(nx, ny)) continue;
+      const v = index(nx, ny);
+      if (prev.has(v)) continue;
+      if (isCorr(level.tiles[v])) {
+        prev.set(v, node);
+        found = v;
+        break;
+      }
+      if (level.tiles[v] !== T.STONE || touchesRoom(level, nx, ny)) continue;
+      prev.set(v, node);
+      queue.push(v);
+    }
+  }
+  for (let node = found >= 0 ? found : start; node !== -1; node = prev.get(node) ?? -1) {
+    if (level.tiles[node] === T.STONE) level.tiles[node] = T.CORR;
+  }
+}
+
+/** 房间外圈上是否已有门。 */
+function roomHasDoor(level: Level, room: Room): boolean {
+  for (let x = room.lx - 1; x <= room.hx + 1; x++) {
+    for (let y = room.ly - 1; y <= room.hy + 1; y++) {
+      if (level.doors.has(index(x, y))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 门的规范化：清掉不合规的门，并保证每个房间都有入口。
+ *
+ * 正常生成时门位已经由 `placeDoor` 校验过，这里主要兜住连接失败
+ * 或地图被外部改动的情况：宁可补一段走廊，也不留下没有门的房间。
+ */
+function placeDoors(level: Level, rng: Rng): void {
+  // 一、清理不合规或相邻的门，封回墙位，避免房间侧面留下缺口。
   // 迭代中只删除当前项，Map 迭代器允许这种写法。
   for (const i of level.doors.keys()) {
     const x = i % COLNO;
     const y = (i / COLNO) | 0;
-    if (adjacentToDoor(i) || !adjacentToRoom(x, y)) {
-      openDoor(i);
-      continue;
+    const adjacent =
+      level.doors.has(index(x - 1, y)) ||
+      level.doors.has(index(x + 1, y)) ||
+      level.doors.has(index(x, y - 1)) ||
+      level.doors.has(index(x, y + 1));
+    if (adjacent || !doorShapeOk(level, x, y)) {
+      level.tiles[i] = T.STONE;
+      level.doors.delete(i);
     }
-    // 门必须正好夹在房间与走廊之间：一侧是房间，另一侧可通行。
-    const sides = [
-      level.tiles[index(x - 1, y)],
-      level.tiles[index(x + 1, y)],
-      level.tiles[index(x, y - 1)],
-      level.tiles[index(x, y + 1)],
-    ];
-    const hasRoom = sides.some(isRoom);
-    const hasPassage = sides.some((t) => isCorr(t) || t === T.STAIRS);
-    if (!hasRoom || !hasPassage) openDoor(i);
   }
 
-  // 二、给还没有门的房间补一个入口。
+  // 二、给还没有门的房间补入口：优先用门外已有的走廊，其次补一小段。
   for (const room of level.rooms) {
-    let hasDoor = false;
-    for (let x = room.lx - 1; x <= room.hx + 1 && !hasDoor; x++) {
-      for (let y = room.ly - 1; y <= room.hy + 1; y++) {
-        if (level.doors.has(index(x, y))) {
-          hasDoor = true;
-          break;
-        }
+    if (roomHasDoor(level, room)) continue;
+    let placed = false;
+    for (const exit of ringDoorExits(level, room)) {
+      if (!isCorr(level.tiles[index(exit.outer.x, exit.outer.y)])) continue;
+      if (placeDoor(level, exit.door, rng)) {
+        placed = true;
+        break;
       }
     }
-    if (hasDoor) continue;
-
-    // 找房间外墙边上的走廊格，优先不与已有门相邻的位置。
-    const candidates: number[] = [];
-    const consider = (x: number, y: number): void => {
-      if (!inBounds(x, y)) return;
-      const i = index(x, y);
-      if (level.tiles[i] !== T.CORR) return;
-      if (!adjacentToRoom(x, y)) return;
-      candidates.push(i);
-    };
-    for (let x = room.lx - 1; x <= room.hx + 1; x++) {
-      consider(x, room.ly - 1);
-      consider(x, room.hy + 1);
+    if (placed) continue;
+    for (const exit of ringDoorExits(level, room)) {
+      reachCorridor(level, exit.outer);
+      if (placeDoor(level, exit.door, rng)) break;
     }
-    for (let y = room.ly - 1; y <= room.hy + 1; y++) {
-      consider(room.lx - 1, y);
-      consider(room.hx + 1, y);
-    }
-    const preferred = candidates.find((i) => !adjacentToDoor(i));
-    const pick = preferred ?? candidates[0];
-    if (pick !== undefined) makeDoor(pick);
   }
 }
 
@@ -494,8 +631,12 @@ function freeTiles(
   return out;
 }
 
-/** 放置上下楼梯，并决定玩家在本层的初始位置。 */
-function placeStairs(level: Level, rng: Rng): void {
+/** 放置上下楼梯；分支楼层由 opts 决定是否缺上行或下行。 */
+function placeStairs(
+  level: Level,
+  rng: Rng,
+  opts: { isBranch?: boolean; isBottom?: boolean } = {},
+): void {
   const rooms = level.rooms;
   if (!rooms.length) return;
   const startRoom = rooms[0];
@@ -527,16 +668,18 @@ function placeStairs(level: Level, rng: Rng): void {
     return null;
   };
 
-  if (level.depth > 1) {
-    // 从上层下来时，玩家出现在起始房间的上行楼梯处。
+  if (opts.isBranch || level.depth > 1) {
+    // 从上层下来时，玩家出现在起始房间的上行楼梯处；分支第一层也靠它返回入口层。
     const up = put(startRoom, 'up');
     if (up) level.up = up;
   }
-  const down = put(far === startRoom ? rooms[rooms.length - 1] : far, 'down');
-  if (down) level.down = down;
+  if (!opts.isBranch || !opts.isBottom) {
+    const down = put(far === startRoom ? rooms[rooms.length - 1] : far, 'down');
+    if (down) level.down = down;
+  }
 
-  // 第 1 层的起始位置在起始房间内；深层则从上行楼梯进入。
-  if (level.depth === 1) {
+  // 主地牢第 1 层的起始位置在起始房间内；其余层从上行楼梯进入。
+  if (level.depth === 1 && !opts.isBranch) {
     level.start = level.down ? { x: startRoom.lx, y: startRoom.ly } : { ...sc };
     if (level.tiles[index(level.start.x, level.start.y)] !== T.ROOM) {
       const spot = freeTiles(level, (t) => t === T.ROOM)[0];
@@ -554,10 +697,11 @@ function placeTraps(level: Level, rng: Rng): void {
   const pool = randomTrapTypes(level.depth);
   const candidates = freeTiles(
     level,
-    (t, i) =>
+    (t, i, x, y) =>
       (t === T.ROOM || t === T.CORR) &&
       !level.stairs.some((s) => index(s.x, s.y) === i) &&
-      !level.traps.has(i),
+      !level.traps.has(i) &&
+      !inShopRoom(level, x, y),
   );
   rng.shuffle(candidates);
   for (let n = 0; n < count && candidates.length; n++) {
@@ -566,39 +710,193 @@ function placeTraps(level: Level, rng: Rng): void {
   }
 }
 
+/** 门口周围的格子不进设施，保证「门的前后是通道、两侧是墙」。 */
+function nearDoor(level: Level, i: number): boolean {
+  const x = i % COLNO;
+  const y = (i / COLNO) | 0;
+  return (
+    level.doors.has(i) ||
+    level.doors.has(index(x - 1, y)) ||
+    level.doors.has(index(x + 1, y)) ||
+    level.doors.has(index(x, y - 1)) ||
+    level.doors.has(index(x, y + 1))
+  );
+}
+
+/** 在入口层放一段通往分支的楼梯。 */
+function placeBranchStairs(level: Level, rng: Rng, branch: string): void {
+  const spots = freeTiles(
+    level,
+    (t, i) =>
+      (t === T.ROOM || t === T.CORR) &&
+      !level.traps.has(i) &&
+      !level.stairs.some((s) => index(s.x, s.y) === i),
+  );
+  if (!spots.length) return;
+  const i = rng.pick(spots) as number;
+  const at = coords(i);
+  level.tiles[i] = T.STAIRS;
+  level.stairs.push({ x: at.x, y: at.y, dir: 'branch', branch });
+}
+
 /** 布置喷泉、水槽、祭坛、坟墓与王座。 */
-function placeFeatures(level: Level, rng: Rng): void {
-  const add = (tileType: number, chance: number): void => {
+function placeFeatures(level: Level, rng: Rng, gameSeed: number): void {
+  // 祭坛归属用独立随机流，不扰动其它设施的生成顺序。
+  const altarSeed = level.branch
+    ? deriveSeed(gameSeed, 'altar', level.branch, level.depth)
+    : deriveSeed(gameSeed, 'altar', level.depth);
+  const altarRng = createRng(altarSeed);
+  const ALIGNMENTS: Alignment[] = ['lawful', 'neutral', 'chaotic'];
+  const add = (
+    tileType: number,
+    chance: number,
+    extra: () => Partial<FeatureState> = () => ({}),
+  ): void => {
     if (!rng.chance(chance)) return;
     const spots = freeTiles(
       level,
-      (t, i) =>
-        t === T.ROOM && !level.traps.has(i) && !level.stairs.some((s) => index(s.x, s.y) === i),
+      (t, i, x, y) =>
+        t === T.ROOM &&
+        !level.traps.has(i) &&
+        !level.stairs.some((s) => index(s.x, s.y) === i) &&
+        !nearDoor(level, i) &&
+        !inShopRoom(level, x, y),
     );
     if (!spots.length) return;
     const i = rng.pick(spots) as number;
     level.tiles[i] = tileType;
     level.features.set(i, {
       type: Object.entries(T).find(([, v]) => v === tileType)?.[0] ?? 'feature',
+      ...extra(),
     });
   };
   add(T.FOUNTAIN, 0.22);
   add(T.SINK, 0.08);
-  add(T.ALTAR, 0.12);
+  add(T.ALTAR, 0.12, () =>
+    // 四分之一的祭坛不属于任何阵营（摩洛克），其余随机归属三神之一。
+    altarRng.rn2(4) === 0 ? {} : { align: altarRng.pick(ALIGNMENTS) as Alignment },
+  );
   if (level.depth >= 3) add(T.GRAVE, 0.08);
   if (level.depth >= 6) add(T.THRONE, 0.07);
+}
+
+/** 大房间：整层是一间没有隔断的大厅，对应原版 Big Room。 */
+function carveBigRoom(level: Level): void {
+  const room: Room = {
+    lx: 2,
+    ly: 2,
+    hx: COLNO - 3,
+    hy: ROWNO - 3,
+    index: 0,
+    type: 'room',
+    lit: true,
+  };
+  level.rooms = [room];
+  carveRooms(level, level.rooms);
+}
+
+/** 额外放置同类设施（大墓地的坟墓、神谕所的喷泉）。 */
+function placeExtraFeatures(
+  level: Level,
+  rng: Rng,
+  count: number,
+  tile: number,
+  type: string,
+): void {
+  for (let n = 0; n < count; n++) {
+    const spots = freeTiles(
+      level,
+      (t, i, x, y) =>
+        t === T.ROOM &&
+        !level.traps.has(i) &&
+        !level.stairs.some((s) => index(s.x, s.y) === i) &&
+        !nearDoor(level, i) &&
+        !inShopRoom(level, x, y),
+    );
+    if (!spots.length) return;
+    const i = rng.pick(spots) as number;
+    level.tiles[i] = tile;
+    level.features.set(i, { type });
+  }
+}
+
+/** 房间四周一圈内是否有门。 */
+function hasDoor(level: Level, room: Room): boolean {
+  for (let x = room.lx - 1; x <= room.hx + 1; x++) {
+    for (let y = room.ly - 1; y <= room.hy + 1; y++) {
+      if (level.doors.has(index(x, y))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 把一间有门、无楼梯的房间标记为商店。
+ *
+ * 这里只决定房间归属，货物与店主由会话在放置阶段生成，
+ * 避免地牢模块反向依赖物品与怪物模块。首层与底层不放商店：
+ * 前者是出生层，后者要留给尤恩多护身符。
+ */
+function placeShop(level: Level, rng: Rng, chance = 0.25): void {
+  if (level.depth < 2 || level.depth >= MAX_DEPTH) return;
+  if (!rng.chance(chance)) return;
+  const stairTiles = new Set(level.stairs.map((s) => index(s.x, s.y)));
+  const candidates = level.rooms.filter((room) => {
+    for (let x = room.lx; x <= room.hx; x++) {
+      for (let y = room.ly; y <= room.hy; y++) {
+        if (stairTiles.has(index(x, y))) return false;
+      }
+    }
+    return hasDoor(level, room);
+  });
+  if (!candidates.length) return;
+  const room = rng.pick(candidates) as Room;
+  room.type = 'shop';
+  log.debug('商店房间已标记', { depth: level.depth, room: room.index });
 }
 
 // ---------------------------------------------------------------------------
 // 对外接口
 // ---------------------------------------------------------------------------
 
-/** 生成一层地牢。相同 `(gameSeed, depth)` 必然得到相同结果。 */
+/** 生成主地牢的一层。相同 `(gameSeed, depth)` 必然得到相同结果。 */
 export function generateLevel({ gameSeed, depth }: { gameSeed: number; depth: number }): Level {
-  const seed = deriveSeed(gameSeed, 'level', depth);
+  return generateLevelCore({ gameSeed, depth });
+}
+
+/** 生成一层分支地牢（矿坑等）；随机流与主地牢互相独立。 */
+export function generateBranchLevel({
+  gameSeed,
+  branch,
+  depth,
+  levels,
+}: {
+  gameSeed: number;
+  branch: string;
+  depth: number;
+  levels: number;
+}): Level {
+  return generateLevelCore({ gameSeed, depth, branch, levels });
+}
+
+function generateLevelCore({
+  gameSeed,
+  depth,
+  branch = null,
+  levels = 0,
+}: {
+  gameSeed: number;
+  depth: number;
+  branch?: string | null;
+  levels?: number;
+}): Level {
+  const seed = branch
+    ? deriveSeed(gameSeed, 'branch', branch, depth)
+    : deriveSeed(gameSeed, 'level', depth);
   const rng = createRng(seed);
-  const done = log.time(`生成第 ${depth} 层`);
-  log.debug('开始生成关卡', { depth, gameSeed, levelSeed: seed });
+  const label = branch ? `${branch} 第 ${depth} 层` : `第 ${depth} 层`;
+  const done = log.time(`生成 ${label}`);
+  log.debug('开始生成关卡', { depth, branch, gameSeed, levelSeed: seed });
   const level: Level = {
     depth,
     width: COLNO,
@@ -618,22 +916,57 @@ export function generateLevel({ gameSeed, depth }: { gameSeed: number; depth: nu
     monsters: [],
     populated: false,
     visited: false,
+    special: null,
+    branch,
   };
 
-  level.rooms = placeRooms(level, rng);
-  if (level.rooms.length < 3) {
-    // 极端种子可能放不下房间，用加盐的种子重试。
-    return generateLevel({ gameSeed: (gameSeed ^ 0x5bf03635) >>> 0, depth });
+  /** 特殊楼层只存在于主地牢。 */
+  const special = branch ? null : specialLevelFor(depth);
+  level.special = special?.id ?? null;
+  if (special?.layout === 'bigRoom') {
+    carveBigRoom(level);
+  } else {
+    level.rooms = placeRooms(level, rng);
+    if (level.rooms.length < 3) {
+      // 极端种子可能放不下房间，用加盐的种子重试。
+      return generateLevelCore({ gameSeed: (gameSeed ^ 0x5bf03635) >>> 0, depth, branch, levels });
+    }
+    carveRooms(level, level.rooms);
+    makeCorridors(level, rng);
+    placeDoors(level, rng);
   }
-  carveRooms(level, level.rooms);
-  makeCorridors(level, rng);
-  placeDoors(level, rng);
   computeWalls(level);
-  placeStairs(level, rng);
+  placeStairs(level, rng, { isBranch: !!branch, isBottom: !!branch && depth >= levels });
+  if (!branch) {
+    const entrance = branchByEntrance(depth);
+    if (entrance) {
+      // 分支楼梯用独立随机流，不扰动本层的陷阱与设施分布。
+      placeBranchStairs(
+        level,
+        createRng(deriveSeed(gameSeed, 'branch-stairs', depth)),
+        entrance.id,
+      );
+    }
+  }
+  // 商店判定用独立随机流，避免扰动无关楼层的陷阱与设施分布。
+  const shopSeed = branch
+    ? deriveSeed(gameSeed, 'shop-room', branch, depth)
+    : deriveSeed(gameSeed, 'shop-room', depth);
+  // 矿镇：市集层必有一间商店。
+  const branchDef = branch ? branchById(branch) : null;
+  placeShop(level, createRng(shopSeed), branchDef?.town ? 1 : 0.25);
   placeTraps(level, rng);
-  placeFeatures(level, rng);
+  placeFeatures(level, rng, gameSeed);
+  const graves = special?.graves ?? branchDef?.graves;
+  const fountains = special?.fountains ?? branchDef?.fountains;
+  if (graves) {
+    placeExtraFeatures(level, rng, graves, T.GRAVE, 'GRAVE');
+  }
+  if (fountains) {
+    placeExtraFeatures(level, rng, fountains, T.FOUNTAIN, 'FOUNTAIN');
+  }
   log.info(
-    `第 ${depth} 层生成完成：房间 ${level.rooms.length}、门 ${level.doors.size}、` +
+    `${label} 生成完成：房间 ${level.rooms.length}、门 ${level.doors.size}、` +
       `陷阱 ${level.traps.size}、设施 ${level.features.size}`,
     { up: level.up, down: level.down, start: level.start },
   );
@@ -684,6 +1017,7 @@ export function describeLevel(level: Level): {
   rooms: number;
   doors: number;
   traps: number;
+  special: string | null;
   up: { x: number; y: number } | null;
   down: { x: number; y: number } | null;
 } {
@@ -692,6 +1026,7 @@ export function describeLevel(level: Level): {
     rooms: level.rooms.length,
     doors: level.doors.size,
     traps: level.traps.size,
+    special: level.special ?? null,
     up: level.up,
     down: level.down,
   };

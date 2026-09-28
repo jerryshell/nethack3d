@@ -22,7 +22,7 @@ import type {
 import { createLogger, LOG_NS } from '../core/log';
 import { MKOBJ_PROBS } from '../core/constants';
 import { REAL_OBJECTS, objById, shuffleAppearances } from '../data/index';
-import { index } from './dungeon';
+import { inRoom, index, shopRoom } from './dungeon';
 import { T } from '../core/constants';
 
 const log = createLogger(LOG_NS.items);
@@ -48,7 +48,7 @@ export const UNKNOWN_CLASSES = new Set([
 /** 可随机出现的物品：生成概率大于 0，且不是占位条目或唯一任务物品。 */
 const SPAWNABLE = REAL_OBJECTS.filter((o) => o.prob > 0 && o.cls !== 'coin');
 
-const NEVER_SPAWN = new Set([
+export const NEVER_SPAWN = new Set([
   'AMULET_OF_YENDOR',
   'FAKE_AMULET_OF_YENDOR',
   'BELL_OF_OPENING',
@@ -157,6 +157,101 @@ export function spawnObjects(
 }
 
 // ---------------------------------------------------------------------------
+// 商店
+// ---------------------------------------------------------------------------
+
+/** 商店进货的类别权重：以武器、护甲、药水、卷轴为主。 */
+const SHOP_CLASS_PROBS: [ObjectClass, number][] = [
+  ['weapon', 12],
+  ['armor', 12],
+  ['potion', 16],
+  ['scroll', 14],
+  ['wand', 6],
+  ['ring', 4],
+  ['amulet', 2],
+  ['tool', 8],
+  ['food', 8],
+  ['gem', 4],
+];
+
+/**
+ * 商店售价：基础价加利润，利润随魅力变化（魅力越高越低）。
+ * 默认魅力 10 时就是基础价加三分之一。
+ */
+export function shopBuyPrice(item: ItemInstance, cha = 10): number {
+  const markup = Math.max(0.1, Math.min(1, 1 / 3 + (10 - cha) * 0.02));
+  return Math.max(1, Math.ceil((item.proto.cost || 0) * item.quantity * (1 + markup)));
+}
+
+/** 商店收购价：基础价一半，魅力高时卖得更贵，最低 1 枚金币。 */
+export function shopSellPrice(item: ItemInstance, cha = 10): number {
+  const rate = Math.max(0.2, Math.min(0.9, 0.5 + (cha - 10) * 0.02));
+  return Math.max(1, Math.floor((item.proto.cost || 0) * item.quantity * rate));
+}
+
+export function randomShopItem(
+  rng: Rng,
+  depth: number,
+  appearanceMap?: Map<string, string>,
+): ItemInstance | null {
+  const cls = rng.pickWeighted(
+    SHOP_CLASS_PROBS.map(([id, prob]) => ({ id, prob })),
+    'prob',
+  )?.id;
+  if (!cls) return null;
+  const proto = pickObjectType(rng, cls);
+  if (!proto) return null;
+  const appearance = appearanceMap?.get(proto.id) ?? proto.appr ?? null;
+  return makeItem(proto, rng, { appearance });
+}
+
+/**
+ * 给商店房间铺货。
+ *
+ * 房间内已生成的物品与金币都算店主的：金币收进钱箱，物品标记为未付款。
+ * 新货物撒在空地上，已存在物品堆的格子也会追加，重复利用同一批栈。
+ * 返回新增的货物数量。
+ */
+export function stockShop(
+  level: Level,
+  rng: Rng,
+  depth: number,
+  appearanceMap?: Map<string, string>,
+): number {
+  const room = shopRoom(level);
+  if (!room) return 0;
+  for (const pile of level.objects) {
+    if (!inRoom(room, pile.x, pile.y)) continue;
+    pile.items = pile.items.filter((item) => !item.gold);
+    for (const item of pile.items) item.unpaid = true;
+  }
+  // 只装金币的堆清空后不能留下空堆，不变量要求每堆至少一件物品。
+  level.objects = level.objects.filter((pile) => pile.items.length > 0);
+
+  const spots: { x: number; y: number }[] = [];
+  for (let x = room.lx; x <= room.hx; x++) {
+    for (let y = room.ly; y <= room.hy; y++) {
+      if (level.tiles[index(x, y)] === T.ROOM) spots.push({ x, y });
+    }
+  }
+  rng.shuffle(spots);
+  const target = Math.min(spots.length, 8 + rng.rn2(6) + Math.floor(depth / 4));
+  let placed = 0;
+  for (const spot of spots) {
+    if (placed >= target) break;
+    const item = randomShopItem(rng, depth, appearanceMap);
+    if (!item) continue;
+    item.unpaid = true;
+    const existing = level.objects.find((o) => o.x === spot.x && o.y === spot.y);
+    if (existing) existing.items.push(item);
+    else level.objects.push({ x: spot.x, y: spot.y, items: [item] });
+    placed++;
+  }
+  log.debug('商店铺货完成', { depth, room: room.index, placed, target });
+  return placed;
+}
+
+// ---------------------------------------------------------------------------
 // 鉴定与命名
 // ---------------------------------------------------------------------------
 
@@ -188,6 +283,10 @@ export function describeItem(item: ItemInstance): ItemDescription {
   const cls = proto.cls;
   if (item.gold || cls === 'coin') {
     return { qty: item.quantity, key: 'item.gold', vars: { n: item.quantity } };
+  }
+  // 职业神器有专属名字，与基础原型无关。
+  if (item.artifact) {
+    return { qty: item.quantity, key: 'item.artifact', vars: { artifact: item.artifact } };
   }
   if (item.known) {
     return {

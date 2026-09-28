@@ -56,11 +56,22 @@ export function luckBonus(luck: number): number {
   return Math.sign(luck) * Math.floor((Math.abs(luck) + 2) / 3);
 }
 
+/** 武器熟练度带来的命中加值：每两级 +1。 */
+export function skillHitBonus(level: number): number {
+  return Math.floor(level / 2);
+}
+
+/** 武器熟练度带来的伤害加值：每三级 +1。 */
+export function skillDamageBonus(level: number): number {
+  return Math.floor(level / 3);
+}
+
 /** 玩家攻击目标的命中判定；`target.ac` 为怪物护甲等级。 */
 export function heroHits(
   player: Player,
   target: Monster,
   rng: Rng,
+  bonus = 0,
 ): { hit: boolean; roll: number } {
   const tmp =
     1 +
@@ -69,6 +80,7 @@ export function heroHits(
     (player.hitInc ?? 0) +
     luckBonus(player.luck ?? 0) +
     player.level +
+    bonus +
     (target.asleep ? 2 : 0) +
     (target.fleeing ? 2 : 0);
   // NetHack 判定：命中值大于 rnd(20) 即命中。
@@ -78,8 +90,7 @@ export function heroHits(
   return { hit, roll: tmp };
 }
 
-/** 怪物第 `i` 次攻击的命中判定。 */
-export function monsterHits(
+/** 怪物第 `i` 次攻击的命中判定。 */ export function monsterHits(
   monster: Monster,
   player: Player,
   attackIndex: number,
@@ -152,4 +163,19 @@ export function xpForLevel(level: number): number {
 export function monsterDamage(monster: Monster, attack: MonsterAttack, rng: Rng): number {
   const [n, sides] = attack.dice;
   return rng.dice(n, sides);
+}
+
+/**
+ * 怪物对怪物的命中判定，移植 mhitm.c 的思路：
+ * `AC_VALUE(目标 AC) + 10 + 攻击者等级 > rnd(20 + 攻击序号)`。
+ */
+export function monsterHitsMonster(
+  attacker: Monster,
+  defender: Monster,
+  attackIndex: number,
+  rng: Rng,
+): boolean {
+  let tmp = acValue(defender.ac, rng) + 10 + (attacker.mlev ?? attacker.data.lvl);
+  if (tmp <= 0) tmp = 1;
+  return tmp > rng.rnd(20 + attackIndex);
 }

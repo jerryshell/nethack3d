@@ -29,11 +29,18 @@ import {
   testRng,
   walkableAt,
 } from './agent-lib';
+import type { Level as LevelType, MonsterData, ObjectData } from '../src/types';
 import { MAX_DEPTH } from '../src/game/session';
-import { index } from '../src/game/dungeon';
+import { index, inRoom, shopRoom } from '../src/game/dungeon';
+import { makeItem, shopBuyPrice, shopSellPrice } from '../src/game/items';
+import { addToInventory, wearItem } from '../src/game/inventory';
+import { clearBones, loadBones, saveBones } from '../src/game/bones';
+import { Monster } from '../src/game/monsters';
+import { monById, objById } from '../src/data/index';
+import { FEATURE_ACTIONS, type FeatureAction } from '../src/game/features';
 import { serializeSession, restoreSession } from '../src/game/save';
 import { computeFov } from '../src/game/fov';
-import { T } from '../src/core/constants';
+import { T, COLNO } from '../src/core/constants';
 
 /** 场景定义。 */
 export interface Scenario {
@@ -451,6 +458,25 @@ const items: Scenario = {
         checker.ok(player.hunger > before, '进食提升饱食度', `${before} -> ${player.hunger}`);
       }
 
+      // 充能卷轴：给法杖补能。
+      const wand = makeItem(objById.get('WAN_FIRE') as ObjectData, session.rng);
+      wand.charges = 1;
+      addToInventory(player, wand);
+      const wandCharges = (): number =>
+        player.inventory
+          .filter((i) => i.proto.cls === 'wand')
+          .reduce((n, i) => n + (i.charges ?? 0), 0);
+      const beforeCharges = wandCharges();
+      const charging = makeItem(objById.get('SCR_CHARGING') as ObjectData, session.rng);
+      charging.buc = 'uncursed';
+      addToInventory(player, charging);
+      session.useItem(charging);
+      checker.ok(
+        wandCharges() === beforeCharges + 2,
+        '充能卷轴给法杖补能',
+        `${beforeCharges} -> ${wandCharges()}`,
+      );
+
       checker.absorb('物品操作后状态自洽', checkInvariants(session), repro('items', seed));
 
       return {
@@ -462,6 +488,1251 @@ const items: Scenario = {
         },
         actions: 3,
         invariantChecks: 1,
+      };
+    }),
+};
+
+/** 商店：买入、卖出与付不起时的拒绝，并验证店主在受挑衅前保持和平。 */
+const shop: Scenario = {
+  name: 'shop',
+  description: '在商店里买入、卖出与付不起时拒绝交易',
+  run: (seed) =>
+    runScenario('shop', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(() => `${describeState(session)}\n商店层=${session.depth}`);
+
+      // 逐层查找商店：关卡生成是确定性的，同一颗种子结果一致。
+      let shopDepth = -1;
+      for (let depth = 2; depth < MAX_DEPTH && shopDepth < 0; depth++) {
+        if (shopRoom(session.getLevel(depth))) shopDepth = depth;
+      }
+      if (shopDepth < 0) {
+        checker.fail('存在带商店的楼层', `${MAX_DEPTH} 层内没有商店`, repro('shop', seed));
+        return { metrics: { depth: -1, buyPrice: 0, sellPrice: 0, stock: 0, gold: 0 } };
+      }
+      session.changeDepth(shopDepth, 'down');
+      const level = session.level;
+      const room = shopRoom(level);
+      if (!room) {
+        checker.fail('商店楼层有商店', `第 ${shopDepth} 层商店丢失`, repro('shop', seed));
+        return { metrics: { depth: shopDepth, buyPrice: 0, sellPrice: 0, stock: 0, gold: 0 } };
+      }
+
+      const keeper = level.monsters.find((m) => !m.dead && m.data.id === 'SHOPKEEPER');
+      checker.ok(!!keeper, '店主在场', '商店里没有店主', repro('shop', seed));
+
+      // 买入：带上足够的金币拾取一件货。
+      const pile = level.objects.find(
+        (p) => inRoom(room, p.x, p.y) && p.items.some((i) => i.unpaid),
+      );
+      const goods = pile?.items.find((i) => i.unpaid);
+      if (!pile || !goods) {
+        checker.fail('商店有货', '商店地面没有未付款商品', repro('shop', seed));
+        return { metrics: { depth: shopDepth, buyPrice: 0, sellPrice: 0, stock: 0, gold: 0 } };
+      }
+      const buyPrice = shopBuyPrice(goods, session.player.cha);
+      session.player.gold = buyPrice + 7;
+      teleportPlayer(session, pile.x, pile.y);
+      const goldBeforeBuy = session.player.gold;
+      const bought = session.pickupAction();
+      checker.ok(
+        bought.result === 'picked' && session.player.inventory.includes(goods),
+        '金币足够时买下商品',
+        `结果=${bought.result} 金币=${session.player.gold}`,
+        repro('shop', seed),
+      );
+      checker.ok(!goods.unpaid, '买入后结清货款', `unpaid=${goods.unpaid}`);
+      checker.ok(
+        goldBeforeBuy - session.player.gold === buyPrice,
+        '扣款等于标价',
+        `标价=${buyPrice} 扣款=${goldBeforeBuy - session.player.gold}`,
+      );
+
+      // 卖出：丢回店里，店主按半价收购。
+      const sellPrice = shopSellPrice(goods, session.player.cha);
+      const goldBeforeSell = session.player.gold;
+      session.useItem(goods, 'drop');
+      checker.ok(
+        session.player.gold === goldBeforeSell + sellPrice,
+        '卖出得到金币',
+        `${goldBeforeSell} -> ${session.player.gold}，报价=${sellPrice}`,
+      );
+      checker.ok(!!goods.unpaid, '卖出的物品重新变成店产', `unpaid=${goods.unpaid}`);
+
+      // 身无分文：拒绝拾取，物品留在原地。
+      session.player.gold = 0;
+      const broke = session.pickupAction();
+      checker.ok(
+        broke.result === 'picked' && broke.picked === 0,
+        '付不起时拒绝拾取',
+        `结果=${broke.result} picked=${broke.picked}`,
+        repro('shop', seed),
+      );
+      checker.ok(!session.player.inventory.includes(goods), '付不起的商品没进背包');
+      checker.ok(goods.unpaid === true, '付不起的商品保持未付款');
+
+      // 店主和平：清掉其它怪物贴身等待不应受伤；挑衅后转为敌对。
+      if (keeper) {
+        level.monsters = level.monsters.filter((m) => m === keeper);
+        const around = [
+          [-1, 0],
+          [1, 0],
+          [0, -1],
+          [0, 1],
+        ]
+          .map(([dx, dy]) => ({ x: keeper.x + dx, y: keeper.y + dy }))
+          .find((p) => walkableAt(level, p.x, p.y));
+        if (around) teleportPlayer(session, around.x, around.y);
+        const hpBefore = session.player.hp;
+        for (let i = 0; i < 6; i++) session.wait();
+        checker.ok(
+          session.player.hp === hpBefore,
+          '店主在受挑衅前不攻击',
+          `生命=${session.player.hp}`,
+        );
+        session.attackMonster(keeper);
+        checker.ok(keeper.angry, '挑衅后店主转为敌对', `angry=${keeper.angry}`);
+      }
+
+      checker.absorb('商店操作后状态自洽', checkInvariants(session), repro('shop', seed));
+
+      return {
+        metrics: {
+          depth: shopDepth,
+          buyPrice,
+          sellPrice,
+          stock: level.objects.filter((p) => inRoom(room, p.x, p.y)).length,
+          gold: session.player.gold,
+        },
+        actions: 3 + 6,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 特殊攻击：偷窃、石化、反射与被动攻击在会话里真实结算。 */
+const special: Scenario = {
+  name: 'special',
+  description: '结算偷窃、石化、反射与被动攻击，检查装备与状态自洽',
+  run: (seed) =>
+    runScenario('special', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      /** 把一只真实怪物放到玩家身边，提高等级保证命中。 */
+      const place = (id: string): Monster | null => {
+        const data = monById.get(id);
+        if (!data) return null;
+        const spot = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]
+          .map(([dx, dy]) => ({ x: player.x + dx, y: player.y + dy }))
+          .find(
+            (p) =>
+              walkableAt(level, p.x, p.y) &&
+              !level.monsters.some((m) => m.x === p.x && m.y === p.y),
+          );
+        if (!spot) return null;
+        const mon = new Monster(data, spot.x, spot.y, session.rng);
+        mon.mlev = 40;
+        mon.asleep = false;
+        level.monsters.push(mon);
+        return mon;
+      };
+
+      // 偷窃：装备中的物品也可能被拿走，槽位不能留下悬空引用。
+      const nymph = place('WOOD_NYMPH');
+      checker.ok(!!nymph, '放得下林中仙女', '玩家周围没有空位', repro('special', seed));
+      if (nymph) {
+        const before = player.inventory.length;
+        session.monsterAttack(nymph);
+        checker.ok(
+          player.inventory.length < before,
+          '林中仙女偷走物品',
+          `背包 ${before} -> ${player.inventory.length}`,
+          repro('special', seed),
+        );
+      }
+
+      // 石化：先用完全治疗药水解开，状态必须复位。
+      const cock = place('COCKATRICE');
+      if (cock) {
+        session.monsterAttack(cock);
+        checker.ok(
+          player.petrifying > 0,
+          '鸡蛇让玩家开始石化',
+          `petrifying=${player.petrifying}`,
+          repro('special', seed),
+        );
+        const potion = makeItem(objById.get('POT_FULL_HEALING') as ObjectData, session.rng);
+        addToInventory(player, potion);
+        session.useItem(potion);
+        checker.ok(player.petrifying === 0 && !session.dead, '完全治疗药水解石化');
+      }
+
+      // 反射：戴上反射护身符，电系攻击应弹回且玩家无伤。
+      const amulet = makeItem(objById.get('AMULET_OF_REFLECTION') as ObjectData, session.rng);
+      addToInventory(player, amulet);
+      wearItem(player, amulet);
+      const sphere = place('SHOCKING_SPHERE');
+      if (sphere) {
+        sphere.mhp = sphere.mhpmax = 200;
+        const hp = player.hp;
+        session.monsterAttack(sphere);
+        checker.ok(
+          player.hp === hp && sphere.mhp < 200,
+          '电击被反射给攻击者',
+          `玩家 ${hp} -> ${player.hp}，球体 ${sphere.mhp}/200`,
+          repro('special', seed),
+        );
+      }
+
+      // 被动攻击：近战命中酸块会被灼伤。
+      player.hitInc = 100;
+      const blob = place('ACID_BLOB');
+      if (blob) {
+        // 留出足够生命，让它接下这一击并触发被动酸液。
+        blob.mhp = blob.mhpmax = 999;
+        const hp = player.hp;
+        session.attackMonster(blob);
+        checker.ok(
+          player.hp < hp,
+          '命中酸液团触发被动酸液',
+          `生命 ${hp} -> ${player.hp}`,
+          repro('special', seed),
+        );
+      }
+
+      checker.absorb('特殊攻击后状态自洽', checkInvariants(session), repro('special', seed));
+
+      return {
+        metrics: {
+          inventory: player.inventory.length,
+          petrifying: player.petrifying,
+          sphereHp: sphere?.mhp ?? -1,
+          hp: player.hp,
+        },
+        actions: 4,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 祈祷：阵营记录随击杀变化，祈祷结果随神坛与冷却变化。 */
+const prayer: Scenario = {
+  name: 'prayer',
+  description: '击杀改变阵营记录，在祭坛上祈祷并验证惩罚与冷却',
+  run: (seed) =>
+    runScenario('prayer', seed, (checker) => {
+      const session = newSession(seed);
+      const { player } = session;
+      checker.attachDump(() => describeState(session));
+
+      // 击杀一只敌对怪物，阵营记录应上升。
+      const imp = monById.get('IMP') as MonsterData;
+      const mon = new Monster(imp, player.x + 1, player.y, session.rng);
+      mon.mlev = 12;
+      session.slayMonster(mon, true);
+      checker.ok(
+        player.alignRecord > 0,
+        '击杀敌对怪物提高阵营记录',
+        `record=${player.alignRecord}`,
+        repro('prayer', seed),
+      );
+
+      // 找一座祭坛，改写成玩家阵营，站上去祈祷。
+      let foundAltar = false;
+      for (let depth = 2; depth < MAX_DEPTH && !foundAltar; depth++) {
+        const level = session.getLevel(depth);
+        for (const [i, feature] of level.features) {
+          if (feature.type !== 'ALTAR') continue;
+          session.changeDepth(depth, 'down');
+          session.level.monsters = [];
+          player.hunger = 2000;
+          feature.align = player.align;
+          player.x = i % COLNO;
+          player.y = Math.floor(i / COLNO);
+          session.refreshFov();
+          foundAltar = true;
+          break;
+        }
+      }
+      checker.ok(
+        foundAltar,
+        `找到祭坛（第 ${session.depth} 层）`,
+        `${MAX_DEPTH} 层内没有祭坛`,
+        repro('prayer', seed),
+      );
+      if (foundAltar) {
+        player.hp = 1;
+        player.blind = 5;
+        player.petrifying = 3;
+        session.pray();
+        checker.ok(player.hp === player.maxHp, '祈祷满血', `hp=${player.hp}`);
+        checker.ok(player.blind === 0 && player.petrifying === 0, '祈祷清除异常状态');
+        checker.ok(player.prayerTimeout >= 300, '祈祷写入冷却', `timeout=${player.prayerTimeout}`);
+        // 冷却中再次祈祷应受罚。
+        const hpBefore = player.hp;
+        session.pray();
+        checker.ok(
+          player.hp < hpBefore,
+          '冷却中祈祷受伤',
+          `${hpBefore} -> ${player.hp}`,
+          repro('prayer', seed),
+        );
+      }
+
+      checker.absorb('祈祷后状态自洽', checkInvariants(session), repro('prayer', seed));
+
+      return {
+        metrics: { record: player.alignRecord, timeout: player.prayerTimeout, hp: player.hp },
+        actions: 2,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 变形：喝药水变成怪物形态，战斗后等它自动恢复。 */
+const poly: Scenario = {
+  name: 'poly',
+  description: '喝变形药水并以怪物形态战斗，验证到期恢复与状态自洽',
+  run: (seed) =>
+    runScenario('poly', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      level.monsters = [];
+      const potion = makeItem(objById.get('POT_POLYMORPH') as ObjectData, session.rng);
+      addToInventory(player, potion);
+      session.useItem(potion);
+      checker.ok(!!player.form, '变形药水生效', `form=${player.form?.id}`, repro('poly', seed));
+
+      // 以怪物形态战斗：造一只耐打的怪物，连续攻击。
+      const ant = monById.get('GIANT_ANT') as MonsterData;
+      const foe = new Monster(ant, player.x + 1, player.y, session.rng);
+      foe.asleep = false;
+      foe.mhp = foe.mhpmax = 999;
+      level.monsters = [foe];
+      player.hitInc = 100;
+      for (let i = 0; i < 5 && !session.dead; i++) session.attackMonster(foe);
+      checker.ok(foe.mhp < 999, '以怪物形态造成伤害', `hp=${foe.mhp}`, repro('poly', seed));
+      checker.absorb('变形战斗中状态自洽', checkInvariants(session), repro('poly', seed));
+
+      // 等变形结束：清场避免战斗，推完剩余回合。
+      level.monsters = [];
+      player.hunger = 2000;
+      const turns = player.form?.turns ?? 0;
+      for (let i = 0; i <= turns && player.form; i++) session.wait();
+      checker.ok(
+        player.form === null,
+        '变形到期恢复原形',
+        `form=${player.form?.id ?? '-'}`,
+        repro('poly', seed),
+      );
+
+      return {
+        metrics: { turns, hp: player.hp, kills: session.kills },
+        actions: 5 + turns,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 许愿：用魔杖许下一件物品，并验证未知愿望可以重试。 */
+const wish: Scenario = {
+  name: 'wish',
+  description: '用许愿魔杖兑现物品，验证匹配、重试与状态自洽',
+  run: (seed) =>
+    runScenario('wish', seed, (checker) => {
+      const session = newSession(seed);
+      const { player } = session;
+      checker.attachDump(() => describeState(session));
+
+      session.level.monsters = [];
+      const wand = makeItem(objById.get('WAN_WISHING') as ObjectData, session.rng);
+      addToInventory(player, wand);
+      session.useItem(wand, 'zap');
+      checker.ok(
+        session.pendingWishes === 1,
+        '许愿魔杖产生愿望',
+        `pending=${session.pendingWishes}`,
+        repro('wish', seed),
+      );
+      const bad = session.grantWish('banana sword');
+      checker.ok(!bad.ok && session.pendingWishes === 1, '未知愿望不消耗，可以重试');
+      const good = session.grantWish('potion of healing');
+      checker.ok(
+        good.ok && player.inventory.some((i) => i.proto.id === 'POT_HEALING'),
+        '愿望变成物品',
+        `pending=${session.pendingWishes}`,
+        repro('wish', seed),
+      );
+      checker.absorb('许愿后状态自洽', checkInvariants(session), repro('wish', seed));
+
+      return {
+        metrics: {
+          pending: session.pendingWishes,
+          inventory: player.inventory.length,
+          charges: wand.charges ?? 0,
+        },
+        actions: 3,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 宠物：开局自带的宠物跟随、参战，并随玩家换层。 */
+const pet: Scenario = {
+  name: 'pet',
+  description: '检查宠物的跟随、战斗与换层跟随',
+  run: (seed) =>
+    runScenario('pet', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      const pet = level.monsters.find((m) => m.tame);
+      checker.ok(!!pet, '新游戏自带宠物', '开局没有宠物', repro('pet', seed));
+
+      if (pet) {
+        // 跟随：把宠物放远，推怪物回合，看它是否靠近。
+        level.monsters = level.monsters.filter((m) => m.tame);
+        const spot = [
+          [5, 0],
+          [-5, 0],
+          [0, 5],
+          [0, -5],
+          [4, 0],
+          [-4, 0],
+          [0, 4],
+          [0, -4],
+        ]
+          .map(([dx, dy]) => ({ x: player.x + dx, y: player.y + dy }))
+          .find((p) => walkableAt(level, p.x, p.y));
+        if (spot) {
+          pet.x = spot.x;
+          pet.y = spot.y;
+          const before = Math.max(Math.abs(pet.x - player.x), Math.abs(pet.y - player.y));
+          for (let i = 0; i < 12; i++) session.monsterTurns();
+          const after = Math.max(Math.abs(pet.x - player.x), Math.abs(pet.y - player.y));
+          checker.ok(after < before, '宠物会靠近玩家', `${before} -> ${after}`, repro('pet', seed));
+        }
+
+        // 参战：放一只敌对怪物在宠物旁边。
+        const ant = new Monster(
+          monById.get('GIANT_ANT') as MonsterData,
+          pet.x + 1,
+          pet.y,
+          session.rng,
+        );
+        ant.asleep = false;
+        ant.mhp = ant.mhpmax = 60;
+        level.monsters.push(ant);
+        for (let i = 0; i < 30 && !ant.dead; i++) {
+          pet.mv += 12;
+          session.monsterAction(pet);
+        }
+        checker.ok(
+          ant.mhp < 60 || ant.dead,
+          '宠物会攻击敌对怪物',
+          `hp=${ant.mhp}`,
+          repro('pet', seed),
+        );
+
+        // 喂食：把宠物叫回身边，喂一份食物回血。
+        const spotAdj = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]
+          .map(([dx, dy]) => ({ x: player.x + dx, y: player.y + dy }))
+          .find(
+            (p) =>
+              walkableAt(level, p.x, p.y) &&
+              !level.monsters.some((m) => m !== pet && m.x === p.x && m.y === p.y),
+          );
+        checker.ok(!!spotAdj, '宠物身边有空位可喂食');
+        if (spotAdj) {
+          pet.x = spotAdj.x;
+          pet.y = spotAdj.y;
+          addToInventory(player, makeItem(objById.get('FOOD_RATION') as ObjectData, session.rng));
+          pet.mhp = 1;
+          session.feedPet();
+          checker.ok(pet.mhp > 1, '喂食恢复宠物生命', `hp=${pet.mhp}`);
+        }
+      }
+
+      // 换层跟随。
+      session.changeDepth(2, 'down');
+      checker.ok(
+        !!pet && session.level.monsters.includes(pet),
+        '宠物跟随换层',
+        `depth=${session.depth}`,
+        repro('pet', seed),
+      );
+
+      checker.absorb('宠物行动后状态自洽', checkInvariants(session), repro('pet', seed));
+
+      return {
+        metrics: {
+          pet: pet?.data.id ?? '无',
+          petHp: pet?.mhp ?? 0,
+          monsters: session.level.monsters.length,
+          depth: session.depth,
+        },
+        actions: 42,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 特殊楼层：走访大房间、美杜莎与大墓地，检查特殊标记与内容。 */
+const specialLevel: Scenario = {
+  name: 'special_level',
+  description: '走访大房间、美杜莎与大墓地，检查特殊标记与内容',
+  run: (seed) =>
+    runScenario('special_level', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(() => describeState(session));
+
+      const visit = (depth: number, id: string, check: (level: LevelType) => void): void => {
+        session.changeDepth(depth, 'down');
+        const level = session.level;
+        checker.ok(
+          level.special === id,
+          `第 ${depth} 层是 ${id}`,
+          `special=${level.special}`,
+          repro('special_level', seed),
+        );
+        check(level);
+        checker.absorb(
+          `第 ${depth} 层状态自洽`,
+          checkInvariants(session),
+          repro('special_level', seed),
+        );
+      };
+
+      visit(5, 'big_room', (level) => {
+        checker.ok(level.rooms.length === 1, '大房间只有一间', `rooms=${level.rooms.length}`);
+        checker.ok(level.doors.size === 0, '大房间没有门', `doors=${level.doors.size}`);
+      });
+      visit(8, 'oracle', (level) => {
+        checker.ok(
+          level.monsters.some((m) => m.data.id === 'ORACLE'),
+          '神谕在场',
+        );
+        const fountains = [...level.features.values()].filter((f) => f.type === 'FOUNTAIN').length;
+        checker.ok(fountains >= 3, '神谕所喷泉更多', `fountains=${fountains}`);
+        session.player.gold = 50;
+        session.consultOracle();
+        checker.ok(session.player.gold === 30, '咨询扣费', `gold=${session.player.gold}`);
+        checker.ok(
+          session.messages.some((m) => m.key === 'msg.oracleSays'),
+          '咨询给出提示',
+        );
+      });
+      visit(20, 'medusa', (level) => {
+        checker.ok(
+          level.monsters.some((m) => m.data.id === 'MEDUSA'),
+          '美杜莎在场',
+        );
+        const statues = level.objects
+          .flatMap((p) => p.items)
+          .filter((i) => i.proto.id === 'STATUE').length;
+        checker.ok(statues === 6, '雕像散落', `statues=${statues}`);
+      });
+      visit(25, 'valley', (level) => {
+        const spawned = level.monsters.filter((m) => !m.tame && m.data.id !== 'SHOPKEEPER');
+        checker.ok(
+          spawned.every((m) => m.data.flags.includes('M2_UNDEAD')),
+          '大墓地只有不死生物',
+        );
+      });
+      visit(27, 'castle', (level) => {
+        const ids = new Set(level.monsters.map((m) => m.data.id));
+        checker.ok(
+          ids.has('SOLDIER') && ids.has('CAPTAIN'),
+          '要塞有士兵把守',
+          [...ids].slice(0, 6).join('、'),
+        );
+        const wish = level.objects
+          .flatMap((p) => p.items)
+          .filter((i) => i.proto.id === 'WAN_WISHING').length;
+        checker.ok(wish === 1, '要塞有许愿魔杖', `wish=${wish}`);
+      });
+      visit(29, 'sanctum', (level) => {
+        const spawned = level.monsters.filter((m) => !m.tame && m.data.id !== 'SHOPKEEPER');
+        checker.ok(
+          spawned.length > 0 && spawned.every((m) => m.data.flags.includes('M2_DEMON')),
+          '圣所只有恶魔',
+          `${spawned.length} 只`,
+        );
+      });
+
+      return {
+        metrics: {
+          depth: session.depth,
+          special: session.level.special ?? '-',
+          monsters: session.level.monsters.length,
+        },
+        actions: 3,
+        invariantChecks: 3,
+      };
+    }),
+};
+
+/** 骨头文件：上一局死亡留下的遗物在下一局同层出现。 */
+const bones: Scenario = {
+  name: 'bones',
+  description: '记录死亡现场，在下一局同层发现遗物与幽灵',
+  run: (seed) =>
+    runScenario('bones', seed, (checker) => {
+      clearBones();
+      const first = newSession(seed);
+      const marker = makeItem(objById.get('LONG_SWORD') as ObjectData, first.rng);
+      addToInventory(first.player, marker);
+      saveBones(first);
+
+      const second = newSession(seed + 1);
+      const items = second.level.objects.flatMap((p) => p.items);
+      checker.ok(
+        items.some((i) => i.proto.id === 'LONG_SWORD'),
+        '下一局发现遗物',
+        `地面物品 ${items.length} 件`,
+        repro('bones', seed),
+      );
+      checker.ok(
+        second.level.monsters.some((m) => m.data.id === 'GHOST'),
+        '幽灵看守遗物',
+      );
+      checker.ok(loadBones() === null, '遗物取出后骨头文件清空');
+      checker.absorb('骨头楼层状态自洽', checkInvariants(second), repro('bones', seed));
+      clearBones();
+
+      return {
+        metrics: {
+          items: items.length,
+          ghost: second.level.monsters.filter((m) => m.data.id === 'GHOST').length,
+        },
+        actions: 0,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 分支地牢：从入口层进矿坑，走到最底层再回到主地牢。 */
+const mines: Scenario = {
+  name: 'mines',
+  description: '从入口层进入矿坑，走到最底层再回到主地牢',
+  run: (seed) =>
+    runScenario('mines', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(() => describeState(session));
+
+      // 先跳到入口层，再用真实移动踩上分支楼梯。
+      session.changeDepth(4, 'down');
+      const exit = session.level.stairs.find((st) => st.dir === 'branch');
+      checker.ok(!!exit, '入口层有矿坑楼梯', '', repro('mines', seed));
+      if (!exit)
+        return { metrics: { gold: 0, branch: 'main', depth: 4 }, actions: 0, invariantChecks: 0 };
+      const spot = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]
+        .map(([dx, dy]) => ({ x: exit.x + dx, y: exit.y + dy, dx, dy }))
+        .find(
+          (p) =>
+            walkableAt(session.level, p.x, p.y) &&
+            !session.level.monsters.some((m) => m.x === p.x && m.y === p.y),
+        );
+      checker.ok(!!spot, '分支楼梯旁有空位');
+      if (!spot)
+        return { metrics: { gold: 0, branch: 'main', depth: 4 }, actions: 0, invariantChecks: 0 };
+      teleportPlayer(session, spot.x, spot.y);
+      session.movePlayer(-spot.dx, -spot.dy);
+      checker.ok(
+        session.branch === 'mines' && session.depth === 1,
+        '踩楼梯进入矿坑',
+        `branch=${session.branch} depth=${session.depth}`,
+        repro('mines', seed),
+      );
+      checker.absorb('矿坑第一层状态自洽', checkInvariants(session), repro('mines', seed));
+
+      for (let depth = 2; depth <= 8; depth++) session.changeDepth(depth, 'down');
+      checker.ok(session.depth === 8 && !session.level.down, '矿坑底层没有下行楼梯');
+      const gold = session.level.objects
+        .flatMap((p) => p.items)
+        .filter((i) => i.gold)
+        .reduce((n, i) => n + i.quantity, 0);
+      checker.ok(gold >= 300, '底层宝藏更厚', `gold=${gold}`);
+      // 矿镇：底层是市集，必有商店与额外喷泉。
+      checker.ok(!!shopRoom(session.level), '矿镇有商店');
+      const mineFountains = [...session.level.features.values()].filter(
+        (f) => f.type === 'FOUNTAIN',
+      ).length;
+      checker.ok(mineFountains >= 3, '矿镇喷泉更多', `fountains=${mineFountains}`);
+      checker.absorb('矿坑底层状态自洽', checkInvariants(session), repro('mines', seed));
+
+      session.changeDepth(4, 'up', 'main');
+      checker.ok(
+        session.branch === 'main' && session.depth === 4,
+        '回到主地牢入口层',
+        `branch=${session.branch} depth=${session.depth}`,
+      );
+
+      return {
+        metrics: { gold, branch: session.branch, depth: session.depth },
+        actions: 8,
+        invariantChecks: 2,
+      };
+    }),
+};
+
+/** 祝福与诅咒：圣水祝福行囊，诅咒卷轴失效。 */
+const buc: Scenario = {
+  name: 'buc',
+  description: '用圣水祝福行囊，再验证诅咒物品与卷轴',
+  run: (seed) =>
+    runScenario('buc', seed, (checker) => {
+      const session = newSession(seed);
+      const { player } = session;
+      checker.attachDump(() => describeState(session));
+
+      const water = makeItem(objById.get('POT_WATER') as ObjectData, session.rng);
+      water.buc = 'blessed';
+      addToInventory(player, water);
+      session.useItem(water);
+      checker.ok(
+        player.inventory.every((i) => i.buc === 'blessed'),
+        '圣水祝福整包物品',
+        '',
+        repro('buc', seed),
+      );
+
+      // 祝福状态下读诅咒卷轴应当失效。
+      const scr = makeItem(objById.get('SCR_IDENTIFY') as ObjectData, session.rng);
+      scr.buc = 'cursed';
+      addToInventory(player, scr);
+      const r = session.useItem(scr);
+      checker.ok(r.key === 'use.badScroll', '诅咒卷轴失效', `key=${r.key}`);
+      checker.absorb('祝福操作后状态自洽', checkInvariants(session), repro('buc', seed));
+
+      return {
+        metrics: { items: player.inventory.length, luck: player.luck },
+        actions: 2,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 巫妖塔：从第 16 层进入，4 层不死主题，底层有首领与财富。 */
+const vlad: Scenario = {
+  name: 'vlad',
+  description: '进入巫妖塔，走到最底层再回到主地牢',
+  run: (seed) =>
+    runScenario('vlad', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(() => describeState(session));
+
+      session.changeDepth(16, 'down');
+      const exit = session.level.stairs.find((st) => st.dir === 'branch' && st.branch === 'vlad');
+      checker.ok(!!exit, '第 16 层有巫妖塔楼梯', '', repro('vlad', seed));
+      if (!exit) return { metrics: { gold: 0, depth: 0, boss: 0 }, actions: 0, invariantChecks: 0 };
+
+      session.changeDepth(1, 'down', 'vlad');
+      checker.ok(
+        session.branch === 'vlad',
+        '进入巫妖塔',
+        `branch=${session.branch}`,
+        repro('vlad', seed),
+      );
+      checker.absorb('巫妖塔第一层状态自洽', checkInvariants(session), repro('vlad', seed));
+
+      for (let depth = 2; depth <= 4; depth++) session.changeDepth(depth, 'down');
+      const boss = session.level.monsters.some((m) => m.data.id === 'VAMPIRE_LEADER');
+      const gold = session.level.objects
+        .flatMap((p) => p.items)
+        .filter((i) => i.gold)
+        .reduce((n, i) => n + i.quantity, 0);
+      checker.ok(boss, '巫妖塔底层有首领');
+      checker.ok(gold >= 400, '巫妖塔底层有厚宝藏', `gold=${gold}`);
+      checker.absorb('巫妖塔底层状态自洽', checkInvariants(session), repro('vlad', seed));
+
+      session.changeDepth(16, 'up', 'main');
+      checker.ok(
+        session.branch === 'main' && session.depth === 16,
+        '从巫妖塔回到主地牢',
+        `branch=${session.branch} depth=${session.depth}`,
+      );
+
+      return {
+        metrics: { gold, depth: session.depth, boss: boss ? 1 : 0 },
+        actions: 6,
+        invariantChecks: 2,
+      };
+    }),
+};
+
+/** 投掷：向视野内的怪物投出武器，物品落在目标格。 */
+const throwing: Scenario = {
+  name: 'throw',
+  description: '投掷武器与射击，检查消耗与掉落',
+  run: (seed) =>
+    runScenario('throw', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      const data = monById.get('GIANT_ANT') as MonsterData;
+      const target = new Monster(data, player.x + 3, player.y, session.rng);
+      target.asleep = false;
+      target.mhp = target.mhpmax = 60;
+      level.monsters = [target];
+      session.refreshFov();
+      player.hitInc = 100;
+
+      const sword = makeItem(objById.get('LONG_SWORD') as ObjectData, session.rng);
+      addToInventory(player, sword);
+      session.throwItem(sword);
+      checker.ok(target.mhp < 60, '投掷造成伤害', `hp=${target.mhp}`, repro('throw', seed));
+      checker.ok(
+        level.objects.some((p) => p.items.includes(sword)),
+        '投掷物落在地上',
+      );
+      checker.absorb('投掷后状态自洽', checkInvariants(session), repro('throw', seed));
+
+      return {
+        metrics: { hp: target.mhp, piles: level.objects.length },
+        actions: 1,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 容器：把物品放进箱子再取出。 */
+const container: Scenario = {
+  name: 'container',
+  description: '把物品放进箱子再取出，检查内容与状态',
+  run: (seed) =>
+    runScenario('container', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      const chest = makeItem(objById.get('CHEST') as ObjectData, session.rng);
+      addToInventory(player, chest);
+      const gem = makeItem(objById.get('DIAMOND') as ObjectData, session.rng);
+      addToInventory(player, gem);
+
+      session.putInContainer(gem, chest);
+      checker.ok(
+        !player.inventory.includes(gem) && chest.contents?.includes(gem) === true,
+        '宝石放进箱子',
+        `contents=${chest.contents?.length ?? 0}`,
+        repro('container', seed),
+      );
+      session.openContainer(chest);
+      checker.ok(player.inventory.includes(gem), '宝石取回背包');
+      checker.absorb('容器操作后状态自洽', checkInvariants(session), repro('container', seed));
+
+      // 地面容器：搜划把内容倒在地上。
+      const groundChest = makeItem(objById.get('CHEST') as ObjectData, session.rng);
+      const rock = makeItem(objById.get('ROCK') as ObjectData, session.rng);
+      groundChest.contents = [rock];
+      const existing = level.objects.find((p) => p.x === player.x && p.y === player.y);
+      if (existing) existing.items.push(groundChest);
+      else level.objects.push({ x: player.x, y: player.y, items: [groundChest] });
+      session.lootContainer();
+      checker.ok(
+        level.objects.flatMap((p) => p.items).includes(rock),
+        '搜划地面容器取到内容',
+        `地面堆=${level.objects.length}`,
+        repro('container', seed),
+      );
+
+      return {
+        metrics: { contents: chest.contents?.length ?? 0, inventory: player.inventory.length },
+        actions: 3,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 骑乘：骑上驯服的小马，冲锋攻击后下马。 */
+const ride: Scenario = {
+  name: 'ride',
+  description: '骑上宠物战斗与移动，再下马',
+  run: (seed) =>
+    runScenario('ride', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      level.monsters = [];
+      const spot = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]
+        .map(([dx, dy]) => ({ x: player.x + dx, y: player.y + dy }))
+        .find((p) => walkableAt(level, p.x, p.y));
+      checker.ok(!!spot, '玩家身边有空位');
+      if (!spot)
+        return {
+          metrics: { ride: 0, monsters: 0, depth: session.depth },
+          actions: 0,
+          invariantChecks: 0,
+        };
+
+      const pony = new Monster(monById.get('PONY') as MonsterData, spot.x, spot.y, session.rng);
+      pony.tame = true;
+      level.monsters.push(pony);
+      checker.ok(session.canMount() === pony, '可以骑乘身边的宠物');
+      session.mountPet();
+      checker.ok(session.ride === pony, '骑乘生效');
+
+      const ant = new Monster(monById.get('GIANT_ANT') as MonsterData, spot.x, spot.y, session.rng);
+      ant.asleep = false;
+      ant.mhp = ant.mhpmax = 999;
+      level.monsters.push(ant);
+      player.hitInc = 100;
+      session.attackMonster(ant);
+      checker.ok(
+        session.messages.some((m) => m.key === 'msg.mountStrike'),
+        '骑乘攻击有冲锋伤害',
+        `hp=${ant.mhp}`,
+        repro('ride', seed),
+      );
+
+      session.dismount();
+      checker.ok(session.ride === null && level.monsters.includes(pony), '下马后坐骑回到地图');
+      checker.absorb('骑乘后状态自洽', checkInvariants(session), repro('ride', seed));
+
+      return {
+        metrics: {
+          ride: session.ride ? 1 : 0,
+          monsters: level.monsters.length,
+          depth: session.depth,
+        },
+        actions: 3,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 武器技能：连续命中同一只怪物，熟练度成长。 */
+const skill: Scenario = {
+  name: 'skill',
+  description: '连续命中同一只怪物，检查熟练度成长',
+  run: (seed) =>
+    runScenario('skill', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      const data = monById.get('GIANT_ANT') as MonsterData;
+      const ant = new Monster(data, player.x + 1, player.y, session.rng);
+      ant.asleep = false;
+      ant.mhp = ant.mhpmax = 999;
+      level.monsters = [ant];
+      session.refreshFov();
+      player.hitInc = 100;
+      const skillId = player.weapon?.proto.skill ?? '';
+      for (let i = 0; i < 10 && !session.dead; i++) session.attackMonster(ant);
+      checker.ok(
+        (player.skillUses[skillId] ?? 0) >= 8,
+        '命中累计使用次数',
+        `uses=${player.skillUses[skillId] ?? 0}`,
+        repro('skill', seed),
+      );
+      checker.ok(
+        (player.skillLevels[skillId] ?? 0) >= 1,
+        '熟练度提升',
+        `level=${player.skillLevels[skillId] ?? 0}`,
+      );
+
+      // 法术流派：学习法术书并连续施法；先清场，避免被反击打断。
+      level.monsters = [];
+      const book = makeItem(objById.get('SPE_FORCE_BOLT') as ObjectData, session.rng);
+      addToInventory(player, book);
+      player.knownSpells.push('SPE_FORCE_BOLT');
+      const spellSkill = book.proto.spellClass ?? '';
+      let successes = 0;
+      for (let i = 0; i < 60 && successes < 8; i++) {
+        player.maxPw = Math.max(player.maxPw, 500);
+        player.pw = 500;
+        const before = player.skillUses[spellSkill] ?? 0;
+        session.castSpell(book);
+        if ((player.skillUses[spellSkill] ?? 0) > before) successes++;
+      }
+      checker.ok(
+        (player.skillLevels[spellSkill] ?? 0) >= 1,
+        '法术流派熟练度提升',
+        `level=${player.skillLevels[spellSkill] ?? 0}`,
+        repro('skill', seed),
+      );
+      checker.absorb('技能成长后状态自洽', checkInvariants(session), repro('skill', seed));
+
+      return {
+        metrics: {
+          uses: player.skillUses[skillId] ?? 0,
+          level: player.skillLevels[skillId] ?? 0,
+          spellLevel: player.skillLevels[spellSkill] ?? 0,
+        },
+        actions: 10,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 职业神器：圣所放置本职业的神器。 */
+const artifact: Scenario = {
+  name: 'artifact',
+  description: '到圣所拿到本职业神器，检查名字与附魔',
+  run: (seed) =>
+    runScenario('artifact', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(() => describeState(session));
+
+      session.changeDepth(29, 'down');
+      const found = session.level.objects.flatMap((p) => p.items).find((i) => i.artifact);
+      checker.ok(!!found, '圣所放着职业神器', '', repro('artifact', seed));
+      checker.ok(found?.known === true, '神器已鉴定');
+      checker.absorb('神器楼层状态自洽', checkInvariants(session), repro('artifact', seed));
+
+      return {
+        metrics: { artifact: found?.artifact ?? '-', enchant: found?.enchant ?? 0 },
+        actions: 1,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 远程吐息：红龙在远处喷火。 */
+const breath: Scenario = {
+  name: 'breath',
+  description: '红龙在远处吐息，检查远程攻击与状态自洽',
+  run: (seed) =>
+    runScenario('breath', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      player.maxHp = 300;
+      player.hp = 300;
+      const spot = [
+        [4, 0],
+        [-4, 0],
+        [0, 4],
+        [0, -4],
+      ]
+        .map(([dx, dy]) => ({ x: player.x + dx, y: player.y + dy }))
+        .find((p) => walkableAt(level, p.x, p.y));
+      checker.ok(!!spot, '龙的位置可用');
+      if (!spot) return { metrics: { hp: player.hp, dragonHp: 0 }, actions: 0, invariantChecks: 0 };
+
+      const dragon = new Monster(
+        monById.get('RED_DRAGON') as MonsterData,
+        spot.x,
+        spot.y,
+        session.rng,
+      );
+      dragon.asleep = false;
+      level.monsters = [dragon];
+      session.refreshFov();
+
+      let hurt = false;
+      for (let i = 0; i < 60 && !hurt; i++) {
+        const hp = player.hp;
+        session.monsterAction(dragon);
+        if (player.hp < hp) hurt = true;
+        else {
+          dragon.x = spot.x;
+          dragon.y = spot.y;
+        }
+      }
+      checker.ok(hurt, '红龙在远处吐息', `hp=${player.hp}`, repro('breath', seed));
+      checker.absorb('吐息后状态自洽', checkInvariants(session), repro('breath', seed));
+
+      return {
+        metrics: { hp: player.hp, dragonHp: dragon.mhp },
+        actions: 60,
+        invariantChecks: 1,
+      };
+    }),
+};
+
+/** 呼救：醒来的怪物会唤醒附近同伴。 */
+const rally: Scenario = {
+  name: 'rally',
+  description: '怪物醒来后唤醒附近同伴',
+  run: (seed) =>
+    runScenario('rally', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      const spots = [
+        [2, 0],
+        [-2, 0],
+        [0, 2],
+        [0, -2],
+        [3, 0],
+        [-3, 0],
+        [0, 3],
+        [0, -3],
+      ]
+        .map(([dx, dy]) => ({ x: player.x + dx, y: player.y + dy }))
+        .filter((p) => walkableAt(level, p.x, p.y));
+      checker.ok(spots.length >= 2, '玩家周围有空地');
+      if (spots.length < 2) return { metrics: { woke: 0 }, actions: 0, invariantChecks: 0 };
+
+      const data = monById.get('GIANT_ANT') as MonsterData;
+      const sleeper = new Monster(data, spots[0].x, spots[0].y, session.rng);
+      sleeper.asleep = true;
+      const buddy = new Monster(data, spots[1].x, spots[1].y, session.rng);
+      buddy.asleep = true;
+      level.monsters = [sleeper, buddy];
+      session.refreshFov();
+
+      for (let i = 0; i < 80 && sleeper.asleep; i++) session.monsterAction(sleeper);
+      const woke = sleeper.asleep || buddy.asleep ? 0 : 1;
+      checker.ok(
+        woke === 1,
+        '醒来的怪物唤醒同伴',
+        `sleeper=${sleeper.asleep} buddy=${buddy.asleep}`,
+        repro('rally', seed),
+      );
+      checker.absorb('呼救后状态自洽', checkInvariants(session), repro('rally', seed));
+
+      return { metrics: { woke }, actions: 80, invariantChecks: 1 };
+    }),
+};
+
+/** 重伤逃跑：低血量怪物转身逃走。 */
+const flee: Scenario = {
+  name: 'flee',
+  description: '重伤的怪物转身逃跑',
+  run: (seed) =>
+    runScenario('flee', seed, (checker) => {
+      const session = newSession(seed);
+      const { player, level } = session;
+      checker.attachDump(() => describeState(session));
+
+      player.maxHp = 200;
+      player.hp = 200;
+      const spot = [
+        [2, 0],
+        [-2, 0],
+        [0, 2],
+        [0, -2],
+      ]
+        .map(([dx, dy]) => ({ x: player.x + dx, y: player.y + dy }))
+        .find((p) => walkableAt(level, p.x, p.y));
+      checker.ok(!!spot, '玩家周围有空地');
+      if (!spot) return { metrics: { fled: 0 }, actions: 0, invariantChecks: 0 };
+
+      const ant = new Monster(monById.get('GIANT_ANT') as MonsterData, spot.x, spot.y, session.rng);
+      ant.asleep = false;
+      ant.mhp = 1;
+      ant.mhpmax = 40;
+      level.monsters = [ant];
+      for (let i = 0; i < 40 && !ant.fleeing; i++) session.monsterAction(ant);
+      checker.ok(
+        ant.fleeing,
+        '重伤的怪物会逃跑',
+        `hp=${ant.mhp}/${ant.mhpmax}`,
+        repro('flee', seed),
+      );
+      checker.absorb('逃跑后状态自洽', checkInvariants(session), repro('flee', seed));
+
+      return { metrics: { fled: ant.fleeing ? 1 : 0 }, actions: 40, invariantChecks: 1 };
+    }),
+};
+
+/** 地形设施：把喷泉喝干、挖开坟墓、坐一次王座、踹坏水槽。 */
+const feature: Scenario = {
+  name: 'feature',
+  description: '与喷泉、水槽、坟墓、王座互动，检查效果与设施状态',
+  run: (seed) =>
+    runScenario('feature', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(() => describeState(session));
+
+      // 逐层扫描，记录每类设施第一次出现的位置。
+      const found: { kind: string; action: FeatureAction; depth: number; tile: number }[] = [];
+      for (let depth = 2; depth < MAX_DEPTH; depth++) {
+        const level = session.getLevel(depth);
+        for (const [tileKey, def] of Object.entries(FEATURE_ACTIONS)) {
+          if (!def || found.some((f) => f.kind === def.kind)) continue;
+          const tileType = Number(tileKey);
+          for (const [i] of level.features) {
+            if (level.tiles[i] === tileType) {
+              found.push({ kind: def.kind, action: def.action, depth, tile: i });
+              break;
+            }
+          }
+        }
+      }
+      checker.ok(
+        found.length === 4,
+        '四种设施各找到一处',
+        `找到 ${found.length} 种`,
+        repro('feature', seed),
+      );
+
+      let effects = 0;
+      let terminal = 0;
+      for (const target of found) {
+        session.changeDepth(target.depth, 'down');
+        // 隔离测试：不让本层怪物干扰回合结算，现身的怪物也在每次动作后移除。
+        session.level.monsters = [];
+        session.player.hunger = 2000;
+        session.player.hp = session.player.maxHp;
+        const x = target.tile % COLNO;
+        const y = Math.floor(target.tile / COLNO);
+        teleportPlayer(session, x, y);
+        for (let n = 0; n < 300; n++) {
+          const result = session.useFeature(target.action);
+          if (result.key) effects++;
+          // 现身的怪物不参与后续回合。
+          session.level.monsters = [];
+          const state = session.level.features.get(target.tile);
+          if (!state || state.depleted || state.used) break;
+        }
+        const state = session.level.features.get(target.tile);
+        if (!state || state.depleted || state.used) terminal++;
+        checker.ok(
+          !state || !!state.depleted || !!state.used,
+          `${target.kind} 达到失效或使用状态`,
+          `状态=${JSON.stringify(state)}`,
+          repro('feature', seed),
+        );
+        checker.ok(
+          walkableAt(session.level, x, y),
+          `${target.kind} 所在格仍可通行`,
+          `瓦片=${session.level.tiles[target.tile]}`,
+        );
+        checker.absorb(
+          `${target.kind} 互动后状态自洽`,
+          checkInvariants(session),
+          repro('feature', seed),
+        );
+      }
+
+      return {
+        metrics: { kinds: found.length, effects, terminal, depth: session.depth },
+        actions: 4 + effects,
+        invariantChecks: found.length,
       };
     }),
 };
@@ -602,12 +1873,21 @@ const victory: Scenario = {
       teleportPlayer(session, amulet.x, amulet.y);
       session.pickupAction();
 
-      checker.ok(session.victory, '拾取护身符后标记通关', `victory=${session.victory}`);
       checker.ok(
-        session.player.inventory.some((i) => i.proto.id === 'AMULET_OF_YENDOR'),
-        '护身符进入背包',
-        `背包=${session.player.inventory.map((i) => i.proto.id).join(',')}`,
+        !session.victory && session.player.inventory.some((i) => i.proto.id === 'AMULET_OF_YENDOR'),
+        '拾取护身符后尚未通关，需带回地面',
+        `victory=${session.victory}`,
       );
+      checker.ok(
+        session.messages.some((m) => m.key === 'msg.amuletTaken'),
+        '拾取时提示需要回到地面',
+      );
+
+      // 一路爬回第 1 层。
+      for (let depth = MAX_DEPTH - 1; depth >= 1; depth--) session.changeDepth(depth, 'up');
+      const hunts = session.messages.filter((m) => m.key === 'msg.wizardComes').length;
+      checker.ok(hunts >= 2, '夺宝后巫师一路追击', `come=${hunts}`, repro('victory', seed));
+      checker.ok(session.victory, '带着护身符回到第 1 层即通关', `victory=${session.victory}`);
       checker.ok(
         session.messages.some((m) => m.key === 'msg.victory'),
         '记录通关消息',
@@ -619,8 +1899,8 @@ const victory: Scenario = {
       checker.absorb('通关后状态自洽', checkInvariants(session), repro('victory', seed));
 
       return {
-        metrics: { depth: session.depth, turn: session.turn, victory: session.victory },
-        actions: 1,
+        metrics: { depth: session.depth, turn: session.turn, victory: session.victory, hunts },
+        actions: MAX_DEPTH,
         invariantChecks: 1,
       };
     }),
@@ -730,7 +2010,38 @@ const fov: Scenario = {
 
 /** 全部场景，按字母序执行以便输出稳定。 */
 export const SCENARIOS: Record<string, Scenario> = Object.fromEntries(
-  [boot, combat, death, descend, fov, hunger, items, save, victory, walk]
+  [
+    artifact,
+    bones,
+    boot,
+    breath,
+    buc,
+    combat,
+    container,
+    death,
+    descend,
+    feature,
+    flee,
+    fov,
+    hunger,
+    items,
+    mines,
+    pet,
+    poly,
+    prayer,
+    rally,
+    ride,
+    save,
+    shop,
+    skill,
+    special,
+    specialLevel,
+    throwing,
+    victory,
+    vlad,
+    walk,
+    wish,
+  ]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((s) => [s.name, s]),
 );

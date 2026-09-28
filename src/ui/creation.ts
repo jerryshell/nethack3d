@@ -173,6 +173,9 @@ export function createCreationScreen({ onStart, onBack }: CreationScreenOptions)
 
     // --- 操作按钮 ---
     const actions = div('creation-actions');
+    const seedLine = document.createElement('span');
+    seedLine.className = 'creation-seed muted';
+    seedLine.textContent = t('creation.seed', { seed: state.seed });
     const reroll = button('creation.reroll', 'btn', () => {
       state.seed = (Math.random() * 0x7fffffff) | 0;
       roll();
@@ -201,7 +204,7 @@ export function createCreationScreen({ onStart, onBack }: CreationScreenOptions)
         attributes: state.attributes as Attributes,
       });
     });
-    actions.append(begin, reroll, random, back);
+    actions.append(seedLine, begin, reroll, random, back);
     panel.append(actions);
 
     applyI18n(panel);

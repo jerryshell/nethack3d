@@ -12,6 +12,7 @@ function resolveItemVars(vars: Record<string, unknown>): Record<string, string |
   const out: Record<string, string | number> = {};
   for (const [key, value] of Object.entries(vars ?? {})) {
     if (key === 'name') out.name = objectName(value as string);
+    else if (key === 'artifact') out.name = t(`artifact.${value}`);
     else if (key === 'apprId') out.appr = appearanceName(value as string);
     else out[key] = String(value);
   }

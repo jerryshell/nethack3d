@@ -344,10 +344,117 @@ async function main(): Promise<void> {
       typeof guideData.objective === 'string' && guideData.objective.length > 4,
       String(guideData.objective ?? ''),
     );
+
+    // 小地图：画布存在且已经画上内容。
+    const minimapProbe = evaluate(
+      session,
+      `(() => {
+        const canvas = document.querySelector('.hud-minimap canvas');
+        if (!canvas) return JSON.stringify({ ok: false, painted: 0, w: 0, h: 0 });
+        const ctx = canvas.getContext('2d');
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let painted = 0;
+        for (let i = 3; i < data.length; i += 4) if (data[i] > 0) painted++;
+        return JSON.stringify({ ok: true, painted, w: canvas.width, h: canvas.height });
+      })()`,
+    );
+    const mm = (minimapProbe.value ?? {}) as {
+      ok?: boolean;
+      painted?: number;
+      w?: number;
+      h?: number;
+    };
+    record(
+      '小地图已绘制',
+      mm.ok === true && (mm.painted ?? 0) > 20,
+      `${mm.w}×${mm.h} 已画 ${mm.painted} 格`,
+    );
+
+    // 粒子系统：喷一团粒子并确认计数。
+    const particleProbe = evaluate(
+      session,
+      `(() => {
+        const scene = window.__nethack3d.scene;
+        scene.spawnBurstAt(0, 1, 0, 0xffd479, 24);
+        return JSON.stringify({ count: scene.particles.count });
+      })()`,
+    );
+    const pfx = (particleProbe.value ?? {}) as { count?: number };
+    // 等一秒：手动喷发的粒子会消散，能留下来的是火把飞灰。
+    await Bun.sleep(900);
+    const emberProbe = evaluate(
+      session,
+      `JSON.stringify({ count: window.__nethack3d.scene.particles.count })`,
+    );
+    const ember = (emberProbe.value ?? {}) as { count?: number };
+    record(
+      '粒子系统可绘制',
+      (pfx.count ?? 0) > 0 && (ember.count ?? 0) > 0,
+      `喷发=${pfx.count} 一秒后=${ember.count}`,
+    );
+
     record(
       '情境操作可用',
       Number(guideData.actions ?? 0) >= 3,
       `按钮=${guideData.actions}：${(guideData.labels as string[] | undefined)?.join('、') ?? ''}`,
+    );
+
+    // 5b2. 状态栏要显示本局种子与层数，便于复现
+    const identity = evaluate(
+      session,
+      `(() => {
+        const seed = document.querySelector('[data-stat="hud.seed"]');
+        const depth = document.querySelector('[data-stat="hud.depth"]');
+        const s = window.__nethack3d.session;
+        return JSON.stringify({
+          seed: seed ? seed.textContent.trim() : '',
+          depth: depth ? depth.textContent.trim() : '',
+          expectedSeed: String(s.seed),
+          expectedDepth: String(s.depth),
+        });
+      })()`,
+    );
+    const idData = (identity.value ?? {}) as Record<string, unknown>;
+    record(
+      '种子与层数可见',
+      String(idData.seed ?? '').includes(String(idData.expectedSeed)) &&
+        String(idData.depth ?? '').includes(String(idData.expectedDepth)),
+      `种子 ${idData.seed}（应为 ${idData.expectedSeed}）· 层数 ${idData.depth}（应为 ${idData.expectedDepth}）`,
+    );
+
+    // 5b3. 转储按钮：弹出可复制的状态文本，含种子、地图与存档载荷
+    const dump = evaluate(
+      session,
+      `(() => {
+        const btn = document.querySelector('[data-i18n="hud.dump"]');
+        if (!btn) return JSON.stringify({ error: 'missing button' });
+        btn.click();
+        const area = document.querySelector('.dump-text');
+        const seed = String(window.__nethack3d.session.seed);
+        const out = {
+          opened: !!area,
+          hasSeed: !!area && area.value.includes('seed: ' + seed),
+          hasMap: !!area && area.value.includes('map:') && area.value.includes('@'),
+          hasSave: !!area && area.value.includes('--- save json ---'),
+          length: area ? area.value.length : 0,
+        };
+        const close = document.querySelector('.dump-mask [data-i18n="dump.close"]');
+        if (close) close.click();
+        out.closed = !document.querySelector('.dump-mask');
+        return JSON.stringify(out);
+      })()`,
+    );
+    const dumpData = (dump.value ?? {}) as Record<string, unknown>;
+    record(
+      '转储按钮可导出状态',
+      Boolean(dumpData.opened) &&
+        Boolean(dumpData.hasSeed) &&
+        Boolean(dumpData.hasMap) &&
+        Boolean(dumpData.hasSave) &&
+        Number(dumpData.length ?? 0) > 500 &&
+        Boolean(dumpData.closed),
+      `长度=${dumpData.length} 种子=${dumpData.hasSeed} 地图=${dumpData.hasMap} ` +
+        `存档=${dumpData.hasSave} 可关闭=${dumpData.closed}`,
     );
 
     // 5c. 画布必须能接收点击（覆盖层不得挡住它），并用真实鼠标事件验证交互
@@ -378,8 +485,39 @@ async function main(): Promise<void> {
       return Number(data.turn ?? -1);
     };
 
+    // 点击必须落在可走的地面上，锚在墙上不会推进回合。
+    // 用真实的 pointermove 处理器扫描中心周围，取第一个带提示的格子；
+    // 提示（.tile-tip-hint）只在可点击目标上出现。
+    const walkablePoint = evaluate(
+      session,
+      `(() => {
+        const canvas = document.querySelector('canvas');
+        const rect = canvas.getBoundingClientRect();
+        const tip = document.querySelector('.tile-tip');
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height * 0.62;
+        for (let r = 0; r <= 0.35; r += 0.05) {
+          for (let a = 0; a < 16; a++) {
+            const angle = (a / 16) * Math.PI * 2;
+            const x = Math.round(cx + Math.cos(angle) * rect.width * r);
+            const y = Math.round(cy + Math.sin(angle) * rect.height * r);
+            window.dispatchEvent(
+              new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }),
+            );
+            if (tip && !tip.hidden && tip.querySelector('.tile-tip-hint')) {
+              return JSON.stringify({ x, y, text: tip.textContent.trim() });
+            }
+          }
+        }
+        return JSON.stringify(null);
+      })()`,
+    );
+    const walkPoint = (walkablePoint.value ?? {}) as { x?: number; y?: number; text?: string };
+    const wx = Number.isFinite(walkPoint.x) ? Number(walkPoint.x) : px;
+    const wy = Number.isFinite(walkPoint.y) ? Number(walkPoint.y) : py;
+
     // 悬停：真实鼠标移动后应出现提示气泡。
-    run(['agent-browser', '--session', session, 'mouse', 'move', String(px), String(py)]);
+    run(['agent-browser', '--session', session, 'mouse', 'move', String(wx), String(wy)]);
     await Bun.sleep(250);
     const tip = evaluate(
       session,
@@ -508,7 +646,7 @@ async function main(): Promise<void> {
       `检查 ${doorData.checked} 扇闭合的门，偏离 ${doorData.offCenter?.length ?? 0} 扇`,
     );
 
-    // 5g. 门板朝向：通道轴明确时，闭合门板的长轴必须垂直于通道。
+    // 5g. 门板朝向：门的形状必须是「前后通道、两侧墙」，门板垂直于通道。
     // 期望值只从地图瓦片推导，不引用渲染层的 doorBlocksEastWest。
     const orientationCheck = evaluate(
       session,
@@ -518,27 +656,31 @@ async function main(): Promise<void> {
         const W = level.width;
         const H = level.height;
         // 空格子（石头）与 1..12（各种墙）不可通行，其余都算通道。
+        const tile = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 0 : level.tiles[y * W + x];
         const open = (x, y) => {
-          if (x < 0 || y < 0 || x >= W || y >= H) return false;
-          const t = level.tiles[y * W + x];
+          const t = tile(x, y);
           return t !== 0 && !(t >= 1 && t <= 12);
+        };
+        const wall = (x, y) => {
+          const t = tile(x, y);
+          return t >= 1 && t <= 12;
         };
         const doors = g.scene.dungeon.features.filter((f) => f.userData.kind === 'door');
         let checked = 0;
-        let skipped = 0;
+        const improper = [];
         const mismatches = [];
         for (const door of doors) {
           const anim = door.userData.animate;
           if (!anim || !anim.closed) continue;
           const panel = anim.pivot && anim.pivot.children[0];
           if (!panel) continue;
-          const tile = door.userData.tile;
-          const tx = tile % W;
-          const ty = Math.floor(tile / W);
-          const openEW = open(tx - 1, ty) && open(tx + 1, ty);
-          const openNS = open(tx, ty - 1) && open(tx, ty + 1);
-          if (openEW === openNS) {
-            skipped++;
+          const tileIndex = door.userData.tile;
+          const tx = tileIndex % W;
+          const ty = Math.floor(tileIndex / W);
+          const properEW = open(tx - 1, ty) && open(tx + 1, ty) && wall(tx, ty - 1) && wall(tx, ty + 1);
+          const properNS = open(tx, ty - 1) && open(tx, ty + 1) && wall(tx - 1, ty) && wall(tx + 1, ty);
+          if (!properEW && !properNS) {
+            improper.push([tx, ty]);
             continue;
           }
           // 逐顶点算世界包围盒：闭合的门 pivot 未旋转，长轴就是朝向。
@@ -557,20 +699,22 @@ async function main(): Promise<void> {
           }
           const blocksEastWest = maxZ - minZ > maxX - minX;
           checked++;
-          if (blocksEastWest !== openEW) mismatches.push([tx, ty]);
+          if (blocksEastWest !== properEW) mismatches.push([tx, ty]);
         }
-        return JSON.stringify({ checked, skipped, mismatches });
+        return JSON.stringify({ checked, improper, mismatches });
       })()`,
     );
     const orientationData = (orientationCheck.value ?? {}) as {
       checked?: number;
-      skipped?: number;
+      improper?: number[][];
       mismatches?: number[][];
     };
     record(
       '门板朝向与地图通道一致',
-      Number(orientationData.checked ?? 0) > 0 && (orientationData.mismatches?.length ?? 0) === 0,
-      `核对 ${orientationData.checked} 扇，通道不明确跳过 ${orientationData.skipped} 扇，` +
+      Number(orientationData.checked ?? 0) > 0 &&
+        (orientationData.improper?.length ?? 0) === 0 &&
+        (orientationData.mismatches?.length ?? 0) === 0,
+      `核对 ${orientationData.checked} 扇，形状不合规 ${orientationData.improper?.length ?? 0} 扇，` +
         `判反 ${orientationData.mismatches?.length ?? 0} 扇`,
     );
 
@@ -589,6 +733,35 @@ async function main(): Promise<void> {
       '模型素材已加载',
       Number(perfData?.models ?? 0) > 0,
       `模型 ${perfData?.models ?? 0} 个，贴图 ${perfData?.textures ?? 0} 张`,
+    );
+
+    // 脚下伪阴影：玩家与每只怪物都有。
+    const shadowProbe = evaluate(
+      session,
+      `(() => {
+        const scene = window.__nethack3d.scene;
+        let views = 0;
+        let withShadow = 0;
+        scene.entities.views.forEach((v) => {
+          views++;
+          if (v.group.getObjectByName('blob-shadow')) withShadow++;
+        });
+        return JSON.stringify({
+          views,
+          withShadow,
+          player: !!scene.playerGroup.getObjectByName('blob-shadow'),
+        });
+      })()`,
+    );
+    const shadows = (shadowProbe.value ?? {}) as {
+      views?: number;
+      withShadow?: number;
+      player?: boolean;
+    };
+    record(
+      '脚下有阴影',
+      shadows.player === true && (shadows.views ?? 0) === (shadows.withShadow ?? 0),
+      `玩家=${shadows.player} 怪物视图=${shadows.withShadow}/${shadows.views}`,
     );
 
     // 7. 截图

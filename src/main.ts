@@ -23,14 +23,19 @@ import { findPath, pathPoints } from './game/path';
 import type { Point, Step } from './game/path';
 import { isWalkable, COLNO } from './core/constants';
 import { index } from './game/dungeon';
+import { FEATURE_ACTIONS } from './game/features';
+import { isContainer } from './game/containers';
 import type { ActionResultInfo, Attributes, CharacterChoice } from './types';
 import type { HudAction, HudHandle } from './ui/hud';
 import { describeTile } from './ui/tileInfo';
 import { createHud } from './ui/hud';
 import type { InventoryPanelHandle } from './ui/inventory';
 import { createInventoryPanel } from './ui/inventory';
+import { createWishPanel } from './ui/wish';
+import type { WishPanelHandle } from './ui/wish';
 import { createCreationScreen } from './ui/creation';
 import { hasSave, loadGame, saveGame, clearSave } from './game/save';
+import { saveBones } from './game/bones';
 import {
   createLogger,
   dumpLogs,
@@ -281,6 +286,7 @@ function showVictoryScreen(session: GameSession, onRestart: () => void): () => v
       class: 'death-line',
       text: t('victory.summary', { depth: s.depth, turn: s.turn, level: s.level, kills: s.kills }),
     }),
+    el('p', { class: 'death-line muted', text: t('victory.seed', { seed: session.seed }) }),
     el('div', { class: 'menu-buttons' }, [
       el('button', {
         class: 'btn primary',
@@ -308,6 +314,7 @@ function showDeathScreen(session: GameSession, onRestart: () => void): () => voi
       class: 'death-line',
       text: t('death.summary', { depth: s.depth, turn: s.turn, level: s.level, kills: s.kills }),
     }),
+    el('p', { class: 'death-line muted', text: t('death.seed', { seed: session.seed }) }),
     el('div', { class: 'menu-buttons' }, [
       el('button', {
         class: 'btn primary',
@@ -375,10 +382,24 @@ const VERB_KEYS: Record<string, string> = {
   z: 'zap',
   d: 'drop',
   a: 'apply',
+  t: 'throw',
+  f: 'fire',
+  P: 'put',
+  o: 'open',
 };
 
 /** Verbs handled directly; everything else goes through applyItem by class. */
-const DIRECT_VERBS: ReadonlySet<string> = new Set(['wield', 'wear', 'remove', 'drop', 'cast']);
+const DIRECT_VERBS: ReadonlySet<string> = new Set([
+  'wield',
+  'wear',
+  'remove',
+  'drop',
+  'cast',
+  'throw',
+  'fire',
+  'put',
+  'open',
+]);
 
 function startGame(options: StartGameOptions = {}): void {
   if (game) {
@@ -451,6 +472,7 @@ function startGame(options: StartGameOptions = {}): void {
     if (!travel) return;
     travel = null;
     scene.setPathPreview([]);
+    hud.setPath([]);
   }
 
   /** 该格是否可以作为点击目标：已探索且可通行。 */
@@ -478,7 +500,9 @@ function startGame(options: StartGameOptions = {}): void {
       return;
     }
     travel = { steps, target };
-    scene.setPathPreview(pathPoints(from, steps));
+    const preview = pathPoints(from, steps);
+    scene.setPathPreview(preview);
+    hud.setPath(preview);
     stepTravel();
   }
 
@@ -499,7 +523,9 @@ function startGame(options: StartGameOptions = {}): void {
       return;
     }
     travel.steps.shift();
-    scene.setPathPreview(pathPoints({ x: session.player.x, y: session.player.y }, travel.steps));
+    const preview = pathPoints({ x: session.player.x, y: session.player.y }, travel.steps);
+    scene.setPathPreview(preview);
+    hud.setPath(preview);
     // 受伤说明附近有威胁，交给玩家决定下一步。
     if (session.player.hp < hpBefore) {
       cancelTravel();
@@ -532,6 +558,34 @@ function startGame(options: StartGameOptions = {}): void {
           afterAction(session.pickupAction());
         },
       });
+      // 脚下的堆里有容器时，可以就地搜划。
+      if (pile.items.some((item) => isContainer(item))) {
+        actions.push({
+          id: 'loot',
+          label: t('actions.loot'),
+          hint: t('actionHints.loot'),
+          onRun: () => {
+            cancelTravel();
+            afterAction(session.lootContainer());
+          },
+        });
+      }
+    }
+
+    // 脚下的地形设施：喷泉、水槽、坟墓、王座各有自己的动作。
+    const featureDef = FEATURE_ACTIONS[level.tiles[index(player.x, player.y)]];
+    if (featureDef) {
+      const feature = level.features.get(index(player.x, player.y));
+      const spent = !!feature && (feature.depleted || feature.used);
+      actions.push({
+        id: featureDef.id,
+        label: t(featureDef.labelKey),
+        hint: spent ? t('msg.featureSpent') : t(featureDef.hintKey),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.useFeature(featureDef.action));
+        },
+      });
     }
 
     const foe = level.monsters.find(
@@ -550,6 +604,72 @@ function startGame(options: StartGameOptions = {}): void {
           cancelTravel();
           const toward = stepToward(foe);
           if (toward) afterAction(session.movePlayer(toward.dx, toward.dy));
+        },
+      });
+    }
+
+    // 神谕就在身边时，可以花金币买一条提示。
+    const oracle = level.monsters.find(
+      (m) =>
+        !m.dead &&
+        m.data.id === 'ORACLE' &&
+        Math.abs(m.x - player.x) <= 1 &&
+        Math.abs(m.y - player.y) <= 1 &&
+        (m.x !== player.x || m.y !== player.y),
+    );
+    if (oracle) {
+      actions.push({
+        id: 'consult',
+        label: t('actions.consult'),
+        hint: t('actionHints.consult'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.consultOracle());
+        },
+      });
+    }
+
+    // 身边有宠物且有食物时，可以喂它一份。
+    const petNearby = level.monsters.find(
+      (m) =>
+        !m.dead &&
+        m.tame &&
+        Math.abs(m.x - player.x) <= 1 &&
+        Math.abs(m.y - player.y) <= 1 &&
+        (m.x !== player.x || m.y !== player.y),
+    );
+    const hasFood = player.inventory.some((item) => item.proto.cls === 'food');
+    if (petNearby && hasFood) {
+      actions.push({
+        id: 'feed',
+        label: t('actions.feed'),
+        hint: t('actionHints.feed'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.feedPet());
+        },
+      });
+    }
+
+    // 骑乘：中大型宠物可骑上；骑乘中显示下马。
+    if (session.ride) {
+      actions.push({
+        id: 'dismount',
+        label: t('actions.dismount'),
+        hint: t('actionHints.dismount'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.dismount());
+        },
+      });
+    } else if (session.canMount()) {
+      actions.push({
+        id: 'mount',
+        label: t('actions.mount'),
+        hint: t('actionHints.mount'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.mountPet());
         },
       });
     }
@@ -578,6 +698,16 @@ function startGame(options: StartGameOptions = {}): void {
         onRun: () => {
           cancelTravel();
           afterAction(session.wait());
+        },
+      },
+      {
+        id: 'pray',
+        label: t('actions.pray'),
+        key: 'p',
+        hint: t('actionHints.pray'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.pray());
         },
       },
       {
@@ -649,6 +779,7 @@ function startGame(options: StartGameOptions = {}): void {
         const c = session.lastCombat;
         scene.entities.flash(c.monsterId, c.byPlayer ? 0xff4444 : 0x66aaff);
         if (c.byPlayer && c.hit) scene.entities.lunge(c.monsterId, 0, 0);
+        scene.spawnMonsterSparks(c.monsterId, c.byPlayer ? 0xffd479 : 0x66aaff, c.killed === true);
         if (c.byPlayer) {
           scene.playerAttack();
           playSfx(c.hit ? 'hit-heavy' : 'slice', { gain: 0.85, rate: 0.95 + Math.random() * 0.1 });
@@ -662,12 +793,15 @@ function startGame(options: StartGameOptions = {}): void {
     scene.syncEntities(session);
     hud.render(session);
     refreshActions();
+    if (session.pendingWishes > 0) openWishPanel();
     playActionResult(result, hpBefore, levelBefore);
     if (session.dead && !deathShown) {
       deathShown = true;
       scene.playerDie();
       log.warn('本局结束：玩家死亡', { turn: session.turn, depth: session.depth });
       playSfx('error', { gain: 0.9 });
+      // 死亡现场写成骨头文件，下一局会在同一层发现遗物。
+      saveBones(session);
       clearSave();
       showDeathScreen(session, () => startGame());
     } else if (session.victory && !victoryShown) {
@@ -685,6 +819,25 @@ function startGame(options: StartGameOptions = {}): void {
   let deathShown = false;
   let victoryShown = false;
   let panel: InventoryPanelHandle | null = null;
+  let wishPanel: WishPanelHandle | null = null;
+
+  /** 打开许愿输入框：使用许愿魔杖或魔法灯后出现。 */
+  function openWishPanel(): void {
+    if (wishPanel) return;
+    playSfx('open', { gain: 0.6 });
+    wishPanel = createWishPanel(hud.el, {
+      onWish: (text) => {
+        const res = session.grantWish(text);
+        hud.render(session);
+        refreshActions();
+        if (res.ok) playSfx('confirm', { gain: 0.8 });
+        return res.ok;
+      },
+      onClose: () => {
+        wishPanel = null;
+      },
+    });
+  }
 
   function openPanel(verb: string | null = null): void {
     // 面板遮住场景时，光标提示没有意义。
@@ -719,10 +872,14 @@ function startGame(options: StartGameOptions = {}): void {
         panel = null;
         return;
       }
+      if (hud.closeDump()) return;
       renderTitle();
       return;
     }
+    // 转储弹窗里在选文本，按键不应驱动游戏。
+    if (hud.dumpOpen()) return;
     if (panel) return; // the panel owns its keys
+    if (wishPanel) return; // the wish input owns its keys
     if (e.key === 'i') {
       e.preventDefault();
       openPanel(null);
@@ -736,6 +893,11 @@ function startGame(options: StartGameOptions = {}): void {
     if (e.key === 'g' || e.key === ',') {
       e.preventDefault();
       afterAction(session.pickupAction());
+      return;
+    }
+    if (e.key === 'p') {
+      e.preventDefault();
+      afterAction(session.pray());
       return;
     }
     if (VERB_KEYS[e.key]) {

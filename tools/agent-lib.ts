@@ -8,14 +8,24 @@
  * 3. 结构化结果类型：场景、失败项与报告，供 Agent 解析与迭代。
  */
 
-import type { CharacterChoice, Level, Monster, Rng } from '../src/types';
-import { MAX_DEPTH, GameSession } from '../src/game/session';
+import type { CharacterChoice, ItemInstance, Level, Monster, Rng } from '../src/types';
+import { GameSession } from '../src/game/session';
+import { branchByEntrance } from '../src/game/branches';
+import { isContainer } from '../src/game/containers';
 import { index, coords, inBounds } from '../src/game/dungeon';
 import { computeFov } from '../src/game/fov';
-import { generateLevel, levelToAscii, doorBlocksEastWest } from '../src/game/dungeon';
-import { T, isWalkable } from '../src/core/constants';
+import {
+  generateLevel,
+  levelToAscii,
+  doorBlocksEastWest,
+  inRoom,
+  shopRoom,
+} from '../src/game/dungeon';
+import { sessionAscii } from '../src/game/ascii';
+import { T, isFurniture, isWalkable } from '../src/core/constants';
 import { createRng, deriveSeed } from '../src/core/rng';
 import { roleById, raceById } from '../src/game/roles';
+import { monById } from '../src/data/index';
 import { monsterAt } from '../src/game/monsters';
 
 // ---------------------------------------------------------------------------
@@ -65,7 +75,7 @@ export interface AgentReport {
     fuzzRuns: number;
     mapLevels: number;
     mapDoors: number;
-    mapClear: number;
+    mapProper: number;
     mapPanels: number;
   };
   scenarios: ScenarioResult[];
@@ -252,21 +262,8 @@ export function teleportPlayer(session: GameSession, x: number, y: number): void
   session.refreshFov();
 }
 
-/** 把关卡渲染成 ASCII，附带玩家、怪物与楼梯标记。 */
-export function renderMap(session: GameSession): string {
-  const ascii = levelToAscii(session.level, { showTraps: true }).split('\n');
-  const mark = (x: number, y: number, ch: string): void => {
-    if (y < 0 || y >= ascii.length) return;
-    const line = ascii[y];
-    if (x < 0 || x >= line.length) return;
-    ascii[y] = `${line.slice(0, x)}${ch}${line.slice(x + 1)}`;
-  };
-  mark(session.player.x, session.player.y, '@');
-  for (const mon of session.level.monsters) {
-    mark(mon.x, mon.y, mon.data.glyph);
-  }
-  return ascii.join('\n');
-}
+/** 把关卡渲染成 ASCII，附带玩家与怪物标记；与状态转储共用实现。 */
+export const renderMap = sessionAscii;
 
 // ---------------------------------------------------------------------------
 // 不变量
@@ -300,6 +297,15 @@ export function createSeenTracker(): SeenTracker {
  * 这些不变量覆盖位置合法性、数值范围、实体唯一性与装备一致性，
  * 是 Agent 判定「刚才的改动是否破坏游戏」的主要依据。
  */
+/** 容器内容必须合法：不能再套容器，数量不小于 1。 */
+function checkContents(item: ItemInstance, path: string, problems: string[]): void {
+  for (const inner of item.contents ?? []) {
+    if (inner.quantity < 1) problems.push(`${path} 内容数量小于 1：${inner.proto.id}`);
+    if (isContainer(inner)) problems.push(`${path} 里套了容器：${inner.proto.id}`);
+    checkContents(inner, path, problems);
+  }
+}
+
 export function checkInvariants(session: GameSession, tracker?: SeenTracker): string[] {
   const problems: string[] = [];
   const { player, level } = session;
@@ -323,6 +329,16 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
   if (player.level < 1) problems.push(`等级小于 1：${player.level}`);
   if (player.xp < 0) problems.push(`经验为负：${player.xp}`);
   if (player.gold < 0) problems.push(`金币为负：${player.gold}`);
+  // 阵营记录与祈祷冷却。
+  if (player.alignRecord < -128 || player.alignRecord > 127) {
+    problems.push(`阵营记录越界：${player.alignRecord}`);
+  }
+  if (player.prayerTimeout < 0) problems.push(`祈祷冷却为负：${player.prayerTimeout}`);
+  // 变形形态必须存在于数据里，计时不能为负。
+  if (player.form) {
+    if (!monById.has(player.form.id)) problems.push(`变形形态不存在：${player.form.id}`);
+    if (player.form.turns < 0) problems.push(`变形剩余回合为负：${player.form.turns}`);
+  }
   // 状态计时不能为负；陷阱会写入睡眠与定身。
   if (player.sleep < 0) problems.push(`睡眠回合为负：${player.sleep}`);
   if (player.held < 0) problems.push(`定身回合为负：${player.held}`);
@@ -330,7 +346,24 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
   for (const [i] of session.level.traps) {
     if (!isWalkable(session.level.tiles[i])) problems.push(`陷阱位于不可通行的格子：${i}`);
   }
-  if (session.depth < 1 || session.depth > MAX_DEPTH) {
+  // 地形设施必须落在对应类型的格子上，且保持可通行。
+  for (const [i, feature] of level.features) {
+    if (!isFurniture(level.tiles[i])) {
+      problems.push(`设施位于非设施格：${feature.type} @${i}`);
+    }
+    if (
+      feature.type === 'ALTAR' &&
+      feature.align &&
+      !['lawful', 'neutral', 'chaotic'].includes(feature.align)
+    ) {
+      problems.push(`祭坛阵营非法：${feature.align}`);
+    }
+    const at = coords(i);
+    if (!walkableAt(level, at.x, at.y)) {
+      problems.push(`设施不可通行：${feature.type} (${at.x}, ${at.y})`);
+    }
+  }
+  if (session.depth < 1 || session.depth > session.maxDepth) {
     problems.push(`楼层越界：${session.depth}`);
   }
   if (player.dead && player.hp !== 0) problems.push(`已死亡但生命不为 0：${player.hp}`);
@@ -355,6 +388,12 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     if (mon.mv < 0) problems.push(`怪物 ${mon.data.id} 行动力为负：${mon.mv}`);
   }
 
+  // 坐骑必须是驯服宠物，且不能同时出现在地图怪物里。
+  if (session.ride) {
+    if (!session.ride.tame) problems.push('坐骑不是驯服的宠物');
+    if (level.monsters.includes(session.ride)) problems.push('坐骑同时出现在关卡怪物列表里');
+  }
+
   // 地面物品
   for (const pile of level.objects) {
     if (!walkableAt(level, pile.x, pile.y)) {
@@ -363,12 +402,16 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     if (!pile.items.length) problems.push(`地面物品堆为空：(${pile.x}, ${pile.y})`);
     for (const item of pile.items) {
       if (item.quantity < 1) problems.push(`地面物品数量小于 1：${item.proto.id} ${item.quantity}`);
+      checkContents(item, `地面 ${item.proto.id}`, problems);
     }
   }
 
   // 背包与装备
   for (const item of player.inventory) {
     if (item.quantity < 1) problems.push(`背包物品数量小于 1：${item.proto.id}`);
+    // 未付款的货品只能留在商店地面；一旦进了背包就是漏账。
+    if (item.unpaid) problems.push(`未付款物品在背包中：${item.proto.id}`);
+    checkContents(item, `背包 ${item.proto.id}`, problems);
   }
   for (const [slot, item] of Object.entries(player.equipment)) {
     if (item && !player.inventory.includes(item)) {
@@ -376,9 +419,38 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     }
   }
 
-  // 楼梯必须存在且可通行
-  if (!level.down && session.depth < MAX_DEPTH) problems.push('本层缺少下行楼梯');
-  if (!level.up && session.depth > 1) problems.push('本层缺少上行楼梯');
+  // 商店：房间完整可走，不藏陷阱，店主看店。
+  const shops = level.rooms.filter((r) => r.type === 'shop');
+  if (shops.length > 1) problems.push(`本层有 ${shops.length} 间商店`);
+  const shop = shopRoom(level);
+  if (shop) {
+    for (let x = shop.lx; x <= shop.hx; x++) {
+      for (let y = shop.ly; y <= shop.hy; y++) {
+        if (!walkableAt(level, x, y)) problems.push(`商店地板不可通行：(${x}, ${y})`);
+      }
+    }
+    for (const [i] of level.traps) {
+      const at = coords(i);
+      if (inRoom(shop, at.x, at.y)) problems.push(`商店内存在陷阱：(${at.x}, ${at.y})`);
+    }
+    const keeper = level.monsters.find((m) => !m.dead && m.data.id === 'SHOPKEEPER');
+    if (keeper && !inRoom(shop, keeper.x, keeper.y)) {
+      problems.push(`店主不在店内：(${keeper.x}, ${keeper.y})`);
+    }
+  }
+
+  // 楼梯必须存在且可通行；分支入口层还要有一段分支楼梯。
+  if (!level.down && session.depth < session.maxDepth) problems.push('本层缺少下行楼梯');
+  if (!level.up && !(session.branch === 'main' && session.depth === 1)) {
+    problems.push('本层缺少上行楼梯');
+  }
+  if (
+    !level.branch &&
+    branchByEntrance(session.depth) &&
+    !level.stairs.some((s) => s.dir === 'branch')
+  ) {
+    problems.push(`分支入口层缺少分支楼梯：第 ${session.depth} 层`);
+  }
   for (const stair of level.stairs) {
     if (level.tiles[index(stair.x, stair.y)] !== T.STAIRS) {
       problems.push(`楼梯标记与瓦片不符：(${stair.x}, ${stair.y})`);
@@ -433,50 +505,39 @@ export function checkLevelDeterminism(gameSeed: number, depth: number): string[]
   return problems;
 }
 
-/** 门朝向审计结果。 */
+/** 门审计结果。 */
 export interface DoorAudit {
   /** ASCII 地图上找到的门数。 */
   doors: number;
-  /** 通道轴明确、据此判定朝向的门数。 */
-  clear: number;
-  /** 通道轴不明确、退回按房间所在侧判定的门数。 */
-  roomFallback: number;
-  /** 地图信息不足以判定的门数。 */
-  unknown: number;
+  /** 满足「前后是通道、两侧是墙」的门数。 */
+  proper: number;
   problems: string[];
 }
 
 /**
- * 用 ASCII 地图核对门的朝向。
+ * 用 ASCII 地图核对门的形状与朝向。
  *
- * 期望值只从地图字符推导：四邻里哪一轴两侧都能走，通道就在哪一轴，
- * 门板必须垂直于它；通道不明确时再看房间在哪一侧。期望值不调用
- * `doorBlocksEastWest`，否则就成了拿判定核对判定。
+ * 期望值只从地图字符推导：门必须恰好在一个轴的**两侧都能走**，
+ * 而另一个轴的两侧都是墙。这样通道唯一，门板垂直于它。
+ * 期望值不调用 `doorBlocksEastWest`，否则就成了拿判定核对判定。
  *
- * 地图字符有同形：水槽渲染成 `#`，墓碑渲染成 `|`，陷阱的 `^` 会盖住
- * 房间或走廊。这些只影响「房间在哪侧」的推断，因此两侧都说不清时
- * 记为 unknown，不判失败。
+ * 地图字符有同形：水槽是 `#`（与走廊同字），墓碑是 `|`（与墙同字），
+ * 陷阱的 `^` 会盖住房间或走廊。生成器保证设施不挨着门，
+ * 而 `^` 算可通行，因此这几种同形不会影响判定。
  */
-export function auditDoorOrientations(level: Level): DoorAudit {
+export function auditDoors(level: Level): DoorAudit {
   const rows = levelToAscii(level).split('\n');
   const at = (x: number, y: number): string => rows[y]?.[x] ?? ' ';
   // 可通行的字形：房间、走廊、门、楼梯、陷阱、设施。
   const OPEN = new Set(['.', '#', '+', '<', '>', '^', '{', '_', '\\']);
-  // 只在房间内出现的字形：房间地面、设施、楼梯。
-  const ROOM = new Set(['.', '{', '_', '\\', '<', '>']);
+  const WALL = new Set(['|', '-']);
   const doors: [number, number][] = [];
   for (let y = 0; y < rows.length; y++) {
     for (let x = 0; x < rows[y].length; x++) {
       if (rows[y][x] === '+') doors.push([x, y]);
     }
   }
-  const out: DoorAudit = {
-    doors: doors.length,
-    clear: 0,
-    roomFallback: 0,
-    unknown: 0,
-    problems: [],
-  };
+  const out: DoorAudit = { doors: doors.length, proper: 0, problems: [] };
   if (doors.length !== level.doors.size) {
     out.problems.push(`ASCII 地图有 ${doors.length} 扇门，门表有 ${level.doors.size} 扇`);
   }
@@ -487,28 +548,22 @@ export function auditDoorOrientations(level: Level): DoorAudit {
     const w = at(x - 1, y);
     const openEW = OPEN.has(e) && OPEN.has(w);
     const openNS = OPEN.has(n) && OPEN.has(s);
-    let expected: boolean;
-    let basis: string;
-    if (openEW !== openNS) {
-      expected = openEW;
-      basis = `通道在${openEW ? '东西' : '南北'}向`;
-      out.clear++;
-    } else {
-      const roomEW = ROOM.has(e) || ROOM.has(w);
-      const roomNS = ROOM.has(n) || ROOM.has(s);
-      if (roomEW === roomNS) {
-        out.unknown++;
-        continue;
-      }
-      expected = roomEW;
-      basis = `房间在${roomEW ? '东西' : '南北'}侧`;
-      out.roomFallback++;
-    }
-    const actual = doorBlocksEastWest(level, x, y);
-    if (actual !== expected) {
+    const wallEW = WALL.has(e) && WALL.has(w);
+    const wallNS = WALL.has(n) && WALL.has(s);
+    const properEW = openEW && wallNS;
+    const properNS = openNS && wallEW;
+    if (!properEW && !properNS) {
       out.problems.push(
-        `门 (${x}, ${y}) ${basis}，门板却拦${actual ? '东西' : '南北'}向；` +
-          `邻域 N=${n} S=${s} E=${e} W=${w}`,
+        `门 (${x}, ${y}) 不是「前后通道、两侧墙」：邻域 N=${n} S=${s} E=${e} W=${w}`,
+      );
+      continue;
+    }
+    out.proper++;
+    const actual = doorBlocksEastWest(level, x, y);
+    if (actual !== properEW) {
+      out.problems.push(
+        `门 (${x}, ${y}) 通道在${properEW ? '东西' : '南北'}向，` +
+          `门板却拦${actual ? '东西' : '南北'}向；邻域 N=${n} S=${s} E=${e} W=${w}`,
       );
     }
   }

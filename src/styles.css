@@ -246,6 +246,25 @@ body {
   gap: 1rem;
 }
 
+/* 小地图：右下角一块低分辨率概览，不遮挡点击。 */
+.hud-minimap {
+  position: absolute;
+  right: 0.8rem;
+  bottom: 0.8rem;
+  padding: 4px;
+  border: 1px solid rgba(180, 150, 80, 0.22);
+  border-radius: 8px;
+  background: rgba(8, 10, 16, 0.68);
+  backdrop-filter: blur(6px);
+}
+
+.hud-minimap canvas {
+  display: block;
+  width: 240px;
+  height: 63px;
+  image-rendering: pixelated;
+}
+
 /* 状态格：小号标签在上，数值在下，扫视时先看数字。 */
 .hud-stats {
   display: flex;
@@ -425,6 +444,90 @@ body {
   text-shadow: 0 1px 2px #000;
 }
 
+/* ---------- State dump ---------- */
+/* 按钮在 HUD 里，HUD 自身关闭了指针事件，弹窗要单独打开。 */
+.dump-mask {
+  pointer-events: auto;
+}
+
+.dialog.dump {
+  width: 100%;
+  max-width: min(96vw, 760px);
+  height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.dialog.dump h2 {
+  margin: 0;
+}
+
+.dump-hint {
+  margin: 0;
+}
+
+.dump-text {
+  flex: 1 1 auto;
+  /* 允许在弹窗高度受限时收缩；textarea 默认按内容撑高。 */
+  min-height: 8rem;
+  resize: none;
+  background: rgba(8, 10, 16, 0.85);
+  color: var(--ink);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre;
+  overflow: auto;
+}
+
+.dump-text:focus {
+  outline: 1px solid var(--gold);
+}
+
+.dump-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* ---------- Wish prompt ---------- */
+.dialog.wish {
+  width: 100%;
+  max-width: min(92vw, 520px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.dialog.wish h2 {
+  margin: 0;
+}
+
+.wish-hint {
+  margin: 0;
+}
+
+.wish-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(8, 10, 16, 0.85);
+  color: var(--ink);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.wish-input:focus {
+  outline: 1px solid var(--gold);
+}
+
 /* ---------- Death screen ---------- */
 .dialog.death {
   text-align: center;
@@ -601,6 +704,12 @@ body {
   gap: 0.6rem;
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.creation-seed {
+  margin-right: auto;
+  align-self: center;
+  font-family: var(--font-mono);
 }
 
 /* ---------- Creation screen wrapper ---------- */

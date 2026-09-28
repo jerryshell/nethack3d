@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createMonsterModel } from './models';
+import { createMonsterModel, createBlobShadow } from './models';
 import { createCharacter, lookForMonster } from './characters';
 import type { CharacterHandle } from './characters';
 import { tileToWorld } from './dungeonMesh';
@@ -69,6 +69,8 @@ export class EntityLayer extends THREE.Group {
           : null;
         const group = character ? character.root : createMonsterModel(mon.data);
         group.position.set(0, 0, 0);
+        // 脚下阴影：不参与光照，只给落地感。
+        group.add(createBlobShadow(0.3));
         this.add(group);
         view = {
           group,
@@ -99,6 +101,12 @@ export class EntityLayer extends THREE.Group {
         view.action = 'die';
       }
     }
+  }
+
+  /** 怪物当前的插值世界坐标；不存在时返回 null。 */
+  positionOf(monsterId: number): THREE.Vector3 | null {
+    const view = this.views.get(monsterId);
+    return view ? view.current.clone() : null;
   }
 
   /** 受击时闪烁。 */

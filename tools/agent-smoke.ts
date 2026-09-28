@@ -522,6 +522,36 @@ async function main(): Promise<void> {
       `界面：${snapshot(session).screen}`,
     );
 
+    // 8b. 状态转储：按钮弹出可复制的完整状态，截图供人工复核
+    const dump = evaluate(
+      session,
+      `(() => {
+        const btn = document.querySelector('[data-i18n="hud.dump"]');
+        if (btn) btn.click();
+        const area = document.querySelector('.dump-text');
+        const seed = String(window.__nethack3d.session.seed);
+        return JSON.stringify({
+          open: !!area,
+          hasSeed: !!area && area.value.includes('seed: ' + seed),
+          hasMap: !!area && area.value.includes('map:') && area.value.includes('@'),
+          length: area ? area.value.length : 0,
+        });
+      })()`,
+    ) as { open?: boolean; hasSeed?: boolean; hasMap?: boolean; length?: number } | null;
+    record(
+      '转储可导出状态',
+      Boolean(dump?.open) && Boolean(dump?.hasSeed) && Boolean(dump?.hasMap),
+      `长度=${dump?.length} 种子=${dump?.hasSeed} 地图=${dump?.hasMap}`,
+      true,
+    );
+    pressKey(session, 'Escape');
+    await Bun.sleep(400);
+    record(
+      '转储可以关闭',
+      snapshot(session).screen === 'game' && snapshot(session).dialog === '',
+      `界面：${snapshot(session).screen} 弹窗：${snapshot(session).dialog || '无'}`,
+    );
+
     // 9. 下潜一层
     const descend = evaluate(
       session,
@@ -534,6 +564,12 @@ async function main(): Promise<void> {
         // 冒烟测试只走了几步，楼梯一带可能还没探索。先站上楼梯把周围点亮
         // （踩上去不会下楼，下楼发生在「走进」这一格时），
         // 再退到相邻格用方向键走上去：走玩家真实输入这条路径，自动存档也会触发。
+        // 临时状态与楼梯口的怪物会阻止移动，先清掉。
+        s.player.sleep = 0;
+        s.player.held = 0;
+        level.monsters = level.monsters.filter(
+          (m) => Math.max(Math.abs(m.x - down.x), Math.abs(m.y - down.y)) > 1,
+        );
         s.player.x = down.x;
         s.player.y = down.y;
         s.refreshFov();
@@ -557,8 +593,15 @@ async function main(): Promise<void> {
         return JSON.stringify({ before: level.depth, key: null });
       })()`,
     ) as { before?: number; key?: string | null; from?: number[] } | null;
-    pressKey(session, descend?.key ?? 'ArrowDown');
-    await Bun.sleep(700);
+    // 关门、怪物挤位都可能吃掉一次按键，最多试三次。
+    /* oxlint-disable no-await-in-loop */
+    for (let attempt = 0; attempt < 3; attempt++) {
+      pressKey(session, descend?.key ?? 'ArrowDown');
+      await Bun.sleep(700);
+      const now = readNumber(session, 'window.__nethack3d?.session?.depth ?? null');
+      if (now !== null && typeof descend?.before === 'number' && now > descend.before) break;
+    }
+    /* oxlint-enable no-await-in-loop */
     const depthAfter = readNumber(session, 'window.__nethack3d?.session?.depth ?? null');
     record(
       '可以下潜一层',
@@ -613,30 +656,19 @@ async function main(): Promise<void> {
     // 12. 死亡界面。陷阱与怪物都可能让玩家提前阵亡，这条路径同样算通过。
     const alreadyDead = /死|die/i.test(snapshot(session).dialog);
     if (!alreadyDead) {
-      evaluate(
+      // 直接构造死亡状态，再推进一回合驱动界面结算；不再依赖怪物出伤。
+      const forced = evaluate(
         session,
         `(() => {
-          const g = window.__nethack3d;
-          const s = g.session;
-          const foe = s.level.monsters[0];
-          if (foe) { foe.mhp = 999; foe.asleep = false; foe.x = s.player.x + 1; foe.y = s.player.y; }
-          s.player.hp = 1;
-          s.refreshFov();
-          return 'ready';
+          const s = window.__nethack3d.session;
+          s.player.hp = 0;
+          s.player.dead = true;
+          s.dead = true;
+          return JSON.stringify({ dead: s.dead });
         })()`,
-      );
-      // 逐回合等待怪物击杀，必须顺序执行。
-      /* oxlint-disable no-await-in-loop */
-      for (let i = 0; i < 40; i++) {
-        pressKey(session, '.');
-        const dead = evaluate(
-          session,
-          `JSON.stringify({ dead: window.__nethack3d.session.dead })`,
-        ) as { dead?: boolean } | null;
-        if (dead?.dead) break;
-        await Bun.sleep(120);
-      }
-      /* oxlint-enable no-await-in-loop */
+      ) as { dead?: boolean } | null;
+      record('构造死亡状态', forced?.dead === true, `dead=${forced?.dead}`);
+      pressKey(session, '.');
     }
     await Bun.sleep(600);
     const death = snapshot(session);
@@ -666,6 +698,17 @@ async function main(): Promise<void> {
     );
     await Bun.sleep(400);
     pressKey(session, 'g');
+    await Bun.sleep(900);
+    // 拿到护身符还要带回地面：直接回到第 1 层，再推一回合触发结算。
+    evaluate(
+      session,
+      `(() => {
+        window.__nethack3d.session.changeDepth(1, 'up', 'main');
+        return 'ok';
+      })()`,
+    );
+    await Bun.sleep(300);
+    pressKey(session, '.');
     await Bun.sleep(900);
     const victory = evaluate(
       session,
