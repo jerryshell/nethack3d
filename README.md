@@ -162,7 +162,7 @@ bun tools/dump-level.ts 42 1 2 5                 # 输出指定种子与层数�
 | `bun run dev`         | 启动开发服务器                                        |
 | `bun run build`       | 生产构建                                              |
 | `bun run typecheck`   | TypeScript 类型检查，要求零错误                       |
-| `bun run check`       | 引擎自检：1072 项断言，用 `bun:test` 运行并输出覆盖率 |
+| `bun run check`       | 引擎自检：1076 项断言，用 `bun:test` 运行并输出覆盖率 |
 | `bun run test`        | 运行全部测试（当前为自检）                            |
 | `bun run test:watch`  | 监听模式，改动即重跑                                  |
 | `bun run lint`        | oxlint 静态检查                                       |

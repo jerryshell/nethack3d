@@ -5110,6 +5110,50 @@ section('工具应用', async () => {
   }
 });
 
+section('蒙眼与目光', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory, wearItem } = await import('../src/game/inventory');
+  const { createRng } = await import('../src/core/rng');
+
+  // 蒙眼罩让人失明，毛巾擦不掉它。
+  {
+    const s = new GameSession({ seed: 8601 });
+    const blindfold = makeItem(objById.get('BLINDFOLD') as ObjectData, s.rng);
+    addToInventory(s.player, blindfold);
+    wearItem(s.player, blindfold);
+    ok(s.player.isBlind, '戴上蒙眼罩后失明');
+    const towel = makeItem(objById.get('TOWEL') as ObjectData, s.rng);
+    addToInventory(s.player, towel);
+    s.player.blind = 5;
+    s.useItem(towel);
+    ok(s.player.blind === 0 && s.player.isBlind, '毛巾擦脸但蒙眼罩仍让人失明');
+  }
+
+  // 失明时躲得过石化目光，看得见时会被盯上。
+  {
+    const s = new GameSession({ seed: 8602 });
+    s.level.monsters = [];
+    const medusa = new Monster(monById.get('MEDUSA')!, s.player.x + 1, s.player.y, createRng(3));
+    medusa.asleep = false;
+    // 只留石化目光，排除其它攻击的干扰。
+    medusa.data = { ...medusa.data, attacks: [{ at: 'AT_GAZE', ad: 'AD_STON', dice: [0, 0] }] };
+    s.level.monsters.push(medusa);
+    s.player.maxHp = 100;
+    s.player.hp = 100;
+    s.player.blind = 10;
+    for (let n = 0; n < 5; n++) s.monsterAttack(medusa);
+    ok(s.player.petrifying === 0, '失明时躲得过石化目光');
+    s.player.blind = 0;
+    for (let n = 0; n < 5; n++) {
+      if (s.player.petrifying > 0) break;
+      s.monsterAttack(medusa);
+    }
+    ok(s.player.petrifying > 0, '看得见时会被石化目光盯上');
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');

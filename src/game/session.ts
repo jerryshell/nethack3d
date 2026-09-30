@@ -911,7 +911,7 @@ export class GameSession {
   }
 
   refreshFov(): void {
-    const radius = this.player.blind > 0 ? 1 : undefined;
+    const radius = this.player.isBlind ? 1 : undefined;
     this.visible = computeFov(this.level, this.player.x, this.player.y, radius);
   }
 
@@ -1488,7 +1488,7 @@ export class GameSession {
       return { result: 'nothing' };
     }
     let chance = 3;
-    if (this.player.blind > 0 || this.player.confused > 0) chance++;
+    if (this.player.isBlind || this.player.confused > 0) chance++;
     if (this.player.stun > 0) chance += 2;
     if (this.player.role.id === 'ROGUE' || this.player.role.id === 'RANGER') chance--;
     if (chance < 1) chance = 1;
@@ -2030,6 +2030,8 @@ export class GameSession {
       if (this.dead) return;
       if (atk.at !== 'AT_NONE') continue;
       if (mon.cancelled && atk.ad !== 'AD_PHYS') continue;
+      // 浮游眼这类被动目光同样要求「看得见」才生效。
+      if (this.player.isBlind && atk.ad === 'AD_PLYS') continue;
       if (atk.ad === 'AD_STON' && (this.player.weapon || this.player.equipment.gloves)) continue;
       this.resolveAttack(mon, atk.ad, atk.dice, resists);
     }
@@ -3678,6 +3680,11 @@ export class GameSession {
       }
       // 被取消的怪物只剩下物理攻击。
       if (mon.cancelled && atk.ad !== 'AD_PHYS') {
+        index2++;
+        continue;
+      }
+      // 看不见就躲得过目光攻击（美杜莎的石化目光等）。
+      if (atk.at === 'AT_GAZE' && this.player.isBlind) {
         index2++;
         continue;
       }

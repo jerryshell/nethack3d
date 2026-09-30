@@ -212,6 +212,11 @@ export class Player implements PlayerState {
     return this.form ? (monById.get(this.form.id) ?? null) : null;
   }
 
+  /** 是否失明：失明计时或戴着蒙眼物（毛巾、蒙眼罩）。 */
+  get isBlind(): boolean {
+    return this.blind > 0 || this.equipment.eyes?.proto.id === 'BLINDFOLD';
+  }
+
   /** 护甲等级：10 为无甲，数值越低越好；变形时改用怪物的护甲。 */
   get ac(): number {
     const form = this.formData;

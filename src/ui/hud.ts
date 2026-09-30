@@ -202,7 +202,7 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
   function effectsCell(session: GameSession): HTMLElement | null {
     const p = session.player;
     const all: [number, string, boolean, string][] = [
-      [p.blind, 'hud.effectBlind', false, 'blind'],
+      [p.isBlind ? Math.max(1, p.blind) : 0, 'hud.effectBlind', false, 'blind'],
       [p.confused, 'hud.effectConfused', false, 'confused'],
       [p.sleep, 'hud.effectSleep', false, 'sleep'],
       [p.held, 'hud.effectHeld', false, 'held'],
