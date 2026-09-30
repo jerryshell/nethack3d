@@ -574,6 +574,7 @@ export class GameSession {
         this.log('msg.questThanks', {
           mon: quest.leader,
           artifact: this.questArtifactName(),
+          nemesis: quest.nemesis,
           roleId: this.player.role.id,
         });
         log.info('职业任务完成', { role: this.player.role.id });
@@ -581,6 +582,7 @@ export class GameSession {
         this.log('msg.questAlreadyDone', {
           mon: quest.leader,
           artifact: this.questArtifactName(),
+          nemesis: quest.nemesis,
           roleId: this.player.role.id,
         });
       }
@@ -588,7 +590,12 @@ export class GameSession {
     }
     if (!this.questUnlocked) {
       this.questUnlocked = true;
-      this.log('msg.questBriefing', { mon: quest.leader, roleId: this.player.role.id });
+      this.log('msg.questBriefing', {
+        mon: quest.leader,
+        artifact: this.questArtifactName(),
+        nemesis: quest.nemesis,
+        roleId: this.player.role.id,
+      });
       log.info('任务楼梯已解锁', { role: this.player.role.id });
     } else {
       this.log('msg.questKeepGoing', { mon: quest.leader, roleId: this.player.role.id });
@@ -599,6 +606,14 @@ export class GameSession {
   /** 本职业神器的 id，供任务对白引用；没有时为空串。 */
   private questArtifactName(): string {
     return artifactForRole(this.player.role.id)?.id ?? '';
+  }
+
+  /** 任务仇敌首次照面时叫阵；同一只只叫一次。 */
+  private maybeTaunt(mon: Monster): void {
+    const quest = this.character.role.quest;
+    if (!quest || quest.nemesis !== mon.data.id || mon.taunted) return;
+    mon.taunted = true;
+    this.log('msg.nemesisTaunt', { mon: mon.data.id, roleId: this.player.role.id });
   }
 
   /** 分支底层的额外宝藏与守关怪物。 */
@@ -1632,6 +1647,7 @@ export class GameSession {
   attackMonster(mon: Monster): 'attacked' | 'killed' {
     const player = this.player;
     mon.asleep = false;
+    this.maybeTaunt(mon);
     // 攻击伪装的拟形怪会先把它戳破。
     if (mon.disguise) {
       mon.disguise = null;
@@ -3210,6 +3226,7 @@ export class GameSession {
     const resists = playerResists(this.player);
     // 现出原形才能作战：伪装的拟形怪一旦出手就不再罗装。
     if (mon.disguise) mon.disguise = null;
+    this.maybeTaunt(mon);
     let index2 = 0;
     for (const atk of mon.data.attacks) {
       if (this.dead || mon.dead) return;

@@ -41,6 +41,8 @@ export class Monster implements MonsterState {
   stasis?: number;
   /** 被取消：非物理的特殊攻击全部失效。 */
   cancelled?: boolean;
+  /** 任务仇敌是否已经叫过阵。 */
+  taunted?: boolean;
 
   constructor(data: MonsterData, x: number, y: number, rng: Rng, { mlev }: { mlev?: number } = {}) {
     this.id = nextId++;
@@ -63,6 +65,7 @@ export class Monster implements MonsterState {
     this.disguise = null;
     this.stasis = 0;
     this.cancelled = false;
+    this.taunted = false;
   }
 
   get ac(): number {

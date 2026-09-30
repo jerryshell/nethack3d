@@ -353,10 +353,11 @@ const messages: MessageCatalog = {
     questLocked: 'The stairs down are sealed until you speak with your quest leader.',
     questNoLeader: 'There is no quest leader here to speak with.',
     questLeaderAngry: '{mon} glares at you and says nothing.',
-    questBriefing: '{mon} says: "Welcome to {home}. Seek {goal} and claim what is yours."',
-    questKeepGoing: '{mon} says: "Have you found {goal} yet?"',
-    questThanks: '{mon} says: "You have done it! {artifact} is yours by right."',
-    questAlreadyDone: '{mon} says: "The quest is complete; {artifact} is yours."',
+    questBriefing: '{mon} says: "{brief}"',
+    questKeepGoing: '{mon} asks: "Have you found {goal} yet?"',
+    questThanks: '{mon} says: "{thanks}"',
+    questAlreadyDone: '{mon} says: "{artifact} is already yours; stop dawdling."',
+    nemesisTaunt: '{mon} cries: "{taunt}"',
     bonesFound: 'The remains of a former adventurer lie here.',
     bonesGhost: 'A ghost rises beside the remains.',
     petNone: 'No pet is close enough to feed.',
@@ -743,19 +744,110 @@ const messages: MessageCatalog = {
     planes: 'the other world',
   },
   quest: {
-    ARCHEOLOGIST: { home: 'the College of Archeology', goal: 'the Tomb of the Toltec Kings' },
-    BARBARIAN: { home: 'the Camp of the Duali Tribe', goal: 'the Duali Oasis' },
-    CAVE_DWELLER: { home: 'the Caves of the Ancestors', goal: "the Dragon's Lair" },
-    HEALER: { home: 'the Temple of Epidaurus', goal: 'the Temple of Coeus' },
-    KNIGHT: { home: 'Camelot Castle', goal: 'the Isle of Glass' },
-    MONK: { home: 'the Monastery of Chan-Sune', goal: 'the Monastery of the Earth-Lord' },
-    CLERIC: { home: 'the Great Temple', goal: 'the Temple of Nalzok' },
-    ROGUE: { home: "the Thieves' Guild Hall", goal: "the Assassins' Guild Hall" },
-    RANGER: { home: "Orion's camp", goal: 'the cave of the wumpus' },
-    SAMURAI: { home: 'the Castle of the Taro Clan', goal: "the Shogun's Castle" },
-    TOURIST: { home: 'Ankh-Morpork', goal: "the Thieves' Guild Hall" },
-    VALKYRIE: { home: 'the Shrine of Destiny', goal: 'the cave of Surtur' },
-    WIZARD: { home: 'the Lonely Tower', goal: 'the Tower of Darkness' },
+    ARCHEOLOGIST: {
+      home: 'the College of Archeology',
+      goal: 'the Tomb of the Toltec Kings',
+      brief:
+        'Grave times have befallen the college: {nemesis} has stolen {artifact}. Track it to {goal}, defeat the thief, and bring it back.',
+      thanks: 'Well done, {role}. You recovered {artifact}; guard it better than we did.',
+      taunt: 'Another pupil of that failed teacher. I shall gnaw on your bones!',
+    },
+    BARBARIAN: {
+      home: 'the Camp of the Duali Tribe',
+      goal: 'the Duali Oasis',
+      brief:
+        'A sorcerer, {nemesis}, has gathered cutthroats and taken {artifact}. Ride to {goal} and reclaim it.',
+      thanks: 'You have avenged our honour, {role}. {artifact} is yours to keep.',
+      taunt: 'That second-rate sorcerer sends you? You shall give me little sport. Prepare to die!',
+    },
+    CAVE_DWELLER: {
+      home: 'the Caves of the Ancestors',
+      goal: "the Dragon's Lair",
+      brief:
+        '{nemesis} has sent her minions against our caves. Fight your way to {goal}, slay her, and recover {artifact}.',
+      thanks: 'The ancestors smile on you, {role}. Carry {artifact} with pride.',
+      taunt: 'Only my meals are allowed down here. Prepare to be eaten!',
+    },
+    HEALER: {
+      home: 'the Temple of Epidaurus',
+      goal: 'the Temple of Coeus',
+      brief:
+        'The dreaded {nemesis} grows strong on stolen life. Seek the cure in {goal} and take back {artifact}.',
+      thanks: 'You have cured a great ill, {role}. {artifact} belongs to you.',
+      taunt: 'They made a mistake, sending you. Your youth will only make this easier.',
+    },
+    KNIGHT: {
+      home: 'Camelot Castle',
+      goal: 'the Isle of Glass',
+      brief:
+        'The foul {nemesis} struck Merlin down and seized {artifact}. Ride to {goal} and avenge him.',
+      thanks: 'Thou art worthy of thy spurs, {role}. Bear {artifact} with honour.',
+      taunt: 'Hah! Another puny challenger seeks death. I shall dine well tonight!',
+    },
+    MONK: {
+      home: 'the Monastery of Chan-Sune',
+      goal: 'the Monastery of the Earth-Lord',
+      brief:
+        '{nemesis} and his elementals invaded our monastery and took {artifact}. Restore the balance in {goal}.',
+      thanks: 'You have restored our discipline, {role}. {artifact} is yours to guard.',
+      taunt: 'Another seeker comes for the relic. Perhaps I shall have some fun today!',
+    },
+    CLERIC: {
+      home: 'the Great Temple',
+      goal: 'the Temple of Nalzok',
+      brief:
+        '{nemesis} and a legion of undead desecrated our temple and stole {artifact}. Purge the evil in {goal}.',
+      thanks: 'The gods are pleased, {role}. {artifact} is entrusted to you.',
+      taunt: 'Another cleric sent for the relic? Prepare to die; you shall never regain it.',
+    },
+    ROGUE: {
+      home: "the Thieves' Guild Hall",
+      goal: "the Assassins' Guild Hall",
+      brief:
+        'Here is the deal, {role}: {nemesis} has {artifact}. Go to {goal}, take it back, and do not get caught.',
+      thanks: 'Clean work, {role}. {artifact} is yours — just keep your fingers off my share.',
+      taunt: 'So the guild sends a thief to rob a thief. Let us see who is better.',
+    },
+    RANGER: {
+      home: "Orion's camp",
+      goal: 'the cave of the wumpus',
+      brief:
+        'Centaur slavers serve {nemesis}, and {artifact} is lost. Track them to {goal} and free the plains.',
+      thanks: 'A fine hunt, {role}. {artifact} is yours by right of the chase.',
+      taunt: 'That bauble pleases me. You shall die, and it stays mine.',
+    },
+    SAMURAI: {
+      home: 'the Castle of the Taro Clan',
+      goal: "the Shogun's Castle",
+      brief: 'The daimyo {nemesis} betrayed us and took {artifact} to {goal}. Restore our honour.',
+      thanks: 'The clan is in your debt, {role}. Bear {artifact} as our champion.',
+      taunt: 'Ah, it is to be you. I offer you seppuku — I will be your second.',
+    },
+    TOURIST: {
+      home: 'Ankh-Morpork',
+      goal: "the Thieves' Guild Hall",
+      brief:
+        'The new mayor, {nemesis}, ran off with {artifact} and hides in {goal}. Bring it back, {role}.',
+      thanks: 'Splendid work, {role}! {artifact} is yours as a souvenir.',
+      taunt:
+        'They send a tourist to defeat me? When this day ends, you will be enslaved in the mines!',
+    },
+    VALKYRIE: {
+      home: 'the Shrine of Destiny',
+      goal: 'the cave of Surtur',
+      brief:
+        '{nemesis} opened the volcanic vents and stole {artifact}. Descend into {goal} and take it back.',
+      thanks: 'The Norns weave well for you, {role}. {artifact} is yours.',
+      taunt: 'So the Norns have finally sent someone to challenge me. Come, little hero.',
+    },
+    WIZARD: {
+      home: 'the Lonely Tower',
+      goal: 'the Tower of Darkness',
+      brief:
+        '{nemesis}, thought long dead, has returned and taken {artifact}. Seek him in {goal} and end him.',
+      thanks: 'You have done the impossible, {role}. {artifact} is yours to master.',
+      taunt: 'So that old fool sends a weak mind against me. Your destruction will be good sport.',
+    },
   },
   resist: {
     fire: 'fire resistance',

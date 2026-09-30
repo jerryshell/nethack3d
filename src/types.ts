@@ -387,6 +387,8 @@ export interface Monster {
   stasis?: number;
   /** 被取消：失去所有非物理的特殊攻击。 */
   cancelled?: boolean;
+  /** 任务仇敌是否已经叫过阵。 */
+  taunted?: boolean;
 }
 
 export type EquipmentSlot =
@@ -650,6 +652,8 @@ export interface SerializedMonster {
   st?: number;
   /** 是否被取消。 */
   cn?: 0 | 1;
+  /** 任务仇敌是否已经叫过阵。 */
+  tt?: 0 | 1;
   mv: number;
 }
 

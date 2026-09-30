@@ -28,15 +28,28 @@ function resolveVars(vars: GameMessage['vars']): Record<string, string | number>
     else if (key === 'roleId') out.role = roleDisplayName(value as string);
     else if (key === 'raceId') out.race = raceDisplayName(value as string);
     else if (key === 'trap') out.trap = t(value as string);
+    else if (key === 'nemesis') out.nemesis = value ? monsterName(value as string) : '';
     else if (key === 'res') out.res = value ? t(`resist.${value}`) : '';
     else if (key === 'align')
       out.align = alignDisplayName(value as Parameters<typeof alignDisplayName>[0]);
     else out[key] = value as string | number;
   }
-  // 任务对白按职业取地名，调用方只需带上 roleId。
+  // 任务对白按职业取地名与专属台词，调用方只需带上 roleId。
   if (typeof vars?.roleId === 'string') {
-    out.home = t(`quest.${vars.roleId}.home`);
-    out.goal = t(`quest.${vars.roleId}.goal`);
+    const roleId = vars.roleId;
+    out.role = out.role ?? roleDisplayName(roleId);
+    out.home = t(`quest.${roleId}.home`);
+    out.goal = t(`quest.${roleId}.goal`);
+    const questVars = {
+      role: out.role,
+      home: out.home,
+      goal: out.goal,
+      artifact: out.artifact ?? '',
+      nemesis: out.nemesis ?? '',
+    };
+    out.brief = t(`quest.${roleId}.brief`, questVars);
+    out.thanks = t(`quest.${roleId}.thanks`, questVars);
+    out.taunt = t(`quest.${roleId}.taunt`, questVars);
   }
   return out;
 }

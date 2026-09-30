@@ -211,6 +211,17 @@ section('语言包完整性', async () => {
     missingZh.length === 0,
     `中文语言包覆盖全部字面量键（缺 ${missingZh.length}：${missingZh.slice(0, 3)}）`,
   );
+
+  // 任务对白是按职业拼接的键，单独核对 13 个职业 × 三段文本。
+  const { ROLES } = await import('../src/data/roles.gen');
+  const questKeys: string[] = [];
+  for (const role of ROLES) {
+    for (const field of ['brief', 'thanks', 'taunt']) questKeys.push(`quest.${role.id}.${field}`);
+  }
+  const missingQuestEn = questKeys.filter((k) => lookup(en, k) === undefined);
+  const missingQuestZh = questKeys.filter((k) => lookup(zh, k) === undefined);
+  ok(missingQuestEn.length === 0, `英文任务对白齐全（缺 ${missingQuestEn.length}）`);
+  ok(missingQuestZh.length === 0, `中文任务对白齐全（缺 ${missingQuestZh.length}）`);
 });
 
 section('外观洗牌', async () => {
@@ -4650,6 +4661,7 @@ section('职业神器', async () => {
   const { objById, monById } = await import('../src/data/index');
   const { describeItem, makeItem } = await import('../src/game/items');
   const { itemName } = await import('../src/ui/itemName');
+  const { formatMessage } = await import('../src/ui/message');
   const { t } = await import('../src/i18n/index');
   const { heroHits } = await import('../src/game/combat');
   const { Monster } = await import('../src/game/monsters');
@@ -4907,6 +4919,35 @@ section('职业神器', async () => {
     ok(again?.artifact === 'tsurugi_of_muramasa', '神器随存档保留');
   }
 
+  // 任务仇敌首次照面时叫阵一次。
+  {
+    const s = new GameSession({
+      seed: 13,
+      character: {
+        role: roleById.SAMURAI,
+        race: raceById.HUMAN,
+        align: 'lawful',
+        gender: 'male',
+      },
+    });
+    s.changeDepth(5, 'down', 'quest');
+    const nemesis = s.level.monsters.find((m) => m.data.id === 'ASHIKAGA_TAKAUJI');
+    ok(!!nemesis, '任务目标层有仇敌');
+    if (nemesis) {
+      nemesis.mhp = 999;
+      nemesis.mhpmax = 999;
+      s.attackMonster(nemesis);
+      ok(
+        s.messages.some((m) => m.key === 'msg.nemesisTaunt'),
+        '仇敌首次照面叫阵',
+      );
+      const before = s.messages.filter((m) => m.key === 'msg.nemesisTaunt').length;
+      s.attackMonster(nemesis);
+      const after = s.messages.filter((m) => m.key === 'msg.nemesisTaunt').length;
+      ok(after === before, '同一只仇敌只叫阵一次');
+    }
+  }
+
   // 任务领袖在场，交谈解锁楼梯，并标记任务完成。
   {
     const s = new GameSession({
@@ -4946,6 +4987,14 @@ section('职业神器', async () => {
       s.player.y = leader.y - 1;
       s.talkToLeader();
       ok(s.questUnlocked, '交谈后任务楼梯解锁');
+      const briefMsg = s.messages.find((m) => m.key === 'msg.questBriefing');
+      if (briefMsg) {
+        const text = formatMessage(briefMsg);
+        ok(
+          text.includes(t('artifact.tsurugi_of_muramasa')),
+          `任务简报点出本职业神器（${text.slice(0, 48)}）`,
+        );
+      }
       const restoredQuest = restoreSession(serializeSession(s));
       ok(restoredQuest.questUnlocked, '任务许可随存档保留');
 

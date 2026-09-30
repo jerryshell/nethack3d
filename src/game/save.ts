@@ -52,6 +52,7 @@ function serializeMonster(m: MonsterState): SerializedMonster {
     ...(m.disguise ? { dg: m.disguise } : {}),
     ...(m.stasis ? { st: m.stasis } : {}),
     ...(m.cancelled ? { cn: 1 as const } : {}),
+    ...(m.taunted ? { tt: 1 as const } : {}),
     mv: m.mv,
   };
 }
@@ -73,6 +74,7 @@ function deserializeMonster(data: SerializedMonster, rng: Rng): MonsterState | n
   mon.disguise = data.dg ?? null;
   mon.stasis = data.st ?? 0;
   mon.cancelled = !!data.cn;
+  mon.taunted = !!data.tt;
   mon.mv = data.mv ?? 0;
   return mon;
 }
