@@ -5234,6 +5234,50 @@ section('法杖效果', async () => {
     }
   }
 
+  // 开门：只开身边 8 格内的门，远处的不受影响。
+  {
+    const s = new GameSession({ seed: 5005 });
+    const doors = [...s.level.doors].filter(([, d]) => !d.broken);
+    const near = doors[0];
+    ok(!!near, '地牢里有可测试的门');
+    if (near) {
+      const nx = near[0] % COLNO;
+      const ny = Math.floor(near[0] / COLNO);
+      const spot = [
+        [nx + 1, ny],
+        [nx - 1, ny],
+        [nx, ny + 1],
+        [nx, ny - 1],
+      ].find(
+        ([x, y]) =>
+          x > 0 &&
+          y > 0 &&
+          x < COLNO - 1 &&
+          y < ROWNO - 1 &&
+          isWalkable(s.level.tiles[index(x, y)]),
+      );
+      ok(!!spot, '近门旁边有可站立的位置');
+      if (spot) {
+        s.player.x = spot[0];
+        s.player.y = spot[1];
+        for (const [, door] of doors) {
+          door.closed = true;
+          door.locked = true;
+        }
+        const grid = (i: number): number =>
+          Math.max(
+            Math.abs((i % COLNO) - s.player.x),
+            Math.abs(Math.floor(i / COLNO) - s.player.y),
+          );
+        const far = doors.find(([i]) => grid(i) > 8);
+        s.useItem(giveWand(s, 'WAN_OPENING'));
+        ok(!near[1].closed, '开门魔杖打开了近处的门');
+        ok(near[1].locked === false, '开门也会解锁');
+        if (far) ok(far[1].closed && far[1].locked, '射程外的门不受影响');
+      }
+    }
+  }
+
   // 探门：未探索的门与楼梯写入记忆。
   {
     const s = new GameSession({ seed: 5006 });

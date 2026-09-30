@@ -1348,12 +1348,17 @@ export function zapWand(session: GameSession, item: ItemInstance): UseOutcome {
       break;
     }
     case 'WAN_OPENING': {
+      // 只开身边 8 格内的门，对应原版的射程限制，而不是全层开门。
       let opened = 0;
-      for (const [, door] of session.level.doors) {
-        if (door.closed) {
-          door.closed = false;
-          opened++;
-        }
+      const player = session.player;
+      for (const [i, door] of session.level.doors) {
+        if (!door.closed) continue;
+        const x = i % COLNO;
+        const y = Math.floor(i / COLNO);
+        if (Math.max(Math.abs(x - player.x), Math.abs(y - player.y)) > 8) continue;
+        door.closed = false;
+        door.locked = false;
+        opened++;
       }
       out.key = opened ? 'use.zapOpening' : 'use.nothingHappens';
       break;
