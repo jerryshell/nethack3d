@@ -21,7 +21,7 @@ import { loadCharacters, lookForPlayer, loadedCharacterCount } from './render/ch
 import { GameSession } from './game/session';
 import { findPath, pathPoints } from './game/path';
 import type { Point, Step } from './game/path';
-import { isWalkable, COLNO, T } from './core/constants';
+import { isWalkable, COLNO, HUNGER_WARN, T } from './core/constants';
 import { index } from './game/dungeon';
 import { FEATURE_ACTIONS } from './game/features';
 import { isContainer } from './game/containers';
@@ -466,14 +466,67 @@ function startGame(options: StartGameOptions = {}): void {
   // 点击移动与情境操作
   // -------------------------------------------------------------------------
 
-  let travel: { steps: Step[]; target: Point } | null = null;
+  let travel: { steps: Step[]; target: Point; legSeen: number } | null = null;
+  /** 自动探索是否在进行中。 */
+  let exploring = false;
+  /** 自动探索中「走到了也揭不开新区域」的格子，避免原地打转。 */
+  let exploreTried = new Set<number>();
+  /** 单次自动探索的尝试次数上限，防止异常状态下无限循环。 */
+  let exploreAttempts = 0;
 
-  /** 结束自动移动，并清掉路径预览。 */
+  /** 结束自动移动与自动探索，并清掉路径预览。 */
   function cancelTravel(): void {
+    exploring = false;
+    clearTravel();
+  }
+
+  /** 只清路径与预览，不动自动探索状态。 */
+  function clearTravel(): void {
     if (!travel) return;
     travel = null;
     scene.setPathPreview([]);
     hud.setPath([]);
+  }
+
+  /** 已探索格子数：用来判断一段自动探索有没有揭开新区域。 */
+  function seenCount(): number {
+    const seen = session.level.seen;
+    let n = 0;
+    for (let i = 0; i < seen.length; i++) if (seen[i] === 1) n++;
+    return n;
+  }
+
+  /** 自动探索：反复走向最近的未探索边界，直到走遍全层或出现威胁。 */
+  function startExplore(): void {
+    clearTravel();
+    exploring = true;
+    exploreTried = new Set();
+    exploreAttempts = 0;
+    continueExplore();
+  }
+
+  /** 找一处未探索边界并走过去；找不到就停下。 */
+  function continueExplore(): void {
+    if (!exploring) return;
+    // 视野里出现敌人或尝试次数异常时收手，把决定权交回玩家。
+    if (session.dead || session.hostileInSight() || exploreAttempts++ > 64) {
+      cancelTravel();
+      return;
+    }
+    const target = session.exploreTarget(exploreTried);
+    if (!target) {
+      cancelTravel();
+      return;
+    }
+    beginTravel(target);
+  }
+
+  /** 走到一段探索路径的尽头：没揭开新区域就把脚下这格记下，换一处再走。 */
+  function arriveExplore(): void {
+    const legSeen = travel?.legSeen ?? 0;
+    clearTravel();
+    if (seenCount() === legSeen) exploreTried.add(index(session.player.x, session.player.y));
+    continueExplore();
   }
 
   /** 该格是否可以作为点击目标：已探索且可通行。 */
@@ -491,52 +544,104 @@ function startGame(options: StartGameOptions = {}): void {
     return { dx, dy };
   }
 
-  /** 开始走向目标：算出路径并显示预览，然后逐步推进。 */
+  /** 手动走向目标：先结束自动探索，再算路径。 */
   function startTravel(target: Point): void {
     cancelTravel();
+    beginTravel(target);
+  }
+
+  /** 走向目标：算出路径并显示预览，然后逐步推进。 */
+  function beginTravel(target: Point): boolean {
+    clearTravel();
     const from = { x: session.player.x, y: session.player.y };
     const steps = findPath(session.level, from, target, { levitating: session.isFloating() });
     if (!steps || steps.length === 0) {
       log.debug('没有可走的路径', { from, target });
-      return;
+      // 探索时遇到不可达的边界（例如隔着关着的门）就跳过，换下一处。
+      if (exploring) {
+        exploreTried.add(index(target.x, target.y));
+        continueExplore();
+      }
+      return false;
     }
-    travel = { steps, target };
+    travel = { steps, target, legSeen: seenCount() };
     const preview = pathPoints(from, steps);
     scene.setPathPreview(preview);
     hud.setPath(preview);
     stepTravel();
+    return true;
   }
 
   /** 沿路径走一步；被挡住或受伤就停下。 */
   function stepTravel(): void {
     const active = travel;
-    if (!active || active.steps.length === 0) {
-      cancelTravel();
+    if (!active) return;
+    if (active.steps.length === 0) {
+      finishLeg();
       return;
     }
     const step = active.steps[0];
     const hpBefore = session.player.hp;
     const result = session.movePlayer(step.dx, step.dy);
     afterAction(result);
-    if (!travel) return;
-    if (result.result !== 'moved') {
-      cancelTravel();
-      return;
-    }
-    travel.steps.shift();
-    const preview = pathPoints({ x: session.player.x, y: session.player.y }, travel.steps);
-    scene.setPathPreview(preview);
-    hud.setPath(preview);
+    if (!travel) return; // 换层等操作已经清掉了路径。
     // 受伤说明附近有威胁，交给玩家决定下一步。
     if (session.player.hp < hpBefore) {
       cancelTravel();
       return;
     }
-    if (travel.steps.length === 0) {
-      cancelTravel();
+    if (result.result === 'moved') {
+      travel.steps.shift();
+      if (travel.steps.length === 0) {
+        finishLeg();
+        return;
+      }
+      const preview = pathPoints({ x: session.player.x, y: session.player.y }, travel.steps);
+      scene.setPathPreview(preview);
+      hud.setPath(preview);
+      stepTravel();
       return;
     }
-    stepTravel();
+    // 开门要花一回合但人没动：自动探索重试这一步；锁着的门则放弃。
+    if (result.result === 'opened' && exploring) {
+      const door = session.level.doors.get(
+        index(session.player.x + step.dx, session.player.y + step.dy),
+      );
+      if (door && !door.closed) {
+        stepTravel();
+        return;
+      }
+    }
+    cancelTravel();
+  }
+
+  /** 一段路径走完：自动探索接着找下一处，手动模式则收起预览。 */
+  function finishLeg(): void {
+    if (exploring) arriveExplore();
+    else clearTravel();
+  }
+
+  /**
+   * 休息到恢复：原地等待直到生命与法力回满。
+   *
+   * 视野里出现敌人、生命开始下降（挨打或生病）或开始饿肚子时提前停下，
+   * 把决定权交回玩家；等待有回合上限，避免异常状态下长时间阻塞。
+   */
+  function restUntilHealed(): void {
+    cancelTravel();
+    const p = session.player;
+    let turns = 0;
+    let result: ActionResultInfo = { result: 'waited' };
+    while (!session.dead && turns < 600) {
+      if (p.hp >= p.maxHp && p.pw >= p.maxPw) break;
+      if (session.hostileInSight()) break;
+      if (p.hunger < HUNGER_WARN) break;
+      const hpBefore = p.hp;
+      result = session.wait();
+      turns++;
+      if (p.hp < hpBefore) break;
+    }
+    if (turns > 0) afterAction(result);
   }
 
   /** 根据当前局面生成情境操作。 */
@@ -800,6 +905,20 @@ function startGame(options: StartGameOptions = {}): void {
 
     actions.push(
       {
+        id: 'explore',
+        label: t('actions.explore'),
+        key: 'x',
+        hint: t('actionHints.explore'),
+        onRun: () => startExplore(),
+      },
+      {
+        id: 'rest',
+        label: t('actions.rest'),
+        key: 'R',
+        hint: t('actionHints.rest'),
+        onRun: () => restUntilHealed(),
+      },
+      {
         id: 'wait',
         label: t('actions.wait'),
         key: '.',
@@ -1042,6 +1161,17 @@ function startGame(options: StartGameOptions = {}): void {
     if (e.key === 's') {
       e.preventDefault();
       afterAction(session.searchAction());
+      return;
+    }
+    // 现代 roguelike 的便捷操作：自动探索与休息到恢复。
+    if (e.key === 'x') {
+      e.preventDefault();
+      startExplore();
+      return;
+    }
+    if (e.key === 'R') {
+      e.preventDefault();
+      restUntilHealed();
       return;
     }
     if (VERB_KEYS[e.key]) {

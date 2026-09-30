@@ -1618,6 +1618,39 @@ section('商店', async () => {
       'shop has no traps',
     );
 
+    // 和平的店主不能永久堵死入口：站在门口内侧时要主动让开一步。
+    const doorway = (() => {
+      for (const i of s.level.doors.keys()) {
+        const at = coords(i);
+        for (const [dx, dy] of [
+          [-1, 0],
+          [1, 0],
+          [0, -1],
+          [0, 1],
+        ]) {
+          const x = at.x + dx;
+          const y = at.y + dy;
+          if (!room || !inRoom(room, x, y)) continue;
+          if (s.level.tiles[index(x, y)] !== T.ROOM) continue;
+          if (x === s.player.x && y === s.player.y) continue;
+          return { x, y };
+        }
+      }
+      return null;
+    })();
+    ok(!!doorway, 'shop door has an interior floor tile');
+    if (doorway && keeper && room) {
+      keeper.x = doorway.x;
+      keeper.y = doorway.y;
+      s.monsterTurns();
+      const blocksDoor = [...s.level.doors.keys()].some((i) => {
+        const at = coords(i);
+        return Math.max(Math.abs(at.x - keeper.x), Math.abs(at.y - keeper.y)) <= 1;
+      });
+      ok(!blocksDoor, `shopkeeper steps aside from the door (${keeper.x}, ${keeper.y})`);
+      ok(inRoom(room, keeper.x, keeper.y), 'shopkeeper stays inside after stepping aside');
+    }
+
     // 钱够时买入：扣款等于标价，物品结清。
     const pile = stock.find((p) => p.items.some((i) => i.unpaid)) as GroundPile;
     const sample = pile.items.find((i) => i.unpaid) as (typeof goods)[number];
@@ -6572,6 +6605,76 @@ section('施法', async () => {
     s.castSpell(item);
     const i = index(s.player.x, s.player.y);
     ok(isWalkable(s.level.tiles[i]), '逃脱法术的落点可以站立');
+  }
+});
+
+section('自动探索与休息', async () => {
+  const { GameSession } = await import('../src/game/session.js');
+  const { Monster } = await import('../src/game/monsters.js');
+  const { monById } = await import('../src/data/index.js');
+  const { findPath } = await import('../src/game/path.js');
+  const { createRng } = await import('../src/core/rng.js');
+
+  // 刚开局的迷宫必定有未探索区域：目标要挨着未知格，而且要走得过去。
+  const s = new GameSession({ seed: 20240101 });
+  const target = s.exploreTarget();
+  ok(!!target, '开局能找到探索目标');
+  if (target) {
+    ok(s.level.seen[index(target.x, target.y)] === 1, '探索目标是已见过的格子');
+    const touchesUnknown = [
+      [-1, -1],
+      [0, -1],
+      [1, -1],
+      [-1, 0],
+      [1, 0],
+      [-1, 1],
+      [0, 1],
+      [1, 1],
+    ].some(([dx, dy]) => {
+      const x = target.x + dx;
+      const y = target.y + dy;
+      return x >= 0 && y >= 0 && x < COLNO && y < ROWNO && s.level.seen[index(x, y)] !== 1;
+    });
+    ok(touchesUnknown, '探索目标紧邻未探索区域');
+    ok(
+      !!findPath(s.level, { x: s.player.x, y: s.player.y }, target, {
+        levitating: s.isFloating(),
+      }),
+      '探索目标可达',
+    );
+    const other = s.exploreTarget(new Set([index(target.x, target.y)]));
+    ok(!other || other.x !== target.x || other.y !== target.y, '排除后不再选同一格');
+  }
+
+  // 整层揭开后没有可探索的目标。
+  s.revealLevel();
+  ok(s.exploreTarget() === null, '全图揭开后没有探索目标');
+
+  // 视野内的敌对生物会被识别，和平生物不算威胁。
+  const s2 = new GameSession({ seed: 20240102 });
+  s2.level.monsters = [];
+  s2.refreshFov();
+  ok(s2.hostileInSight() === null, '没有怪物时视野内没有敌人');
+  const antData = monById.get('GIANT_ANT');
+  const spot = [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+  ]
+    .map(([dx, dy]) => ({ x: s2.player.x + dx, y: s2.player.y + dy }))
+    .find((p) => isWalkable(s2.tileAt(p.x, p.y)));
+  if (antData && spot) {
+    const ant = new Monster(antData, spot.x, spot.y, createRng(11));
+    ant.asleep = false;
+    s2.level.monsters.push(ant);
+    s2.refreshFov();
+    ok(s2.hostileInSight() === ant, '视野内的敌对生物被识别');
+    ant.peaceful = true;
+    s2.refreshFov();
+    ok(s2.hostileInSight() === null, '和平生物不算威胁');
+  } else {
+    fail('找不到用来验证视野威胁的相邻地面');
   }
 });
 

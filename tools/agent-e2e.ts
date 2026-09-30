@@ -774,6 +774,92 @@ async function main(): Promise<void> {
         `判反 ${orientationData.mismatches?.length ?? 0} 扇`,
     );
 
+    // 5h. 门的状态变化要反映到模型：锁上出现锁闩，开门转开门板。
+    const doorPick = evaluate(
+      session,
+      `(() => {
+        const level = window.__nethack3d.session.level;
+        let tile = -1;
+        for (const [i, d] of level.doors) {
+          if (d.closed && !d.broken) { tile = i; break; }
+        }
+        if (tile < 0) return JSON.stringify({ skipped: true });
+        const door = level.doors.get(tile);
+        // 直接改状态，验证渲染层是否每帧读回状态而不是只在建网格时取一次。
+        door.locked = true;
+        door.closed = true;
+        return JSON.stringify({ tile });
+      })()`,
+    );
+    const pickedTile = (doorPick.value as { tile?: number } | undefined)?.tile;
+    if (pickedTile !== undefined && pickedTile >= 0) {
+      await Bun.sleep(200);
+      const lockedState = evaluate(
+        session,
+        `(() => {
+          const f = window.__nethack3d.scene.dungeon.features.find(
+            (x) => x.userData.kind === 'door' && x.userData.tile === ${pickedTile},
+          );
+          const anim = f && f.userData.animate;
+          if (!anim) return JSON.stringify({ missing: true });
+          return JSON.stringify({
+            band: anim.band.visible,
+            rotation: anim.pivot.rotation.y,
+          });
+        })()`,
+      );
+      const locked = (lockedState.value ?? {}) as { band?: boolean; rotation?: number };
+      record(
+        '锁门实时显示锁闩',
+        locked.band === true && Math.abs(Number(locked.rotation ?? 1)) < 0.01,
+        `锁闩=${locked.band} 角度=${Number(locked.rotation ?? 0).toFixed(3)}`,
+      );
+
+      evaluate(
+        session,
+        `(() => {
+          const door = window.__nethack3d.session.level.doors.get(${pickedTile});
+          door.locked = false;
+          door.closed = false;
+          return true;
+        })()`,
+      );
+      await Bun.sleep(500);
+      const openedState = evaluate(
+        session,
+        `(() => {
+          const f = window.__nethack3d.scene.dungeon.features.find(
+            (x) => x.userData.kind === 'door' && x.userData.tile === ${pickedTile},
+          );
+          const anim = f && f.userData.animate;
+          if (!anim) return JSON.stringify({ missing: true });
+          return JSON.stringify({
+            closed: anim.closed,
+            band: anim.band.visible,
+            rotation: anim.pivot.rotation.y,
+            open: anim.openRotation,
+          });
+        })()`,
+      );
+      const opened = (openedState.value ?? {}) as {
+        closed?: boolean;
+        band?: boolean;
+        rotation?: number;
+        open?: number;
+      };
+      record(
+        '开门后门板跟着转动',
+        opened.closed === false &&
+          opened.band === false &&
+          Math.abs(Number(opened.rotation ?? 0) - Number(opened.open ?? 0)) < 0.1,
+        `闭合=${opened.closed} 锁闩=${opened.band} ` +
+          `角度=${Number(opened.rotation ?? 0).toFixed(2)}/${Number(opened.open ?? 0).toFixed(2)}`,
+      );
+    } else {
+      record('锁门实时显示锁闩', false, '当前楼层没有闭合的门可供测试');
+      record('开门后门板跟着转动', false, '当前楼层没有闭合的门可供测试');
+    }
+
     // 6. 渲染开销快照：既是性能基线，也验证调试句柄在构建产物中可用。
     const perf = evaluate(session, `JSON.stringify(window.__nethack3d?.perf?.() ?? null)`);
     perfData = (perf.value ?? null) as Record<string, number> | null;
@@ -825,6 +911,64 @@ async function main(): Promise<void> {
         (shadows.casters ?? 0) >= 5 &&
         (shadows.receivers ?? 0) >= 5,
       `贴图=${shadows.mapEnabled} 月光=${shadows.moonCast} 投射=${shadows.casters} 接收=${shadows.receivers}`,
+    );
+
+    // 6b. QoL：自动探索与休息到恢复。
+    const exploreRun = evaluate(
+      session,
+      `(() => {
+        const g = window.__nethack3d;
+        const level = g.session.level;
+        // 清掉怪物并解锁所有门，让结果只取决于地图与探索逻辑。
+        level.monsters = [];
+        for (const [, d] of level.doors) d.locked = false;
+        g.session.refreshFov();
+        let seenBefore = 0;
+        for (const v of level.seen) if (v === 1) seenBefore++;
+        const turnBefore = g.session.turn;
+        const depthBefore = g.session.depth;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x' }));
+        let seenAfter = 0;
+        for (const v of g.session.level.seen) if (v === 1) seenAfter++;
+        return JSON.stringify({
+          seenBefore, seenAfter, turnBefore, turn: g.session.turn,
+          depthBefore, depth: g.session.depth,
+        });
+      })()`,
+    );
+    const explored = (exploreRun.value ?? {}) as Record<string, number>;
+    const exploreProgressed =
+      Number(explored.seenAfter ?? 0) > Number(explored.seenBefore ?? 0) ||
+      Number(explored.depth ?? 0) > Number(explored.depthBefore ?? 0);
+    record(
+      '自动探索会揭开新区域',
+      exploreProgressed && Number(explored.turn ?? 0) > Number(explored.turnBefore ?? 0),
+      `已探索 ${explored.seenBefore} → ${explored.seenAfter} 格，` +
+        `回合 ${explored.turnBefore} → ${explored.turn}`,
+    );
+
+    const restRun = evaluate(
+      session,
+      `(() => {
+        const g = window.__nethack3d;
+        const p = g.session.player;
+        // 同样清掉怪物，保证休息不会因视野内出现敌人而立刻中断。
+        g.session.level.monsters = [];
+        g.session.refreshFov();
+        p.hunger = 900;
+        p.hp = Math.max(1, p.maxHp - 5);
+        const hpBefore = p.hp;
+        const turnBefore = g.session.turn;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'R' }));
+        return JSON.stringify({ hpBefore, hp: p.hp, max: p.maxHp, turnBefore, turn: g.session.turn });
+      })()`,
+    );
+    const rested = (restRun.value ?? {}) as Record<string, number>;
+    record(
+      '休息到恢复会回复生命',
+      Number(rested.hp ?? 0) > Number(rested.hpBefore ?? 0) &&
+        Number(rested.turn ?? 0) > Number(rested.turnBefore ?? 0),
+      `生命 ${rested.hpBefore} → ${rested.hp}/${rested.max}，回合 ${rested.turnBefore} → ${rested.turn}`,
     );
 
     // 7. 截图

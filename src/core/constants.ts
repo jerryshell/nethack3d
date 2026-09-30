@@ -14,6 +14,11 @@ export const ROWNO = 21;
 /** 地牢总层数，底层放着通关用的尤恩多护身符。 */
 export const MAX_DEPTH = 30;
 
+/** 饱食度阈值：低于此值提示饥饿（对应原版的 Hungry 状态）。 */
+export const HUNGER_WARN = 150;
+/** 饱食度阈值：低于此值提示虚弱。 */
+export const HUNGER_DANGER = 40;
+
 /** 瓦片类型。编号沿用 NetHack include/rm.h。 */
 export const T = {
   STONE: 0,

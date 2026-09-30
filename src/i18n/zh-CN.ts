@@ -452,6 +452,8 @@ const messages: MessageCatalog = {
     pickup: '拾取',
     attack: '攻击',
     travel: '前往楼梯',
+    explore: '自动探索',
+    rest: '休息',
     wait: '等待',
     search: '搜索',
     untrap: '解除陷阱',
@@ -479,6 +481,8 @@ const messages: MessageCatalog = {
     pickup: '拾起这里的物品（g）',
     attack: '攻击相邻的怪物',
     travel: '自动走向向下的楼梯',
+    explore: '自动走向最近的未探索区域（x）',
+    rest: '原地等到生命与法力回满（R）',
     wait: '原地等一回合（.）',
     search: '搜寻附近的隐藏陷阱（s）',
     untrap: '拆除脚下的已知陷阱',
@@ -774,7 +778,7 @@ const messages: MessageCatalog = {
   help: {
     title: '游戏说明',
     body: 'NetHack 3D 是一款回合制 roguelike。每个动作消耗一回合，怪物随后行动。\n\n点击任意地面格子，角色会自己走过去；点击远处的怪物则会靠近并攻击。走向怪物也可攻击它；走上 > 即下楼梯；撞向门即可开门。\n\n目标：深入地牢 30 层，夺取藏在最底层的尤恩多护身符。\n\n支线：第 14 层有通往职业任务的楼梯，与领袖交谈后解锁；祭坛可以献祭尸体，也能把水变成圣水；喷泉、坟墓、王座与水槽各有情境动作。',
-    keys: '点击地面即可自动走过去 · 移动：方向键 / hjkl / yubn · 原地等待：. · 拾取：g · 背包：i · 持握：w · 穿戴：W · 喝：q · 吃：e · 读：r · 挥杖：z · 放下：d · 脱下：T',
+    keys: '点击地面即可自动走过去 · 移动：方向键 / hjkl / yubn · 原地等待：. · 拾取：g · 背包：i · 持握：w · 穿戴：W · 喝：q · 吃：e · 读：r · 挥杖：z · 放下：d · 脱下：T · 自动探索：x · 休息：R',
   },
   dir: {
     north: '北',

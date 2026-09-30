@@ -39,7 +39,16 @@ import {
 } from './dungeon';
 import { computeFov } from './fov';
 import { createRng, deriveSeed } from '../core/rng';
-import { T, COLNO, MAX_DEPTH, isWalkable, isDoor, isWall } from '../core/constants';
+import {
+  T,
+  COLNO,
+  MAX_DEPTH,
+  HUNGER_DANGER,
+  HUNGER_WARN,
+  isWalkable,
+  isDoor,
+  isWall,
+} from '../core/constants';
 import { Player } from './player';
 import { randomCharacter } from './roles';
 import {
@@ -86,6 +95,8 @@ import { branchById, branchMaxDepth } from './branches';
 import { clearBones, loadBones } from './bones';
 import { deserializeItem } from './itemcodec';
 import { containerCapacity, containerHasRoom, isContainer } from './containers';
+import { findExploreTarget } from './path';
+import type { Point } from './path';
 import { artifactForRole } from './artifacts';
 import { objById, monById, MONSTERS, monsterName } from '../data/index';
 import { SOKOBAN_LEVELS } from '../data/sokoban.gen';
@@ -1871,9 +1882,9 @@ export class GameSession {
         this.dead = true;
         this.log('msg.starved');
       }
-    } else if (p.hunger <= 40 && p.hunger > 39) {
+    } else if (p.hunger <= HUNGER_DANGER && p.hunger > HUNGER_DANGER - 1) {
       this.log('use.weak');
-    } else if (p.hunger <= 150 && p.hunger > 149) {
+    } else if (p.hunger <= HUNGER_WARN && p.hunger > HUNGER_WARN - 1) {
       this.log('use.hunger');
     }
 
@@ -2181,6 +2192,28 @@ export class GameSession {
       }
     }
     return best;
+  }
+
+  /** 自动探索的下一处目标：最近的未探索边界，没有时返回 null。 */
+  exploreTarget(exclude?: ReadonlySet<number>): Point | null {
+    return findExploreTarget(
+      this.level,
+      { x: this.player.x, y: this.player.y },
+      {
+        levitating: this.isFloating(),
+        exclude,
+      },
+    );
+  }
+
+  /** 视野内最近的敌对生物；自动探索与休息据此提前中止。 */
+  hostileInSight(): Monster | null {
+    if (!this.visible) return null;
+    for (const mon of this.level.monsters) {
+      if (mon.dead || mon.mhp <= 0 || mon.tame || this.isPeaceful(mon)) continue;
+      if (this.visible[index(mon.x, mon.y)] === 1) return mon;
+    }
+    return null;
   }
 
   /** 该怪物是否属于不死生物。 */
@@ -3464,6 +3497,11 @@ export class GameSession {
       this.petAction(mon);
       return;
     }
+    // 店主虽然平和，但要让开门口：和平生物默认不动，否则会把入口堵死。
+    if (mon.data.id === 'SHOPKEEPER' && this.isPeaceful(mon)) {
+      this.shopkeeperAction(mon);
+      return;
+    }
     // 和平生物（店主、守卫）在受挑衅前不行动。
     if (this.isPeaceful(mon)) return;
     const dist = Math.max(Math.abs(mon.x - player.x), Math.abs(mon.y - player.y));
@@ -3521,6 +3559,59 @@ export class GameSession {
       }
     } else if (this.rng.chance(0.25)) {
       this.stepMonster(mon, 0);
+    }
+  }
+
+  /**
+   * 店主让路。
+   *
+   * 原版店主会在玩家站上店门时走开（`shk_move` 的 avoid 分支）；
+   * 本作的和平生物不主动行动，因此这里只做一件事：站在门边时向店里
+   * 走一步，保证唯一的入口不会被永久堵住。
+   */
+  private shopkeeperAction(mon: Monster): void {
+    const room = shopRoom(this.level);
+    if (!room || !inRoom(room, mon.x, mon.y)) return;
+    const doorGap = (x: number, y: number): number => {
+      let nearest = Infinity;
+      for (const i of this.level.doors.keys()) {
+        const d = Math.max(Math.abs((i % COLNO) - x), Math.abs(Math.floor(i / COLNO) - y));
+        if (d < nearest) nearest = d;
+      }
+      return nearest;
+    };
+    const current = doorGap(mon.x, mon.y);
+    if (current > 1) return;
+    // 先尝试离门更远的一小步，让移动看起来自然。
+    let best: { x: number; y: number; d: number } | null = null;
+    for (const [dx, dy] of DIR8) {
+      const nx = mon.x + dx;
+      const ny = mon.y + dy;
+      if (!inRoom(room, nx, ny)) continue;
+      if (this.level.tiles[index(nx, ny)] !== T.ROOM) continue;
+      if (nx === this.player.x && ny === this.player.y) continue;
+      if (monsterAt(this.level, nx, ny)) continue;
+      const d = doorGap(nx, ny);
+      if (d <= current) continue;
+      if (!best || d > best.d) best = { x: nx, y: ny, d };
+    }
+    // 一步走不开（周围被占或被墙围住）时退而求其次：直接挪到店内离门最远的空地。
+    if (!best) {
+      for (let x = room.lx; x <= room.hx; x++) {
+        for (let y = room.ly; y <= room.hy; y++) {
+          if (this.level.tiles[index(x, y)] !== T.ROOM) continue;
+          if (x === mon.x && y === mon.y) continue;
+          if (x === this.player.x && y === this.player.y) continue;
+          if (monsterAt(this.level, x, y)) continue;
+          const d = doorGap(x, y);
+          if (d <= current) continue;
+          if (!best || d > best.d) best = { x, y, d };
+        }
+      }
+    }
+    if (best) {
+      mon.x = best.x;
+      mon.y = best.y;
     }
   }
 

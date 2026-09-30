@@ -231,18 +231,36 @@ function buildDoor(level: Level, x: number, y: number, door: DoorState): THREE.G
     panel.position.x = half;
   }
   pivot.add(panel);
-  if (door.locked) {
-    const band = new THREE.Mesh(
-      passageAlongX ? shadedBox(0.13, 0.12, 0.5) : shadedBox(0.5, 0.12, 0.13),
-      new THREE.MeshLambertMaterial({ vertexColors: true, color: PALETTE.doorMetal }),
-    );
-    band.position.y = 0.1;
-    pivot.add(band);
+  // 锁闩常驻，靠可见性反映锁定状态：开门或解锁时不必重建整层网格。
+  const band = new THREE.Mesh(
+    passageAlongX ? shadedBox(0.13, 0.12, 0.5) : shadedBox(0.5, 0.12, 0.13),
+    new THREE.MeshLambertMaterial({ vertexColors: true, color: PALETTE.doorMetal }),
+  );
+  band.position.y = 0.1;
+  band.visible = door.locked;
+  pivot.add(band);
+  // 被撞破的门只剩断板，散落在门槛上。
+  const debris = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const plank = new THREE.Mesh(shadedBox(0.34, 0.05, 0.1, 1.0, 0.8, 0.5), frameMat);
+    plank.position.set(-0.18 + i * 0.16, 0.03 + i * 0.02, -0.1 + i * 0.12);
+    plank.rotation.y = 0.4 - i * 0.5;
+    debris.add(plank);
   }
+  debris.visible = door.broken;
+  panel.visible = !door.broken;
   const openRotation = passageAlongX ? Math.PI / 2.3 : -Math.PI / 2.3;
   if (!door.closed) pivot.rotation.y = openRotation;
-  g.add(left, right, pivot);
-  g.userData.animate = { pivot, closed: door.closed, openRotation };
+  g.add(left, right, pivot, debris);
+  g.userData.animate = {
+    pivot,
+    panel,
+    band,
+    debris,
+    closed: door.closed,
+    broken: door.broken,
+    openRotation,
+  };
   return g;
 }
 
@@ -431,6 +449,17 @@ const FEATURE_BUILDERS = {
   THRONE: buildThrone,
 };
 
+/** 门的手柄数据：每帧从这里读取关卡状态，驱动开合动画与锁闩、断板。 */
+interface DoorAnimation {
+  pivot: THREE.Group;
+  panel: THREE.Mesh;
+  band: THREE.Mesh;
+  debris: THREE.Group;
+  closed: boolean;
+  broken: boolean;
+  openRotation: number;
+}
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -561,11 +590,21 @@ export class DungeonMesh extends THREE.Group {
     }
   }
 
-  /** 播放开门动画，每帧调用。 */
+  /** 播放开门动画，并同步锁闩与破门状态，每帧调用。 */
   update(dt: number): void {
     for (const f of this.features) {
-      const anim = f.userData.animate;
+      const anim = f.userData.animate as DoorAnimation | undefined;
       if (!anim) continue;
+      // 门的状态在玩家、怪物或法术的行动里改变，这里每帧读回关卡状态，
+      // 不能沿用建网格时的快照，否则开了门模型也不动。
+      const door = this.level.doors.get(f.userData.tile as number);
+      if (door) {
+        anim.closed = door.closed;
+        anim.broken = door.broken;
+        anim.panel.visible = !door.broken;
+        anim.debris.visible = door.broken;
+        anim.band.visible = door.locked && door.closed && !door.broken;
+      }
       const target = anim.closed ? 0 : anim.openRotation;
       const cur = anim.pivot.rotation.y;
       const delta = target - cur;

@@ -18,6 +18,7 @@ import { statusIconSvg } from './icons';
 import { buildDump, dumpFileName } from './dump';
 import { alignDisplayName } from '../data/i18n';
 import { isMuted, playSfx, setMuted } from '../core/audio';
+import { HUNGER_DANGER, HUNGER_WARN } from '../core/constants';
 
 /** 情境操作：由调用方根据当前局面生成。 */
 export interface HudAction {
@@ -54,10 +55,6 @@ export interface HudHandle {
   closeHistory(): boolean;
   destroy(): void;
 }
-
-/** 饱食度低于此值时给出提示，对应原版的 Hungry 状态。 */
-const HUNGER_WARN = 150;
-const HUNGER_DANGER = 40;
 
 export function createHud({ onExit }: HudOptions = {}): HudHandle {
   const el = document.createElement('div');

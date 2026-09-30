@@ -894,6 +894,50 @@ const shop: Scenario = {
       // 店主和平：清掉其它怪物贴身等待不应受伤；挑衅后转为敌对。
       if (keeper) {
         level.monsters = level.monsters.filter((m) => m === keeper);
+        // 店主不能永久堵死入口：站到门口内侧后会主动让开。
+        const doorway = (() => {
+          for (const i of level.doors.keys()) {
+            const dx0 = i % COLNO;
+            const dy0 = Math.floor(i / COLNO);
+            for (const [dx, dy] of [
+              [-1, 0],
+              [1, 0],
+              [0, -1],
+              [0, 1],
+            ]) {
+              const x = dx0 + dx;
+              const y = dy0 + dy;
+              if (!room || !inRoom(room, x, y)) continue;
+              if (level.tiles[index(x, y)] !== T.ROOM) continue;
+              if (x === session.player.x && y === session.player.y) continue;
+              return { x, y };
+            }
+          }
+          return null;
+        })();
+        if (doorway) {
+          keeper.x = doorway.x;
+          keeper.y = doorway.y;
+          session.wait();
+          const blocks = [...level.doors.keys()].some((i) => {
+            const at = { x: i % COLNO, y: Math.floor(i / COLNO) };
+            return Math.max(Math.abs(at.x - keeper.x), Math.abs(at.y - keeper.y)) <= 1;
+          });
+          checker.ok(
+            !blocks,
+            '店主让开门口',
+            `位置=(${keeper.x}, ${keeper.y})`,
+            repro('shop', seed),
+          );
+          checker.ok(
+            !!room && inRoom(room, keeper.x, keeper.y),
+            '店主让路后仍在店内',
+            `位置=(${keeper.x}, ${keeper.y})`,
+            repro('shop', seed),
+          );
+        } else {
+          checker.ok(false, '商店门口内侧有地板格', '没找到门旁的店内地面', repro('shop', seed));
+        }
         const around = [
           [-1, 0],
           [1, 0],

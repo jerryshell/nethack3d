@@ -154,6 +154,8 @@ const messages: MessageCatalog = {
     pickup: 'Pick up',
     attack: 'Attack',
     travel: 'Go to stairs',
+    explore: 'Explore',
+    rest: 'Rest',
     wait: 'Wait',
     search: 'Search',
     untrap: 'Disarm',
@@ -181,6 +183,8 @@ const messages: MessageCatalog = {
     pickup: 'Pick up what is lying here (g)',
     attack: 'Attack the adjacent monster',
     travel: 'Walk to the down stairs automatically',
+    explore: 'Walk to the nearest unexplored area automatically (x)',
+    rest: 'Wait until health and power are full (R)',
     wait: 'Let one turn pass (.)',
     search: 'Search for hidden traps nearby (s)',
     untrap: 'Disarm the trap at your feet or beside you',
@@ -781,7 +785,7 @@ const messages: MessageCatalog = {
   help: {
     title: 'How to play',
     body: 'NetHack 3D is a turn-based roguelike. Every action you take is one turn; monsters act after you.\n\nClick any floor tile and the hero walks there on its own; clicking a distant monster walks over to attack it. Walk into a monster to attack it. Walk onto > to descend the stairs. Doors open when you walk into them.\n\nGoal: descend 30 levels and claim the Amulet of Yendor hidden at the bottom.\n\nSide paths: at depth 14 a stair leads to your class quest; speak with the leader to unlock it. Altars accept corpse offerings and turn water into holy water. Fountains, graves, thrones and sinks each have their own action.',
-    keys: 'Click a floor tile to walk there · Movement: arrows / hjkl / yubn · Wait: . · Pick up: g · Pack: i · Wield: w · Wear: W · Quaff: q · Eat: e · Read: r · Zap: z · Drop: d · Take off: T',
+    keys: 'Click a floor tile to walk there · Movement: arrows / hjkl / yubn · Wait: . · Pick up: g · Pack: i · Wield: w · Wear: W · Quaff: q · Eat: e · Read: r · Zap: z · Drop: d · Take off: T · Auto-explore: x · Rest: R',
   },
   dir: {
     north: 'north',

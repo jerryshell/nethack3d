@@ -163,3 +163,56 @@ export function pathPoints(from: Point, steps: Step[]): Point[] {
   }
   return points;
 }
+
+/** 该格是否紧邻未探索区域。 */
+function isFrontier(level: Level, x: number, y: number): boolean {
+  for (const d of DIRS) {
+    const nx = x + d.dx;
+    const ny = y + d.dy;
+    if (nx < 0 || ny < 0 || nx >= COLNO || ny >= ROWNO) continue;
+    if (level.seen[index(nx, ny)] !== 1) return true;
+  }
+  return false;
+}
+
+/**
+ * 自动探索的下一处目标：最近的、与未探索区域相邻的可通行格子。
+ *
+ * 搜索规则与 `findPath` 一致：只走已探索的格子，绕开已知陷阱、液面与
+ * 挡路的怪物。`exclude` 排除「走到了也揭不开新区域」的格子（例如前方被
+ * 墙挡住的角），避免反复跑同一处；找不到时返回 null。
+ */
+export function findExploreTarget(
+  level: Level,
+  from: Point,
+  { levitating = false, exclude }: { levitating?: boolean; exclude?: ReadonlySet<number> } = {},
+): Point | null {
+  const start = index(from.x, from.y);
+  const cameFrom = new Int32Array(COLNO * ROWNO).fill(-1);
+  const queue: number[] = [start];
+  cameFrom[start] = start;
+  let visited = 0;
+
+  while (queue.length && visited < MAX_VISITS) {
+    const current = queue.shift() as number;
+    visited++;
+    const cx = current % COLNO;
+    const cy = (current / COLNO) | 0;
+    // 起点自身不算目标：站在边界上说明该揭开的已经揭开。
+    if (current !== start && !exclude?.has(current) && isFrontier(level, cx, cy)) {
+      return { x: cx, y: cy };
+    }
+    for (const step of DIRS) {
+      const nx = cx + step.dx;
+      const ny = cy + step.dy;
+      if (nx < 0 || ny < 0 || nx >= COLNO || ny >= ROWNO) continue;
+      const next = index(nx, ny);
+      if (cameFrom[next] !== -1) continue;
+      if (!passable(level, nx, ny, levitating, true) || hasMonster(level, nx, ny)) continue;
+      if (!diagonalAllowed(level, { x: cx, y: cy }, step, levitating, true)) continue;
+      cameFrom[next] = current;
+      queue.push(next);
+    }
+  }
+  return null;
+}
