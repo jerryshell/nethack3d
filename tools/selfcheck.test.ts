@@ -4540,6 +4540,48 @@ section('浮空', async () => {
     }
   }
 
+  // 浮空够不着楼梯，飞行则可以正常上下。
+  {
+    const s = new GameSession({ seed: 7007 });
+    const down = s.level.down;
+    ok(!!down, '首层有下行楼梯');
+    if (down) {
+      const spot = (
+        [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as [number, number][]
+      )
+        .map(([dx, dy]) => ({ x: down.x + dx, y: down.y + dy, dx, dy }))
+        .find((p) => isWalkable(s.level.tiles[index(p.x, p.y)]));
+      ok(!!spot, '楼梯旁有可站立的格子');
+      if (spot) {
+        s.player.x = spot.x;
+        s.player.y = spot.y;
+        s.player.levitating = 5;
+        const depth = s.depth;
+        s.movePlayer(down.x - spot.x, down.y - spot.y);
+        ok(s.depth === depth, '浮空时踩楼梯不能下潜');
+        ok(
+          s.messages.some((m) => m.key === 'msg.levitateStairs'),
+          '记录浮空够不着楼梯',
+        );
+        s.player.levitating = 0;
+        const fly = makeItem(objById.get('AMULET_OF_FLYING') as ObjectData, s.rng);
+        addToInventory(s.player, fly);
+        wearItem(s.player, fly);
+        ok(s.hasFlight() && s.isFloating(), '飞行护身符让人飘起来');
+        // 回到楼梯旁再踩一次。
+        s.player.x = spot.x;
+        s.player.y = spot.y;
+        s.movePlayer(down.x - spot.x, down.y - spot.y);
+        ok(s.depth === depth + 1, '飞行时踩楼梯可以下潜');
+      }
+    }
+  }
+
   // 计时归零落回地面。
   {
     const s = new GameSession({ seed: 7006 });

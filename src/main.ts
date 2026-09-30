@@ -495,7 +495,7 @@ function startGame(options: StartGameOptions = {}): void {
   function startTravel(target: Point): void {
     cancelTravel();
     const from = { x: session.player.x, y: session.player.y };
-    const steps = findPath(session.level, from, target, { levitating: session.hasLevitation() });
+    const steps = findPath(session.level, from, target, { levitating: session.isFloating() });
     if (!steps || steps.length === 0) {
       log.debug('没有可走的路径', { from, target });
       return;

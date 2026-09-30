@@ -554,15 +554,24 @@ export class GameSession {
     return this.player.invisible > 0 || this.hasEquipmentPower('INVIS');
   }
 
-  /** 当前是否浮空：浮空药水计时、浮空戒指/靴子或飞行护身符。 */
+  /** 当前是否浮空：浮空药水计时、浮空戒指或浮空靴；够不着楼梯。 */
   hasLevitation(): boolean {
     const p = this.player;
     return (
       p.levitating > 0 ||
       p.equipment.boots?.proto.id === 'LEVITATION_BOOTS' ||
-      this.hasEquipmentPower('LEVITATION') ||
-      this.hasEquipmentPower('FLYING')
+      this.hasEquipmentPower('LEVITATION')
     );
+  }
+
+  /** 当前是否飞行：飞行护身符；与浮空同样飘在危险地表之上，但能正常上下楼梯。 */
+  hasFlight(): boolean {
+    return this.hasEquipmentPower('FLYING');
+  }
+
+  /** 飘在地表之上：可以越过虚空、液面并免触发地面陷阱。 */
+  isFloating(): boolean {
+    return this.hasLevitation() || this.hasFlight();
   }
 
   /** 当前形态是否会游泳或两栖；原形不会游泳，需要浮空过深水。 */
@@ -954,7 +963,7 @@ export class GameSession {
       }
     }
 
-    const levitating = this.hasLevitation();
+    const levitating = this.isFloating();
     if (!isWalkable(t) && !(levitating && t === T.AIR)) {
       // 持握镐类工具时，向墙壁移动就是挖掘；要连续凿几回合才穿。
       if (isWall(t) && this.wieldingDigger()) {
@@ -1060,6 +1069,13 @@ export class GameSession {
             special = 'ascend';
         }
       }
+    }
+
+    // 浮空时够不着楼梯：要落地才能上下（飞行不受影响）。
+    if (special && this.hasLevitation()) {
+      this.log('msg.levitateStairs');
+      this.finishTurn();
+      return { result: 'moved' };
     }
 
     // 任务楼梯要等领袖下令才能下行。
@@ -1382,7 +1398,7 @@ export class GameSession {
     const effect = trapEffect(trap.type);
     const trapName = trapNameKey(trap.type);
     // 浮空时从地面陷阱上方飘过；魔法传送门例外，否则终局会被浮空卡死。
-    if (this.hasLevitation() && trap.type !== 'MAGIC_PORTAL') {
+    if (this.isFloating() && trap.type !== 'MAGIC_PORTAL') {
       trap.seen = true;
       this.log('msg.levitateTrap', { trap: trapName });
       return false;
@@ -1602,7 +1618,7 @@ export class GameSession {
       this.tileAt(p.x, p.y) === T.WATER ||
       this.tileAt(p.x, p.y) === T.POOL ||
       this.tileAt(p.x, p.y) === T.MOAT;
-    if (watery && !this.hasLevitation() && !this.playerSwims()) {
+    if (watery && !this.isFloating() && !this.playerSwims()) {
       p.drowning++;
       const dmg = this.rng.dice(1, 6);
       this.log('msg.drowning', { n: dmg });
@@ -2241,6 +2257,8 @@ export class GameSession {
   /** 能否用镐向下挖：持镐站在普通地面上，且本分支还有下层。 */
   canDigDown(): boolean {
     if (this.branch === 'sokoban' || this.depth >= this.maxDepth) return false;
+    // 飘着的时候踩不到地面，挖不动地板。
+    if (this.isFloating()) return false;
     if (!this.wieldingDigger()) return false;
     const t = this.tileAt(this.player.x, this.player.y);
     return t === T.ROOM || t === T.CORR;
@@ -2317,7 +2335,8 @@ export class GameSession {
       }
     }
     if (best) return this.digWall(best.x, best.y) === 'dug' ? 'wall' : 'none';
-    if (this.depth >= this.maxDepth) return 'none';
+    // 飘着的时候踩不到地板，也落不进洞里。
+    if (this.depth >= this.maxDepth || this.isFloating()) return 'none';
     // 向下打一个洞并立即落下，与踩中地洞陷阱一致。
     this.level.traps.set(index(this.player.x, this.player.y), { type: 'HOLE', seen: true });
     this.changeDepth(this.depth + 1, 'down');
