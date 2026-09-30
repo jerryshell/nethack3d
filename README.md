@@ -142,6 +142,8 @@ bun run build      # 产物输出到 dist/
 ```bash
 bun tools/extract-nh-data.ts  /path/to/nethack   # 生成 monsters.gen.ts 与 objects.gen.ts
 bun tools/extract-nh-roles.ts /path/to/nethack   # 生成 roles.gen.ts
+bun tools/extract-nh-sokoban.ts /path/to/nethack # 生成 sokoban.gen.ts
+bun tools/extract-nh-quest.ts /path/to/nethack   # 生成 quest.gen.ts
 bun tools/dump-level.ts 42 1 2 5                 # 输出指定种子与层数的 ASCII 视图
 ```
 
@@ -168,7 +170,7 @@ bun tools/dump-level.ts 42 1 2 5                 # 输出指定种子与层数�
 | `bun run dev`         | 启动开发服务器                                        |
 | `bun run build`       | 生产构建                                              |
 | `bun run typecheck`   | TypeScript 类型检查，要求零错误                       |
-| `bun run check`       | 引擎自检：1213 项断言，用 `bun:test` 运行并输出覆盖率 |
+| `bun run check`       | 引擎自检：1264 项断言，用 `bun:test` 运行并输出覆盖率 |
 | `bun run test`        | 运行全部测试（当前为自检）                            |
 | `bun run test:watch`  | 监听模式，改动即重跑                                  |
 | `bun run lint`        | oxlint 静态检查                                       |

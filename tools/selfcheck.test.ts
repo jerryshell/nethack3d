@@ -168,6 +168,32 @@ section('数据完整性', async () => {
   }
 });
 
+section('任务起始层数据', async () => {
+  const { QUEST_HOME_LEVELS } = await import('../src/data/quest.gen');
+  const { QUEST_MAP_CHARS } = await import('../src/game/quest');
+
+  ok(QUEST_HOME_LEVELS.length === 12, `12 个职业有固定起始层（${QUEST_HOME_LEVELS.length}）`);
+  const roles = new Set(QUEST_HOME_LEVELS.map((home) => home.role));
+  ok(roles.size === QUEST_HOME_LEVELS.length, '任务起始层没有重复职业');
+  ok(!roles.has('RANGER'), '浪人没有固定地图，保持通用布局');
+  for (const home of QUEST_HOME_LEVELS) {
+    const width = Math.max(...home.map.map((line) => line.length));
+    ok(
+      width <= 80 && home.map.length <= 21,
+      `${home.role} 地图尺寸合法（${width}×${home.map.length}）`,
+    );
+    ok(
+      home.map.every((line) => [...line].every((ch) => ch in QUEST_MAP_CHARS)),
+      `${home.role} 地图字符都在表内`,
+    );
+    ok(
+      home.stairs.some((stair) => stair.dir === 'down'),
+      `${home.role} 有下行楼梯`,
+    );
+    ok(!!home.branch, `${home.role} 有分支落脚区`);
+  }
+});
+
 section('语言包完整性', async () => {
   const fs = await import('node:fs');
   const path = await import('node:path');

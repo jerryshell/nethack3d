@@ -37,6 +37,18 @@ export const REFERENCE_FILES = [
   'dat/soko3-2.lua',
   'dat/soko4-1.lua',
   'dat/soko4-2.lua',
+  'dat/Arc-strt.lua',
+  'dat/Bar-strt.lua',
+  'dat/Cav-strt.lua',
+  'dat/Hea-strt.lua',
+  'dat/Kni-strt.lua',
+  'dat/Mon-strt.lua',
+  'dat/Pri-strt.lua',
+  'dat/Rog-strt.lua',
+  'dat/Sam-strt.lua',
+  'dat/Tou-strt.lua',
+  'dat/Val-strt.lua',
+  'dat/Wiz-strt.lua',
 ];
 
 /** 参考仓库当前状态。 */

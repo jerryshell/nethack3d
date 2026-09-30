@@ -20,14 +20,26 @@
     "dat/soko3-1.lua": "5122ffcb3199dd69",
     "dat/soko3-2.lua": "f042a3bb8e8226e9",
     "dat/soko4-1.lua": "b74165b352369bf0",
-    "dat/soko4-2.lua": "6c7170a69ba3de37"
+    "dat/soko4-2.lua": "6c7170a69ba3de37",
+    "dat/Arc-strt.lua": "e1b0ca82baa33ca3",
+    "dat/Bar-strt.lua": "ea08d60f2fbceeb1",
+    "dat/Cav-strt.lua": "c407f3617b9dc33b",
+    "dat/Hea-strt.lua": "b4624141d70afa49",
+    "dat/Kni-strt.lua": "0da418f4a5a850ba",
+    "dat/Mon-strt.lua": "93ab7433524f6ab0",
+    "dat/Pri-strt.lua": "9c2d735b5eddf874",
+    "dat/Rog-strt.lua": "7adeefcfb2bd9902",
+    "dat/Sam-strt.lua": "f473600b1cad0cb4",
+    "dat/Tou-strt.lua": "730a3330ae04571c",
+    "dat/Val-strt.lua": "250d58394d4f9753",
+    "dat/Wiz-strt.lua": "a5047d06ab3ac3e0"
   },
   "counts": {
     "monsters": 394,
     "objects": 440
   },
   "version": 1,
-  "recordedAt": "2026-09-30T11:31:40.110Z",
+  "recordedAt": "2026-09-30T20:37:24.065Z",
   "generated": {
     "monsters": 394,
     "objects": 441,
