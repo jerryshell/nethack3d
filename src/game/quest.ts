@@ -63,6 +63,8 @@ export interface QuestFixedLevel {
   traps: QuestTrap[];
   /** `des.trap()` 的个数：位置由生成端随机落点。 */
   trapCount: number;
+  /** 目标层的仇敌与神器落脚点（来自任务神器 object 的坐标）；其它层为空。 */
+  goal: { x: number; y: number } | null;
 }
 
 /**

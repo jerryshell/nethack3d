@@ -313,6 +313,8 @@ export interface Level {
   special?: string | null;
   /** 推箱层的变体 id（soko1-1 等），供会话放固定怪物。 */
   sokobanVariant?: string;
+  /** 固定任务目标层的仇敌落脚点（原版神器的坐标）。 */
+  questGoalAnchor?: { x: number; y: number };
   /** 分支标识；主地牢为空。 */
   branch?: string | null;
   /** 玩家是否到过该层。 */

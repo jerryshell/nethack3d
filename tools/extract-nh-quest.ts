@@ -55,6 +55,7 @@ const TRAP_NAMES: Record<string, string> = {
   'trap door': 'HOLE',
   hole: 'HOLE',
   'sleep gas': 'SLEEPING_GAS_TRAP',
+  board: 'SQKY_BOARD',
   dart: 'DART_TRAP',
   arrow: 'ARROW_TRAP',
   'falling rock': 'ROCKTRAP',
@@ -147,6 +148,7 @@ function parseFixedLevel(role: string, file: string): QuestFixedLevel | null {
   // 行尾空格去掉；行首空格保留，洞穴地图用它表示石头。
   const map = mapMatch[1].split('\n').map((line) => line.replace(/\s+$/, ''));
   const height = map.length;
+  const width = Math.max(...map.map((line) => line.length));
 
   const doors: QuestFixedLevel['doors'] = [];
   for (const body of calls(src, 'door')) {
@@ -167,10 +169,11 @@ function parseFixedLevel(role: string, file: string): QuestFixedLevel | null {
       continue;
     }
     const dir = body.match(/dir\s*=\s*"(up|down)"/);
-    const coord = body.match(/coord\s*=\s*place\[(\d+)\]/);
-    if (dir && coord) {
-      // 原版会 shuffle(place)，这里取洗牌前的顺序；生成端会再校验落点。
-      const at = place[Number(coord[1]) - 1];
+    const numeric = body.match(/coord\s*=\s*place\[(\d+)\]/);
+    const named = /coord\s*=\s*place\[placeidx\]/.test(body);
+    if (dir && (numeric || named)) {
+      // 原版会 shuffle(place) 或随机 placeidx，这里取第一项；生成端会再校验落点。
+      const at = place[(named ? 1 : Number(numeric?.[1])) - 1];
       if (at) stairs.push({ dir: dir[1] as 'up' | 'down', x: at[0], y: at[1] });
     }
   }
@@ -184,6 +187,21 @@ function parseFixedLevel(role: string, file: string): QuestFixedLevel | null {
       x: Math.floor((Number(m[1]) + Number(m[3])) / 2),
       y: Math.floor((Number(m[2]) + Number(m[4])) / 2),
     };
+  }
+  // 有些目标层用 stair-up 的 levregion 指定上行楼梯；
+  // region_islev 时坐标是屏幕绝对的，需减去居中偏移。
+  for (const body of calls(src, 'levregion')) {
+    if (!/type\s*=\s*"stair-up"/.test(body)) continue;
+    const m = body.match(/region\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\}/);
+    if (!m) continue;
+    const absolute = /region_islev\s*=\s*1/.test(body);
+    const ox = Math.floor((80 - width) / 2);
+    const oy = Math.floor((21 - height) / 2);
+    stairs.push({
+      dir: 'up',
+      x: Math.floor((Number(m[1]) + Number(m[3])) / 2) - (absolute ? ox : 0),
+      y: Math.floor((Number(m[2]) + Number(m[4])) / 2) - (absolute ? oy : 0),
+    });
   }
 
   const regions: QuestRegion[] = [];
@@ -227,8 +245,27 @@ function parseFixedLevel(role: string, file: string): QuestFixedLevel | null {
     traps.push({ type, x: Number(m[2]), y: Number(m[3]) });
   }
 
+  // 目标层的任务神器 object 与仇敌同格，用它当仇敌落脚点；其它层为空。
+  let goal: { x: number; y: number } | null = null;
+  for (const body of calls(src, 'object')) {
+    if (!/name\s*=\s*"The /.test(body)) continue;
+    const xy = body.match(/x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)/);
+    if (xy) {
+      goal = { x: Number(xy[1]), y: Number(xy[2]) };
+      break;
+    }
+    const numeric = body.match(/coord\s*=\s*place\[(\d+)\]/);
+    const named = /coord\s*=\s*place\[placeidx\]/.test(body);
+    if (numeric || named) {
+      const at = place[(named ? 1 : Number(numeric?.[1])) - 1];
+      if (at) {
+        goal = { x: at[0], y: at[1] };
+        break;
+      }
+    }
+  }
+
   // 自检：地图在 80×21 内、字符可识别、门与楼梯不越界。
-  const width = Math.max(...map.map((line) => line.length));
   if (width > 80 || height > 21) throw new Error(`${file}: 地图超出 80×21（${width}×${height}）`);
   for (let y = 0; y < height; y++) {
     for (const ch of map[y]) {
@@ -249,11 +286,11 @@ function parseFixedLevel(role: string, file: string): QuestFixedLevel | null {
   if (branch && !inside(branch.x, branch.y))
     throw new Error(`${file}: 分支落脚区越界 (${branch.x},${branch.y})`);
 
-  return { role, map, doors, stairs, branch, regions, features, traps, trapCount };
+  return { role, map, doors, stairs, branch, regions, features, traps, trapCount, goal };
 }
 
 /** 按文件后缀提取一类固定层；缺少地图的角色跳过。 */
-function extractKind(kind: 'strt' | 'loca'): QuestFixedLevel[] {
+function extractKind(kind: 'strt' | 'loca' | 'goal'): QuestFixedLevel[] {
   const out: QuestFixedLevel[] = [];
   for (const [role, prefix] of Object.entries(ROLE_PREFIXES)) {
     const file = `${prefix}-${kind}.lua`;
@@ -276,12 +313,17 @@ function extractKind(kind: 'strt' | 'loca'): QuestFixedLevel[] {
 function main(): void {
   const homes = extractKind('strt');
   const locates = extractKind('loca');
+  const goals = extractKind('goal');
   if (homes.length < 12) throw new Error(`只提取到 ${homes.length} 个起始层`);
   if (locates.length < 12) throw new Error(`只提取到 ${locates.length} 个搜索层`);
+  if (goals.length < 13) throw new Error(`只提取到 ${goals.length} 个目标层`);
+  for (const goal of goals) {
+    if (!goal.goal) throw new Error(`${goal.role}: 目标层没有神器坐标`);
+  }
 
   const header = [
     '// 本文件由脚本生成，请勿手动修改。',
-    '// 来源：nethack/dat/{Role}-strt.lua 与 {Role}-loca.lua',
+    '// 来源：nethack/dat/{Role}-strt.lua、{Role}-loca.lua 与 {Role}-goal.lua',
     '// 重新生成：bun tools/extract-nh-quest.ts [NetHack 源码路径]',
     '// 内容派生自 NetHack，按 NetHack General Public License 分发，见 NOTICE.md。',
     '',
@@ -291,7 +333,8 @@ function main(): void {
   fs.writeFileSync(
     path.join(projectRoot, 'src', 'data', 'quest.gen.ts'),
     `${header}export const QUEST_HOME_LEVELS: QuestFixedLevel[] = ${JSON.stringify(homes, null, 2)};\n\n` +
-      `export const QUEST_LOCATE_LEVELS: QuestFixedLevel[] = ${JSON.stringify(locates, null, 2)};\n`,
+      `export const QUEST_LOCATE_LEVELS: QuestFixedLevel[] = ${JSON.stringify(locates, null, 2)};\n\n` +
+      `export const QUEST_GOAL_LEVELS: QuestFixedLevel[] = ${JSON.stringify(goals, null, 2)};\n`,
   );
   console.log('wrote src/data/quest.gen.ts');
 

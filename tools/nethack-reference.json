@@ -45,14 +45,27 @@
     "dat/Sam-loca.lua": "10dfb71f038fd7a7",
     "dat/Tou-loca.lua": "f9fce3e572a1da6c",
     "dat/Val-loca.lua": "cf4dc19d4a39087b",
-    "dat/Wiz-loca.lua": "aa3d7d3cec63c851"
+    "dat/Wiz-loca.lua": "aa3d7d3cec63c851",
+    "dat/Arc-goal.lua": "c53a3ec6f729ce03",
+    "dat/Bar-goal.lua": "88baeb046b9c85a6",
+    "dat/Cav-goal.lua": "4f26983ef123a6d6",
+    "dat/Hea-goal.lua": "1f933932e860cb45",
+    "dat/Kni-goal.lua": "fae5ece6de2a6ad4",
+    "dat/Mon-goal.lua": "0e5be926b3b76c6f",
+    "dat/Pri-goal.lua": "7504344c00888028",
+    "dat/Ran-goal.lua": "3793c9edf503aa54",
+    "dat/Rog-goal.lua": "b97b9e02deecf4bb",
+    "dat/Sam-goal.lua": "6c0e816473e4da4a",
+    "dat/Tou-goal.lua": "dabad6823744f896",
+    "dat/Val-goal.lua": "ed6dce1497ab0454",
+    "dat/Wiz-goal.lua": "96100cb0a4150b1c"
   },
   "counts": {
     "monsters": 394,
     "objects": 440
   },
   "version": 1,
-  "recordedAt": "2026-09-30T21:19:28.734Z",
+  "recordedAt": "2026-09-30T22:52:36.445Z",
   "generated": {
     "monsters": 394,
     "objects": 441,

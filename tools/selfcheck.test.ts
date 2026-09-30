@@ -168,8 +168,9 @@ section('数据完整性', async () => {
   }
 });
 
-section('任务起始层数据', async () => {
-  const { QUEST_HOME_LEVELS, QUEST_LOCATE_LEVELS } = await import('../src/data/quest.gen');
+section('任务固定层数据', async () => {
+  const { QUEST_HOME_LEVELS, QUEST_LOCATE_LEVELS, QUEST_GOAL_LEVELS } =
+    await import('../src/data/quest.gen');
   const { QUEST_MAP_CHARS } = await import('../src/game/quest');
   const { generateBranchLevel } = await import('../src/game/dungeon');
 
@@ -256,6 +257,24 @@ section('任务起始层数据', async () => {
       aligns.join(',') === 'chaotic,lawful,neutral',
       `考古学家搜索层祭坛归属齐全（${aligns.join(',')}）`,
     );
+  }
+
+  // 目标层 13 个职业都有固定地图与神器坐标。
+  ok(QUEST_GOAL_LEVELS.length === 13, `13 个职业有固定目标层（${QUEST_GOAL_LEVELS.length}）`);
+  for (const goal of QUEST_GOAL_LEVELS) {
+    ok(!!goal.goal, `${goal.role} 目标层有神器坐标`);
+    ok(
+      goal.map.every((line) => [...line].every((ch) => ch in QUEST_MAP_CHARS)),
+      `${goal.role} 目标层字符都在表内`,
+    );
+    const level = build(goal.role, 5);
+    ok(level.special === 'quest_goal', `${goal.role} 目标层标记正确`);
+    ok(!!level.questGoalAnchor, `${goal.role} 目标层有仇敌落脚点`);
+    ok(
+      !!level.up && isWalkable(level.tiles[index(level.up.x, level.up.y)]),
+      `${goal.role} 目标层上行楼梯可站`,
+    );
+    ok(!level.down, `${goal.role} 目标层没有下行楼梯`);
   }
 });
 
@@ -7160,7 +7179,8 @@ section('职业神器', async () => {
     ok(again?.artifact === 'tsurugi_of_muramasa', '神器随存档保留');
   }
 
-  // 任务目标层的仇敌守在巢穴里：一间带门的石室，神器与仇敌都在室内。
+  // 任务目标层：固定地图上仇敌与神器落在原版神器的坐标；
+  // 通用布局（若有）守在巢穴里。
   {
     const { QUEST_LAIR } = await import('../src/game/dungeon');
     const { auditDoors } = await import('./agent-lib');
@@ -7173,34 +7193,52 @@ section('职业神器', async () => {
         gender: 'male' as const,
       },
     });
-    // 测试只关心巢穴结构与摆放，直接解锁任务楼梯。
+    // 测试只关心目标层结构，直接解锁任务楼梯。
     s.questUnlocked = true;
     s.changeDepth(5, 'down', 'quest');
-    const lair = QUEST_LAIR;
-    const inside = (x: number, y: number) =>
-      x >= lair.lx && x <= lair.hx && y >= lair.ly && y <= lair.hy;
     const nemesis = s.level.monsters.find((m) => m.data.id === s.character.role.quest.nemesis);
-    ok(!!nemesis && inside(nemesis.x, nemesis.y), '仇敌守在巢穴里');
     const artifactPile = s.level.objects.find((p) => p.items.some((i) => i.artifact));
-    ok(!!artifactPile && inside(artifactPile.x, artifactPile.y), '神器放在巢穴里');
-    ok(s.level.doors.size === 1, `巢穴只开一扇门（${s.level.doors.size}）`);
-    // 门口有仇敌的爪牙把守，玩家要先闯过这一关。
-    const doorX = (lair.lx + lair.hx) >> 1;
-    const doorY = lair.hy + 1;
-    const guards = s.level.monsters.filter(
-      (m) => !m.dead && Math.abs(m.x - doorX) <= 1 && m.y === doorY + 1,
-    );
-    ok(guards.length >= 2, `巢穴门口有爪牙把守（${guards.length}）`);
-    ok(
-      guards.every((g) => s.character.role.quest.enemies.includes(g.data.sym)),
-      '门口守卫是仇敌的爪牙',
-    );
-    const audit = auditDoors(s.level);
-    ok(
-      audit.problems.length === 0,
-      `巢穴的门满足形状审计（${audit.problems.join(';') || '通过'}）`,
-    );
-    ok(!!s.level.up && !inside(s.level.up.x, s.level.up.y), '入口楼梯在巢穴外');
+    ok(!!s.level.up, '入口楼梯存在');
+    ok(!s.level.down, '目标层是分支底部，没有下行楼梯');
+    if (s.level.questGoalAnchor) {
+      const anchor = s.level.questGoalAnchor;
+      ok(
+        !!nemesis && Math.max(Math.abs(nemesis.x - anchor.x), Math.abs(nemesis.y - anchor.y)) <= 1,
+        '仇敌守在原版神器坐标上',
+      );
+      ok(
+        !!artifactPile && artifactPile.x === nemesis?.x && artifactPile.y === nemesis?.y,
+        '神器与仇敌同格',
+      );
+      const guards = s.level.monsters.filter(
+        (m) =>
+          !m.dead &&
+          m !== nemesis &&
+          Math.max(Math.abs(m.x - anchor.x), Math.abs(m.y - anchor.y)) <= 2,
+      );
+      ok(guards.length >= 1, `仇敌身边有爪牙把守（${guards.length}）`);
+      ok(
+        guards.every((g) => s.character.role.quest.enemies.includes(g.data.sym)),
+        '身边守卫是仇敌的爪牙',
+      );
+    } else {
+      const lair = QUEST_LAIR;
+      const inside = (x: number, y: number) =>
+        x >= lair.lx && x <= lair.hx && y >= lair.ly && y <= lair.hy;
+      ok(!!nemesis && inside(nemesis.x, nemesis.y), '仇敌守在巢穴里');
+      ok(!!artifactPile && inside(artifactPile.x, artifactPile.y), '神器放在巢穴里');
+      const doorX = (lair.lx + lair.hx) >> 1;
+      const doorY = lair.hy + 1;
+      const guards = s.level.monsters.filter(
+        (m) => !m.dead && Math.abs(m.x - doorX) <= 1 && m.y === doorY + 1,
+      );
+      ok(guards.length >= 2, `巢穴门口有爪牙把守（${guards.length}）`);
+      const audit = auditDoors(s.level);
+      ok(
+        audit.problems.length === 0,
+        `巢穴的门满足形状审计（${audit.problems.join(';') || '通过'}）`,
+      );
+    }
   }
 
   // 12 个职业的任务总部用提取的固定地图；浪人退回通用布局。

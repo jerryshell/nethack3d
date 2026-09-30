@@ -466,7 +466,12 @@ export class GameSession {
   /** 任务目标层：唤醒仇敌，把本职业神器放在它脚下，并让爪牙把守门口。 */
   private placeQuestGoal(level: Level, quest: { nemesis: string; enemies: string[] }): void {
     const nemesisProto = monById.get(quest.nemesis);
-    const spot = this.questGoalSpot(level);
+    // 固定目标层用原版神器坐标当落脚点，其余布局用巢穴矩形内的落点。
+    const spot =
+      level.questGoalAnchor &&
+      isWalkable(this.tileAt(level.questGoalAnchor.x, level.questGoalAnchor.y))
+        ? level.questGoalAnchor
+        : this.questGoalSpot(level);
     if (!nemesisProto || !spot) return;
     const nemesis = new MonsterEntity(nemesisProto, spot.x, spot.y, this.rng);
     nemesis.asleep = false;
@@ -494,7 +499,7 @@ export class GameSession {
     const pile = level.objects.find((p) => p.x === spot.x && p.y === spot.y);
     if (pile) pile.items.push(...loot);
     else level.objects.push({ x: spot.x, y: spot.y, items: loot });
-    // 仇敌的爪牙把守巢穴门口，玩家要先闯过这一关。
+    // 仇敌的爪牙守在四周：固定地图围着仇敌，通用布局堵住巢穴门口。
     const pool = MONSTERS.filter(
       (m) =>
         quest.enemies.includes(m.sym) &&
@@ -502,13 +507,25 @@ export class GameSession {
         !m.genFlags.includes('G_UNIQ') &&
         m.diff <= 22,
     );
-    const doorX = (QUEST_LAIR.lx + QUEST_LAIR.hx) >> 1;
-    const doorY = QUEST_LAIR.hy + 1;
-    for (const post of [
-      { x: doorX - 1, y: doorY + 1 },
-      { x: doorX, y: doorY + 1 },
-      { x: doorX + 1, y: doorY + 1 },
-    ]) {
+    const posts = level.questGoalAnchor
+      ? [
+          { x: spot.x - 1, y: spot.y },
+          { x: spot.x + 1, y: spot.y },
+          { x: spot.x, y: spot.y - 1 },
+          { x: spot.x, y: spot.y + 1 },
+          { x: spot.x - 2, y: spot.y },
+          { x: spot.x + 2, y: spot.y },
+        ]
+      : (() => {
+          const doorX = (QUEST_LAIR.lx + QUEST_LAIR.hx) >> 1;
+          const doorY = QUEST_LAIR.hy + 1;
+          return [
+            { x: doorX - 1, y: doorY + 1 },
+            { x: doorX, y: doorY + 1 },
+            { x: doorX + 1, y: doorY + 1 },
+          ];
+        })();
+    for (const post of posts) {
       if (!pool.length) break;
       if (!isWalkable(this.tileAt(post.x, post.y))) continue;
       if (monsterAt(this.level, post.x, post.y)) continue;

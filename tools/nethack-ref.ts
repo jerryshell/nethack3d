@@ -62,6 +62,19 @@ export const REFERENCE_FILES = [
   'dat/Tou-loca.lua',
   'dat/Val-loca.lua',
   'dat/Wiz-loca.lua',
+  'dat/Arc-goal.lua',
+  'dat/Bar-goal.lua',
+  'dat/Cav-goal.lua',
+  'dat/Hea-goal.lua',
+  'dat/Kni-goal.lua',
+  'dat/Mon-goal.lua',
+  'dat/Pri-goal.lua',
+  'dat/Ran-goal.lua',
+  'dat/Rog-goal.lua',
+  'dat/Sam-goal.lua',
+  'dat/Tou-goal.lua',
+  'dat/Val-goal.lua',
+  'dat/Wiz-goal.lua',
 ];
 
 /** 参考仓库当前状态。 */
