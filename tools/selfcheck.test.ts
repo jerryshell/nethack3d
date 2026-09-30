@@ -5089,6 +5089,34 @@ section('工具应用', async () => {
     );
   }
 
+  // 镜子、相机与魔哨：惊退怪物、聚拢宠物。
+  {
+    const s = new GameSession({ seed: 8506 });
+    s.level.monsters = [];
+    const ant = new Monster(monById.get('GIANT_ANT')!, s.player.x + 2, s.player.y, s.rng);
+    ant.asleep = false;
+    s.level.monsters.push(ant);
+    const mirror = makeItem(objById.get('MIRROR') as ObjectData, s.rng);
+    addToInventory(s.player, mirror);
+    s.useItem(mirror);
+    ok(ant.fleeing, '镜子吓退最近的怪物');
+    const camera = makeItem(objById.get('EXPENSIVE_CAMERA') as ObjectData, s.rng);
+    addToInventory(s.player, camera);
+    ant.fleeing = false;
+    s.useItem(camera);
+    ok(ant.fleeing, '闪光灯吓退附近的怪物');
+    const whistle = makeItem(objById.get('MAGIC_WHISTLE') as ObjectData, s.rng);
+    addToInventory(s.player, whistle);
+    const pet = new Monster(monById.get('LITTLE_DOG')!, 10, 10, s.rng);
+    pet.tame = true;
+    s.level.monsters.push(pet);
+    s.useItem(whistle);
+    ok(
+      Math.max(Math.abs(pet.x - s.player.x), Math.abs(pet.y - s.player.y)) <= 1,
+      '魔哨把宠物叫到身边',
+    );
+  }
+
   // 罐装油脂护住护甲一次，毁甲卷轴随之失效。
   {
     const s = new GameSession({ seed: 8505 });

@@ -398,6 +398,58 @@ export function applyItem(session: GameSession, item: ItemInstance): UseOutcome 
         armor.greased = true;
         return { key: 'use.greased', vars: { obj: armor.proto.id }, identified: true };
       }
+      // 镜子：照一照，最近的怪物落荒而逃。
+      if (proto.id === 'MIRROR') {
+        const mon = session.level.monsters.find(
+          (m) =>
+            !m.dead &&
+            !m.tame &&
+            !m.data.genFlags.includes('G_UNIQ') &&
+            Math.max(Math.abs(m.x - p.x), Math.abs(m.y - p.y)) <= 3,
+        );
+        if (!mon) return { key: 'use.nothing' };
+        mon.fleeing = true;
+        return { key: 'use.mirrorScare', vars: { mon: mon.data.id }, identified: true };
+      }
+      // 相机：闪光照瞎附近的眼目，怪物纷纷退避。
+      if (proto.id === 'EXPENSIVE_CAMERA') {
+        let scared = 0;
+        for (const mon of session.level.monsters) {
+          if (mon.dead || mon.tame || mon.data.genFlags.includes('G_UNIQ')) continue;
+          if (Math.max(Math.abs(mon.x - p.x), Math.abs(mon.y - p.y)) > 8) continue;
+          mon.fleeing = true;
+          scared++;
+        }
+        return { key: 'use.cameraFlash', vars: { n: scared }, identified: true };
+      }
+      // 魔哨：把宠物都叫到身边。
+      if (proto.id === 'MAGIC_WHISTLE') {
+        let gathered = 0;
+        for (const pet of session.level.monsters) {
+          if (!pet.tame || pet.dead) continue;
+          const spot = [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+            [1, 1],
+            [1, -1],
+            [-1, 1],
+            [-1, -1],
+          ]
+            .map(([dx, dy]) => ({ x: p.x + dx, y: p.y + dy }))
+            .find(
+              (pt) =>
+                isWalkable(session.level.tiles[index(pt.x, pt.y)]) &&
+                !session.level.monsters.some((m) => !m.dead && m.x === pt.x && m.y === pt.y),
+            );
+          if (!spot) continue;
+          pet.x = spot.x;
+          pet.y = spot.y;
+          gathered++;
+        }
+        return { key: 'use.whistlePets', vars: { n: gathered }, identified: true };
+      }
       // 听诊器：诊断相邻的怪物；身边没有怪物就听自己的心跳。
       if (proto.id === 'STETHOSCOPE') {
         const mon = session.level.monsters.find(
