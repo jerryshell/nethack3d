@@ -190,6 +190,21 @@ export function xpForLevel(level: number): number {
   return 10000000 * (level - 19);
 }
 
+/** 怪物伤势档位：界面用它显示剩余生命。 */
+export type WoundLevel = 'unhurt' | 'light' | 'heavy' | 'nearDeath';
+
+/**
+ * 按剩余生命比例分档：满血为未受伤，其余按 2/3 与 1/3 分为轻伤、重伤与滨死。
+ * 只有完全回满才算未受伤，与「还能接几刀」的直觉一致。
+ */
+export function woundLevel(mhp: number, mhpmax: number): WoundLevel {
+  if (mhpmax <= 0 || mhp >= mhpmax) return 'unhurt';
+  const ratio = mhp / mhpmax;
+  if (ratio > 2 / 3) return 'light';
+  if (ratio > 1 / 3) return 'heavy';
+  return 'nearDeath';
+}
+
 /** 怪物单次攻击的伤害，尚未按护甲减免。 */
 export function monsterDamage(monster: Monster, attack: MonsterAttack, rng: Rng): number {
   const [n, sides] = attack.dice;

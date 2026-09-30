@@ -2363,6 +2363,45 @@ section('怪物捡拾物品', async () => {
   }
 });
 
+section('怪物伤势提示', async () => {
+  const { woundLevel } = await import('../src/game/combat');
+  ok(woundLevel(10, 10) === 'unhurt', '满血是未受伤');
+  ok(woundLevel(7, 10) === 'light', '七成血是轻伤');
+  ok(woundLevel(4, 10) === 'heavy', '四成血是重伤');
+  ok(woundLevel(1, 10) === 'nearDeath', '一成血是濒死');
+  ok(woundLevel(1, 0) === 'unhurt', '生命上限为 0 时视为未受伤');
+
+  const { GameSession } = await import('../src/game/session');
+  const { describeTile, monsterHealthHint } = await import('../src/ui/tileInfo');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById } = await import('../src/data/index');
+  const { createRng } = await import('../src/core/rng');
+  const s = new GameSession({ seed: 4242 });
+  s.level.monsters = [];
+  s.refreshFov();
+  const spot = (() => {
+    for (let x = 1; x < s.level.width - 1; x++) {
+      for (let y = 1; y < s.level.height - 1; y++) {
+        if (s.level.tiles[index(x, y)] !== T.ROOM) continue;
+        if (x === s.player.x && y === s.player.y) continue;
+        if (s.visible?.[index(x, y)] === 1) return { x, y };
+      }
+    }
+    return null;
+  })();
+  ok(!!spot, '找得到悬停测试的可见地面');
+  if (spot) {
+    const mon = new Monster(monById.get('KOBOLD') as MonsterData, spot.x, spot.y, createRng(5));
+    mon.mhp = 1;
+    mon.mhpmax = 4;
+    s.level.monsters = [mon];
+    const info = describeTile(s, spot.x, spot.y);
+    ok(!!info && info.kind === 'monster' && info.title.length > 0, '悬停怪物能给出说明');
+    ok(!!info?.hint?.includes('25%'), `悬停提示带生命百分比（${info?.hint ?? ''}）`);
+    ok(monsterHealthHint(mon).includes('25%'), '伤势提示包含生命百分比');
+  }
+});
+
 section('巨石', async () => {
   {
     const { GameSession } = await import('../src/game/session');

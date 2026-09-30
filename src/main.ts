@@ -27,7 +27,7 @@ import { FEATURE_ACTIONS } from './game/features';
 import { isContainer } from './game/containers';
 import type { ActionResultInfo, Attributes, CharacterChoice } from './types';
 import type { HudAction, HudHandle } from './ui/hud';
-import { describeTile } from './ui/tileInfo';
+import { describeTile, monsterHealthHint } from './ui/tileInfo';
 import { createHud } from './ui/hud';
 import type { InventoryPanelHandle } from './ui/inventory';
 import { createInventoryPanel } from './ui/inventory';
@@ -789,7 +789,7 @@ function startGame(options: StartGameOptions = {}): void {
       actions.push({
         id: 'attack',
         label: t('actions.attack'),
-        hint: t('actionHints.attack'),
+        hint: monsterHealthHint(foe),
         onRun: () => {
           cancelTravel();
           const toward = stepToward(foe);

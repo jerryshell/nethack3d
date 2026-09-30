@@ -136,6 +136,10 @@ const messages: MessageCatalog = {
   },
   tile: {
     attackHint: 'Click: close in and attack',
+    healthUnhurt: 'unhurt ({n}%)',
+    healthLight: 'slightly wounded ({n}%)',
+    healthHeavy: 'badly wounded ({n}%)',
+    healthNearDeath: 'nearly dead ({n}%)',
     pickupHint: 'Click: walk over and pick up',
     descendHint: 'Click: walk over to go down',
     ascendHint: 'Click: walk over to go up',

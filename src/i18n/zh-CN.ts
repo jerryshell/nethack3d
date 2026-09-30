@@ -444,6 +444,10 @@ const messages: MessageCatalog = {
   },
   tile: {
     attackHint: '点击：靠近并攻击',
+    healthUnhurt: '未受伤（{n}%）',
+    healthLight: '轻伤（{n}%）',
+    healthHeavy: '重伤（{n}%）',
+    healthNearDeath: '濒死（{n}%）',
     pickupHint: '点击：走过去并拾取',
     descendHint: '点击：走过去即可下楼',
     ascendHint: '点击：走过去即可上楼',

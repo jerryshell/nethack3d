@@ -13,6 +13,7 @@ import { t } from '../i18n/index';
 import { monsterName, objectName } from '../data/index';
 import { alignDisplayName } from '../data/i18n';
 import { describeItem } from '../game/items';
+import { woundLevel } from '../game/combat';
 import { itemName } from './itemName';
 
 interface TileInfo {
@@ -93,6 +94,18 @@ function explored(level: Level, x: number, y: number): boolean {
   return level.seen[index(x, y)] === 1;
 }
 
+/** 攻击提示加上怪物伤势与剩余生命百分比，便于决定要不要硬拼。 */
+export function monsterHealthHint(monster: { mhp: number; mhpmax: number }): string {
+  const pct = monster.mhpmax > 0 ? Math.ceil((monster.mhp / monster.mhpmax) * 100) : 100;
+  const key = {
+    unhurt: 'tile.healthUnhurt',
+    light: 'tile.healthLight',
+    heavy: 'tile.healthHeavy',
+    nearDeath: 'tile.healthNearDeath',
+  }[woundLevel(monster.mhp, monster.mhpmax)];
+  return `${t('tile.attackHint')} · ${t(key, { n: pct })}`;
+}
+
 /**
  * 描述一格。未探索或超出地图返回 null。
  */
@@ -103,11 +116,15 @@ export function describeTile(session: GameSession, x: number, y: number): TileIn
 
   const monster = level.monsters.find((m) => m.x === x && m.y === y && m.mhp > 0);
   if (monster) {
-    // 伪装的拟形怪只显示成它伪装的东西，撞上去才会现形。
+    // 伪装的拟形怪只显示成它伪装的东西，撞上去才会现形，不暴露伤势。
     if (monster.disguise) {
       return { title: objectName(monster.disguise), hint: t('tile.attackHint'), kind: 'monster' };
     }
-    return { title: monsterName(monster.data.id), hint: t('tile.attackHint'), kind: 'monster' };
+    return {
+      title: monsterName(monster.data.id),
+      hint: monsterHealthHint(monster),
+      kind: 'monster',
+    };
   }
 
   const pile = level.objects.find((p) => p.x === x && p.y === y && p.items.length > 0);
