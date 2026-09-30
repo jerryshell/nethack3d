@@ -27,7 +27,7 @@ import {
   shuffleAppearances,
 } from '../src/data/index';
 import { generateLevel, index } from '../src/game/dungeon';
-import { isWalkable, COLNO, ROWNO, T } from '../src/core/constants';
+import { isWalkable, isWall, COLNO, ROWNO, T } from '../src/core/constants';
 
 interface CheckRecord {
   name: string;
@@ -1803,6 +1803,173 @@ section('商店', async () => {
       ok((s.level.shopRestockAt ?? 0) > s.turn, '补货后重置计时');
       const restored = restoreSession(serializeSession(s));
       ok(restored.level.shopRestockAt === s.level.shopRestockAt, '补货计时随存档保留');
+    }
+  }
+});
+
+section('挖掘的噪音与商店修缮费', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById, objById } = await import('../src/data/index');
+  const { makeItem } = await import('../src/game/items');
+  const { wieldItem } = await import('../src/game/inventory');
+  const { shopRoom, inRoom } = await import('../src/game/dungeon');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { createRng } = await import('../src/core/rng');
+
+  // 噪音按 wake_nearby 的半径唤醒沉睡的怪物，远处的不受影响。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.level.monsters = [];
+    const proto = monById.get('GIANT_ANT') as MonsterData;
+    const nearSpot = [
+      [s.player.x + 1, s.player.y],
+      [s.player.x, s.player.y + 1],
+      [s.player.x - 1, s.player.y],
+      [s.player.x, s.player.y - 1],
+    ].find(([x, y]) => isWalkable(s.level.tiles[index(x, y)]));
+    const farSpot = (() => {
+      for (let x = 1; x < s.level.width - 1; x++) {
+        for (let y = 1; y < s.level.height - 1; y++) {
+          if (!isWalkable(s.level.tiles[index(x, y)])) continue;
+          if (Math.max(Math.abs(x - s.player.x), Math.abs(y - s.player.y)) < 6) continue;
+          return { x, y };
+        }
+      }
+      return null;
+    })();
+    ok(!!nearSpot && !!farSpot, '找得到噪音测试的远近位置');
+    if (nearSpot && farSpot) {
+      const near = new Monster(proto, nearSpot[0], nearSpot[1], createRng(3));
+      near.asleep = true;
+      const far = new Monster(proto, farSpot.x, farSpot.y, createRng(4));
+      far.asleep = true;
+      s.level.monsters.push(near, far);
+      s.wakeNearby();
+      ok(!near.asleep, '挖凿声唤醒附近的沉睡怪物');
+      ok(far.asleep, '远处的怪物不受挖凿声影响');
+    }
+  }
+
+  // 商店外墙被镐挖开照 SHOP_WALL_DMG 赔偿，离店时结清；付不起则店主翻脸。
+  const findShopDepth = (target: InstanceType<typeof GameSession>): number => {
+    for (let d = 2; d < 30; d++) if (shopRoom(target.getLevel(d))) return d;
+    return -1;
+  };
+  const shopWall = (target: InstanceType<typeof GameSession>): { x: number; y: number } | null => {
+    const room = shopRoom(target.level);
+    if (!room) return null;
+    for (let x = 1; x < target.level.width - 1; x++) {
+      for (let y = 1; y < target.level.height - 1; y++) {
+        if (!isWall(target.level.tiles[index(x, y)])) continue;
+        const borders =
+          inRoom(room, x - 1, y) ||
+          inRoom(room, x + 1, y) ||
+          inRoom(room, x, y - 1) ||
+          inRoom(room, x, y + 1);
+        if (borders) return { x, y };
+      }
+    }
+    return null;
+  };
+  const outsideShop = (
+    target: InstanceType<typeof GameSession>,
+  ): { x: number; y: number } | null => {
+    const room = shopRoom(target.level);
+    for (let x = 1; x < target.level.width - 1; x++) {
+      for (let y = 1; y < target.level.height - 1; y++) {
+        if (room && inRoom(room, x, y)) continue;
+        if (!isWalkable(target.level.tiles[index(x, y)])) continue;
+        if (target.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+        return { x, y };
+      }
+    }
+    return null;
+  };
+
+  const depth = findShopDepth(new GameSession({ seed: 20240101 }));
+  ok(depth > 0, '找得到带商店的楼层');
+
+  // 镐挖商店外墙：记下修缮费，离店付清。
+  if (depth > 0) {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(depth, 'down');
+    s.level.monsters = s.level.monsters.filter((m) => m.data.id === 'SHOPKEEPER');
+    const wall = shopWall(s);
+    const outside = outsideShop(s);
+    ok(!!wall && !!outside, '商店外墙与店外空地都在');
+    if (wall && outside) {
+      const cost = 10 * s.player.str;
+      s.player.gold = cost + 25;
+      ok(s.digWall(wall.x, wall.y) === 'dug', '镐可以挖开商店外墙');
+      ok(s.shopDamage === cost, `挖穿商店外墙记下修缮费（${s.shopDamage}/${cost}）`);
+      const charged = s.messages.find((m) => m.key === 'msg.shopDamage');
+      ok(charged?.vars.n === cost, '修缮费有提示');
+      const restored = restoreSession(serializeSession(s));
+      ok(restored.shopDamage === cost, '修缮费随存档保留');
+      s.player.x = outside.x;
+      s.player.y = outside.y;
+      s.wait();
+      ok(s.shopDamage === 0 && s.player.gold === 25, `离店结清修缮费（金币=${s.player.gold}）`);
+      ok(
+        s.messages.some((m) => m.key === 'msg.shopBillPaid'),
+        '修缮费计入账单提示',
+      );
+    }
+  }
+
+  // 付不起修缮费：店主翻脸。
+  if (depth > 0) {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(depth, 'down');
+    s.level.monsters = s.level.monsters.filter((m) => m.data.id === 'SHOPKEEPER');
+    const wall = shopWall(s);
+    const outside = outsideShop(s);
+    if (wall && outside) {
+      s.player.gold = 0;
+      s.digWall(wall.x, wall.y);
+      s.player.x = outside.x;
+      s.player.y = outside.y;
+      s.wait();
+      ok(
+        s.messages.some((m) => m.key === 'msg.shopDamageUnpaid'),
+        '付不起修缮费有提示',
+      );
+      const keeper = s.level.monsters.find((m) => m.data.id === 'SHOPKEEPER');
+      ok(keeper?.angry === true, '付不起修缮费店主翻脸');
+    }
+  }
+
+  // 在商店地板上向下挖：照 SHOP_HOLE_COST 收 200。
+  if (depth > 0) {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(depth, 'down');
+    s.level.monsters = s.level.monsters.filter((m) => m.data.id === 'SHOPKEEPER');
+    const room = shopRoom(s.level);
+    const floor = (() => {
+      if (!room) return null;
+      for (let x = room.lx; x <= room.hx; x++) {
+        for (let y = room.ly; y <= room.hy; y++) {
+          if (s.level.tiles[index(x, y)] !== T.ROOM) continue;
+          if (s.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+          return { x, y };
+        }
+      }
+      return null;
+    })();
+    ok(!!floor, '商店里有可挖的地板');
+    if (floor) {
+      s.player.x = floor.x;
+      s.player.y = floor.y;
+      const pick = makeItem(objById.get('PICK_AXE') as ObjectData, s.rng);
+      s.player.inventory.push(pick);
+      ok(wieldItem(s.player, pick).ok, '持镐准备向下挖');
+      s.player.gold = 500;
+      const depthBefore = s.depth;
+      for (let i = 0; i < 3; i++) s.digDown();
+      ok(s.depth === depthBefore + 1, '商店地板也能凿穿下行');
+      const damage = s.messages.find((m) => m.key === 'msg.shopDamage');
+      ok(damage?.vars.n === 200, '商店地板挖洞收 200 修缮费');
     }
   }
 });

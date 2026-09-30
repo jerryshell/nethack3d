@@ -553,6 +553,9 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
       problems.push(`店主不在店内：(${keeper.x}, ${keeper.y})`);
     }
   }
+  // 修缮费只在商店楼层有意义，且不能为负。
+  if (session.shopDamage < 0) problems.push(`商店修缮费为负：${session.shopDamage}`);
+  if (session.shopDamage > 0 && !shop) problems.push('没有商店却记着修缮费');
 
   // 楼梯必须存在且可通行；分支入口层还要有一段分支楼梯。
   // 土之位面没有下行楼梯，出口靠玩家自己挖穿地板。

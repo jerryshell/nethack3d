@@ -481,6 +481,8 @@ const messages: MessageCatalog = {
     shopCredit: '{item} goes on your tab ({n} gold); settle it on the way out.',
     shopBillPaid: 'You settle your bill on the way out: {n} gold.',
     shopTheft: 'You leave with unpaid goods — the shopkeeper roars and gives chase!',
+    shopDamage: 'You cause {n} gold worth of damage!',
+    shopDamageUnpaid: 'You cannot pay for the damage — the shopkeeper flies into a rage!',
     shopSell: 'The shopkeeper buys {item} for {n} gold.',
     shopkeeperAngry: 'The shopkeeper glares at you furiously!',
     shopClosed: 'The shop is unattended.',

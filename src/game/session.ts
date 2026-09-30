@@ -206,6 +206,8 @@ export class GameSession {
   wizardHasAmulet = false;
   /** 任务领袖是否已被杀死；对应原版 ok_to_quest 的 killed_leader 例外。 */
   questLeaderDead = false;
+  /** 在商店里造成的修缮费，离店时与货款一起结算。 */
+  shopDamage = 0;
   /** 已被灭绝的物种，不再生成。 */
   genocides = new Set<string>();
   /** 玩家读完灭绝卷轴后等待输入物种名。 */
@@ -1014,6 +1016,8 @@ export class GameSession {
           } else {
             this.log('msg.doorLocked');
           }
+          // 踢门声会吵醒附近的怪物，对应原版 dokick 的 wake_nearby()。
+          this.wakeNearby();
         } else {
           door.closed = false;
           this.log('msg.doorOpens');
@@ -2457,6 +2461,8 @@ export class GameSession {
       this.digging = { x, y, down: false, progress: 0 };
     }
     this.digging.progress++;
+    // 凿石有声：原版每挥一次镐都会唤醒附近怪物。
+    this.wakeNearby();
     if (this.digging.progress < turns) {
       this.log('msg.digWallProgress', { n: turns - this.digging.progress });
       return 'msg.digWallProgress';
@@ -2498,6 +2504,7 @@ export class GameSession {
       this.digging = { x, y, down: true, progress: 0 };
     }
     this.digging.progress++;
+    this.wakeNearby();
     const turns = this.digTurns();
     if (this.digging.progress < turns) {
       this.log('msg.digDownProgress', { n: turns - this.digging.progress });
@@ -2505,6 +2512,8 @@ export class GameSession {
       return { result: 'used', key: 'msg.digDownProgress' };
     }
     this.digging = null;
+    // 在商店地板上挖洞照原版收修缮费（SHOP_HOLE_COST）。
+    if (inShopRoom(this.level, x, y)) this.chargeShopDamage(200);
     this.level.traps.set(index(x, y), { type: 'HOLE', seen: true });
     this.log('msg.digDown');
     this.turn++;
@@ -2517,8 +2526,13 @@ export class GameSession {
    * 挖掘一格墙。返回结果：dug 挖开、blocked 被规则挡住、none 不是可挖的墙。
    *
    * 地图边界不可挖；推箱分支禁止破坏结构，对应原版的挖墙限制。
+   * `magic` 为真时是挖掘魔杖：商店外墙按原版用更高的修缮价。
    */
-  digWall(x: number, y: number): 'dug' | 'blocked' | 'none' {
+  digWall(
+    x: number,
+    y: number,
+    { magic = false }: { magic?: boolean } = {},
+  ): 'dug' | 'blocked' | 'none' {
     if (x < 1 || y < 1 || x >= this.level.width - 1 || y >= this.level.height - 1) return 'none';
     const i = index(x, y);
     if (!isWall(this.level.tiles[i])) return 'none';
@@ -2528,6 +2542,9 @@ export class GameSession {
     }
     this.level.tiles[i] = T.CORR;
     this.markTilesChanged(i);
+    // 凿穿最后一下的噪动与商店外墙的修缮费。
+    this.wakeNearby();
+    this.chargeShopDamage(this.wallDamageCost(x, y, magic));
     this.log('msg.digWall');
     return 'dug';
   }
@@ -2551,13 +2568,16 @@ export class GameSession {
         bestD = d;
       }
     }
-    if (best) return this.digWall(best.x, best.y) === 'dug' ? 'wall' : 'none';
+    if (best) return this.digWall(best.x, best.y, { magic: true }) === 'dug' ? 'wall' : 'none';
     // 飘着的时候踩不到地板，也落不进洞里。
     if (this.depth >= this.maxDepth || this.isFloating()) return 'none';
     // 任务总部的地板受神秘力量保护，未经领袖许可不得穿透。
     if (this.questDescentBlocked()) return 'quest';
+    // 在商店地板上开洞照原版收修缮费（SHOP_HOLE_COST）。
+    if (inShopRoom(this.level, this.player.x, this.player.y)) this.chargeShopDamage(200);
     // 向下打一个洞并立即落下，与踩中地洞陷阱一致。
     this.level.traps.set(index(this.player.x, this.player.y), { type: 'HOLE', seen: true });
+    this.wakeNearby();
     this.changeDepth(this.depth + 1, 'down');
     return 'down';
   }
@@ -2634,25 +2654,59 @@ export class GameSession {
    */
   private settleShopDebt(leaving = false): void {
     const unpaid = this.unpaidItems();
-    if (!unpaid.length) return;
+    const damage = this.shopDamage;
+    if (!unpaid.length && damage <= 0) return;
     const shop = shopRoom(this.level);
     if (!leaving && shop && inRoom(shop, this.player.x, this.player.y)) return;
-    const bill = unpaid.reduce((sum, item) => sum + shopBuyPrice(item, this.player.cha), 0);
+    const bill =
+      unpaid.reduce((sum, item) => sum + shopBuyPrice(item, this.player.cha), 0) + damage;
     if (this.player.gold >= bill) {
       this.player.gold -= bill;
       for (const item of unpaid) item.unpaid = false;
+      this.shopDamage = 0;
       this.log('msg.shopBillPaid', { n: bill });
       return;
     }
-    // 赊账变偷窃：记下敌对与阵营惩罚，货物归玩家。
+    // 付不起：货物归玩家、店主翻脸；只有修缮费时同样翻脸。
     for (const item of unpaid) item.unpaid = false;
-    this.adjustAlign(-5);
+    this.shopDamage = 0;
+    if (unpaid.length) this.adjustAlign(-5);
     const keeper = this.level.monsters.find(
       (m) => !m.dead && m.data.id === 'SHOPKEEPER' && !m.angry,
     );
     if (keeper) keeper.angry = true;
-    this.log('msg.shopTheft');
-    log.info('玩家带着未付款货品离店', { turn: this.turn, depth: this.depth, bill });
+    this.log(unpaid.length ? 'msg.shopTheft' : 'msg.shopDamageUnpaid');
+    log.info('玩家未能付清商店的账', { turn: this.turn, depth: this.depth, bill });
+  }
+
+  /**
+   * 在商店里造成破坏：照原版记下修缮费，离店时一并结算。
+   *
+   * 店主不在或已经翻脸时无人索赔，对应原版的已死店主情形。
+   */
+  private chargeShopDamage(amount: number): void {
+    if (amount <= 0) return;
+    const keeper = this.level.monsters.find(
+      (m) => !m.dead && m.data.id === 'SHOPKEEPER' && !m.angry,
+    );
+    if (!keeper) return;
+    this.shopDamage += amount;
+    this.log('msg.shopDamage', { n: amount });
+    log.info('商店受损', { turn: this.turn, depth: this.depth, amount });
+  }
+
+  /** 挖开某格墙要赔的修缮费：商店外墙按原版价格；其它情况不计。 */
+  private wallDamageCost(x: number, y: number, magic: boolean): number {
+    const shop = shopRoom(this.level);
+    if (!shop) return 0;
+    const borders =
+      inRoom(shop, x - 1, y) ||
+      inRoom(shop, x + 1, y) ||
+      inRoom(shop, x, y - 1) ||
+      inRoom(shop, x, y + 1);
+    if (!borders) return 0;
+    // 原版：镐挖商店外墙 SHOP_WALL_DMG = 10 × 力量，魔杖用 SHOP_WALL_COST。
+    return magic ? 200 : 10 * this.player.str;
   }
 
   /**
@@ -3632,6 +3686,25 @@ export class GameSession {
       mon.x = best.x;
       mon.y = best.y;
     }
+  }
+
+  /**
+   * 唤醒附近的沉睡怪物，对应原版的 `wake_nearby()`。
+   *
+   * 半径按等级放大（平方距离小于等级 × 20），与呼救的固定 6 格不同；
+   * 每格挖凿、踢门都会发出噪音，让身边的怪物提前醒来。
+   */
+  wakeNearby(radiusSq: number = this.player.level * 20): void {
+    let woke = 0;
+    for (const mon of this.level.monsters) {
+      if (mon.dead || !mon.asleep) continue;
+      const dx = mon.x - this.player.x;
+      const dy = mon.y - this.player.y;
+      if (dx * dx + dy * dy >= radiusSq) continue;
+      mon.asleep = false;
+      woke++;
+    }
+    if (woke > 0) log.debug('噪音唤醒怪物', { woke, turn: this.turn });
   }
 
   /** 呼救：唤醒 6 格内尚在沉睡的同伴。 */

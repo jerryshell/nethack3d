@@ -391,6 +391,8 @@ const messages: MessageCatalog = {
     shopCredit: '{item}先记在账上（{n} 枚金币），离店时结清。',
     shopBillPaid: '离店结账，一共付了 {n} 枚金币。',
     shopTheft: '你带着未付款的货品离开，店主怒吼着追了出来！',
+    shopDamage: '你造成了 {n} 枚金币的损坏。',
+    shopDamageUnpaid: '你付不起修缮费，店主勃然大怒！',
     shopSell: '店主收下{item}，付给你 {n} 枚金币。',
     shopkeeperAngry: '店主怒目而视。',
     shopClosed: '店里无人看管。',

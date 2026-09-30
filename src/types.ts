@@ -721,6 +721,8 @@ export interface SaveData {
   questComplete?: 0 | 1;
   /** 任务领袖是否已被杀死；对应原版 ok_to_quest 的例外。 */
   questLeaderDead?: 0 | 1;
+  /** 在商店里造成的修缮费，离店时结算。 */
+  shopDamage?: number;
   /** 尤恩多巫师是否抢走了护身符。 */
   wizardHasAmulet?: 0 | 1;
   /** 已灭绝的怪物物种。 */
