@@ -616,6 +616,19 @@ function startGame(options: StartGameOptions = {}): void {
       });
     }
 
+    // 持镐站在地面上时，可以向下挖穿地板。
+    if (session.canDigDown()) {
+      actions.push({
+        id: 'digDown',
+        label: t('actions.digDown'),
+        hint: t('actionHints.digDown'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.digDown());
+        },
+      });
+    }
+
     // 站在祭坛上且背包里有尸体时，可以献祭。
     if (level.tiles[index(player.x, player.y)] === T.ALTAR) {
       const corpse = player.inventory.find((item) => item.corpse);

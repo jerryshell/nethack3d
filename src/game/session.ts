@@ -134,6 +134,9 @@ const ORACLE_TIPS = 21;
 
 /** 武器熟练度上限与每级所需使用次数。 */
 const SKILL_MAX = 7;
+
+/** 镐类工具凿穿一面墙或一层地板所需的回合数。 */
+const DIG_TURNS = 3;
 const SKILL_USES_PER_LEVEL = 8;
 
 /** 宠物成长表：驯服度满值后进阶一次。 */
@@ -195,6 +198,9 @@ export class GameSession {
 
   /** 最近一次战斗反馈，供界面播放受击动画。 */
   lastCombat: CombatFeedback | null = null;
+
+  /** 当前正在进行的挖掘；目标或楼层一变就重置。 */
+  digging: { x: number; y: number; down: boolean; progress: number } | null = null;
 
   constructor({
     seed = (Math.random() * 0x7fffffff) | 0,
@@ -935,14 +941,17 @@ export class GameSession {
 
     const levitating = this.hasLevitation();
     if (!isWalkable(t) && !(levitating && t === T.AIR)) {
-      // 持握镐类工具时，向墙壁移动就是挖掘。
+      // 持握镐类工具时，向墙壁移动就是挖掘；要连续凿几回合才穿。
       if (isWall(t) && this.wieldingDigger()) {
-        const dug = this.digWall(nx, ny);
-        if (dug !== 'none') {
-          this.refreshFov();
+        if (this.branch === 'sokoban') {
+          this.digWall(nx, ny);
           this.finishTurn();
-          return { result: 'moved' };
+          return { result: 'blocked' };
         }
+        this.progressDigWall(nx, ny);
+        this.refreshFov();
+        this.finishTurn();
+        return { result: 'moved' };
       }
       return { result: 'blocked' };
     }
@@ -973,6 +982,7 @@ export class GameSession {
         }
         this.player.x = nx;
         this.player.y = ny;
+        this.digging = null;
         this.refreshFov();
         this.finishTurn();
         return { result: this.dead ? 'dead' : 'moved' };
@@ -989,6 +999,8 @@ export class GameSession {
       this.shopkeeperAlive();
     this.player.x = nx;
     this.player.y = ny;
+    // 挪到新格子后，原本对着墙锯的进度作废。
+    this.digging = null;
     if (enteredShop) this.log('msg.shopWelcome', { shop: shop?.shopType ?? 'general' });
 
     const gold = autoPickupGold(this.player, this.level);
@@ -2132,6 +2144,63 @@ export class GameSession {
   private wieldingDigger(): boolean {
     const id = this.player.weapon?.id;
     return id === 'PICK_AXE' || id === 'DWARVISH_MATTOCK';
+  }
+
+  /**
+   * 凿墙进度：对同一面墙连续凿 DIG_TURNS 回合才会穿。
+   *
+   * 目标或方向一变就从头计起，最后一步交给 `digWall` 收尾。
+   */
+  private progressDigWall(x: number, y: number): void {
+    if (!this.digging || this.digging.down || this.digging.x !== x || this.digging.y !== y) {
+      this.digging = { x, y, down: false, progress: 0 };
+    }
+    this.digging.progress++;
+    if (this.digging.progress < DIG_TURNS) {
+      this.log('msg.digWallProgress', { n: DIG_TURNS - this.digging.progress });
+      return;
+    }
+    this.digging = null;
+    this.digWall(x, y);
+  }
+
+  /** 能否用镐向下挖：持镐站在普通地面上，且本分支还有下层。 */
+  canDigDown(): boolean {
+    if (this.branch === 'sokoban' || this.depth >= this.maxDepth) return false;
+    if (!this.wieldingDigger()) return false;
+    const t = this.tileAt(this.player.x, this.player.y);
+    return t === T.ROOM || t === T.CORR;
+  }
+
+  /** 用镐向下挖：连续 DIG_TURNS 回合后凿穿地板，落到下一层。 */
+  digDown(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    if (this.branch === 'sokoban') {
+      this.log('msg.digBlocked');
+      return { result: 'nothing' };
+    }
+    if (!this.canDigDown()) {
+      this.log('msg.digDownNo');
+      return { result: 'nothing' };
+    }
+    const x = this.player.x;
+    const y = this.player.y;
+    if (!this.digging || !this.digging.down || this.digging.x !== x || this.digging.y !== y) {
+      this.digging = { x, y, down: true, progress: 0 };
+    }
+    this.digging.progress++;
+    if (this.digging.progress < DIG_TURNS) {
+      this.log('msg.digDownProgress', { n: DIG_TURNS - this.digging.progress });
+      this.finishTurn();
+      return { result: 'used' };
+    }
+    this.digging = null;
+    this.level.traps.set(index(x, y), { type: 'HOLE', seen: true });
+    this.log('msg.digDown');
+    this.turn++;
+    this.changeDepth(this.depth + 1, 'down');
+    this.monsterTurns();
+    return { result: this.dead ? 'dead' : 'descended' };
   }
 
   /**
@@ -3749,6 +3818,7 @@ export class GameSession {
     this.depth = depth;
     this.branch = branch;
     this.level = target;
+    this.digging = null;
     this.player.x = arrival.x;
     this.player.y = arrival.y;
     // 楼梯口可能站着怪物：先把它挪到相邻空地，避免与玩家重叠。

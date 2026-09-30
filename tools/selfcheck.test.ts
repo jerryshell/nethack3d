@@ -3905,7 +3905,7 @@ section('挖掘与地形改造', async () => {
     return null;
   };
 
-  // 镐类工具可以持握，朝墙走就是挖掘，瓦片版本号随之递增。
+  // 镐类工具可以持握，朝同一面墙连挖三回合才能凿穿。
   {
     const s = new GameSession({ seed: 4242 });
     const pick = makeItem(objById.get('PICK_AXE') as ObjectData, s.rng);
@@ -3916,15 +3916,62 @@ section('挖掘与地形改造', async () => {
     if (spot) {
       s.player.x = spot.from.x;
       s.player.y = spot.from.y;
+      const dx = spot.wall.x - spot.from.x;
+      const dy = spot.wall.y - spot.from.y;
       const before = s.level.revision ?? 0;
-      const result = s.movePlayer(spot.wall.x - spot.from.x, spot.wall.y - spot.from.y);
-      ok(result.result === 'moved', '挖掘消耗一次行动');
-      ok(s.level.tiles[index(spot.wall.x, spot.wall.y)] === T.CORR, '墙被挖成通道');
+      const first = s.movePlayer(dx, dy);
+      ok(first.result === 'moved', '挖掘消耗一次行动');
+      ok(s.level.tiles[index(spot.wall.x, spot.wall.y)] !== T.CORR, '第一回合只是凿出缺口');
+      ok(
+        s.messages.some((m) => m.key === 'msg.digWallProgress'),
+        '记录挖掘进度消息',
+      );
+      s.movePlayer(dx, dy);
+      ok(s.level.tiles[index(spot.wall.x, spot.wall.y)] !== T.CORR, '第二回合仍未打通');
+      s.movePlayer(dx, dy);
+      ok(s.level.tiles[index(spot.wall.x, spot.wall.y)] === T.CORR, '第三回合凿穿墙壁');
       ok((s.level.revision ?? 0) === before + 1, '挖掘递增瓦片版本号');
       ok(
         s.messages.some((m) => m.key === 'msg.digWall'),
         '记录挖掘消息',
       );
+    }
+  }
+
+  // 换到另一面墙会从头计时。
+  {
+    const s = new GameSession({ seed: 4245 });
+    const pick = makeItem(objById.get('PICK_AXE') as ObjectData, s.rng);
+    addToInventory(s.player, pick);
+    wieldItem(s.player, pick);
+    const first = emptyNeighborWall(s);
+    ok(!!first, '找到第一面墙');
+    if (first) {
+      s.player.x = first.from.x;
+      s.player.y = first.from.y;
+      const dx = first.wall.x - first.from.x;
+      const dy = first.wall.y - first.from.y;
+      s.movePlayer(dx, dy);
+      ok(s.digging?.progress === 1, '第一面墙有一回合进度');
+      const away = (
+        [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as [number, number][]
+      )
+        .map(([ax, ay]) => ({ x: first.from.x + ax, y: first.from.y + ay, dx: ax, dy: ay }))
+        .find(
+          (p) =>
+            (p.dx !== dx || p.dy !== dy) &&
+            isWalkable(s.level.tiles[index(p.x, p.y)]) &&
+            !s.level.monsters.some((m) => !m.dead && m.x === p.x && m.y === p.y),
+        );
+      if (away) {
+        s.movePlayer(away.dx, away.dy);
+        ok(s.digging === null, '挪动后挖掘进度重置');
+      }
     }
   }
 
@@ -3977,10 +4024,35 @@ section('挖掘与地形改造', async () => {
     if (spot) {
       s.player.x = spot.from.x;
       s.player.y = spot.from.y;
-      s.movePlayer(spot.wall.x - spot.from.x, spot.wall.y - spot.from.y);
+      const dx = spot.wall.x - spot.from.x;
+      const dy = spot.wall.y - spot.from.y;
+      for (let i = 0; i < 3; i++) s.movePlayer(dx, dy);
       const restored = restoreSession(serializeSession(s));
       ok(restored.level.tiles[index(spot.wall.x, spot.wall.y)] === T.CORR, '存档保留挖开的墙');
     }
+  }
+
+  // 持镐向下挖三回合，凿穿地板并落到下一层。
+  {
+    const s = new GameSession({ seed: 4247 });
+    const pick = makeItem(objById.get('PICK_AXE') as ObjectData, s.rng);
+    addToInventory(s.player, pick);
+    wieldItem(s.player, pick);
+    ok(s.canDigDown(), '持镐站在地面可以向下挖');
+    const depthBefore = s.depth;
+    const first = s.digDown();
+    ok(first.result === 'used' && s.depth === depthBefore, '向下挖需要多回合');
+    ok(
+      s.messages.some((m) => m.key === 'msg.digDownProgress'),
+      '记录向下挖的进度',
+    );
+    s.digDown();
+    const third = s.digDown();
+    ok(third.result === 'descended' && s.depth === depthBefore + 1, '挖穿地板后换层');
+    ok(
+      [...s.getLevel(depthBefore).traps.values()].some((t) => t.type === 'HOLE'),
+      '原层留下地洞',
+    );
   }
 });
 

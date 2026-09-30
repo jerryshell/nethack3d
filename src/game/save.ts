@@ -131,6 +131,16 @@ export function serializeSession(session: GameSession): SaveData {
     ...(session.questComplete ? { questComplete: 1 as const } : {}),
     ...(session.wizardHasAmulet ? { wizardHasAmulet: 1 as const } : {}),
     ...(session.genocides.size ? { genocides: [...session.genocides] } : {}),
+    ...(session.digging
+      ? {
+          digging: {
+            x: session.digging.x,
+            y: session.digging.y,
+            down: session.digging.down ? (1 as const) : (0 as const),
+            progress: session.digging.progress,
+          },
+        }
+      : {}),
     attributes: {
       str: p.str,
       int: p.int,
@@ -353,6 +363,14 @@ export function restoreSession(data: SaveData): GameSession {
   session.questComplete = !!data.questComplete;
   session.wizardHasAmulet = !!data.wizardHasAmulet;
   session.genocides = new Set((data.genocides ?? []).filter((id) => monById.has(id)));
+  session.digging = data.digging
+    ? {
+        x: data.digging.x,
+        y: data.digging.y,
+        down: !!data.digging.down,
+        progress: data.digging.progress,
+      }
+    : null;
   session.messages = (data.messages ?? []).map((m: GameMessage) => Object.assign({}, m));
   session.level =
     session.branch === 'main'

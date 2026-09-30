@@ -700,6 +700,8 @@ export interface SaveData {
   wizardHasAmulet?: 0 | 1;
   /** 已灭绝的怪物物种。 */
   genocides?: string[];
+  /** 进行中的挖掘（墙或向下），随存档保留。 */
+  digging?: { x: number; y: number; down: 0 | 1; progress: number };
   player: {
     x: number;
     y: number;

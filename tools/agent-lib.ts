@@ -22,7 +22,7 @@ import {
   shopRoom,
 } from '../src/game/dungeon';
 import { sessionAscii } from '../src/game/ascii';
-import { T, isFurniture, isWalkable } from '../src/core/constants';
+import { T, isFurniture, isWalkable, isWall } from '../src/core/constants';
 import { createRng, deriveSeed } from '../src/core/rng';
 import { roleById, raceById } from '../src/game/roles';
 import { MONSTERS, monById } from '../src/data/index';
@@ -502,6 +502,22 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     if (item && !player.inventory.includes(item)) {
       problems.push(`装备槽 ${slot} 指向不在背包中的物品：${item.proto.id}`);
     }
+  }
+
+  // 挖掘进度必须指向本层仍然合法的目标，否则换层后会留下悬空状态。
+  if (session.digging) {
+    const d = session.digging;
+    if (d.x < 0 || d.y < 0 || d.x >= level.width || d.y >= level.height) {
+      problems.push(`挖掘目标越界：(${d.x}, ${d.y})`);
+    } else {
+      const tile = level.tiles[index(d.x, d.y)];
+      if (d.down) {
+        if (tile !== T.ROOM && tile !== T.CORR) problems.push('向下挖的目标不是普通地面');
+      } else if (!isWall(tile)) {
+        problems.push('挖墙的目标已经不是墙');
+      }
+    }
+    if (d.progress < 1 || d.progress > 9) problems.push(`挖掘进度异常：${d.progress}`);
   }
 
   // 商店：房间完整可走，不藏陷阱，店主看店。
