@@ -1283,8 +1283,10 @@ function questHomeTile(ch: string): number {
       // 原版的 B 是“隐形边界”：remove_boundary_syms() 会把它换成 ROOM。
       return T.ROOM;
     case 'door':
-    case 'sdoor':
       return T.DOOR;
+    case 'sdoor':
+      // 密门：未发现前按墙渲染与阻挡。
+      return T.SDOOR;
     case 'air':
       return T.AIR;
     case 'cloud':
@@ -1475,12 +1477,15 @@ function generateQuestHomeLevel({
     level.tiles[i] = T.DOOR;
     level.doors.set(i, { closed: true, locked: door.state === 'locked', broken: false });
   }
-  // 地图里直接画出的 `+` 也要有门状态；`des.door` 未列出的按普通关门处理。
+  // 地图里直接画出的 `+` 与 `S` 也要有门状态；
+  // `des.door` 未列出的按普通关门处理，`S` 是未发现的密门。
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < data.map[y].length; x++) {
       const i = at(x, y);
       if (level.tiles[i] === T.DOOR && !level.doors.has(i)) {
         level.doors.set(i, { closed: true, locked: false, broken: false });
+      } else if (level.tiles[i] === T.SDOOR && !level.doors.has(i)) {
+        level.doors.set(i, { closed: true, locked: false, broken: false, hidden: true });
       }
     }
   }

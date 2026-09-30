@@ -48,6 +48,8 @@ function passable(
   if (x < 0 || y < 0 || x >= COLNO || y >= ROWNO) return false;
   const i = index(x, y);
   if (level.seen[i] !== 1) return false;
+  // 未发现的密门按墙处理。
+  if (level.doors.get(i)?.hidden) return false;
   if (!isWalkable(level.tiles[i])) {
     // 浮空时可以从虚空上方走过，与元素位面的移动规则一致。
     return levitating && level.tiles[i] === T.AIR;

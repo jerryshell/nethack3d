@@ -1008,6 +1008,8 @@ export class GameSession {
     const t = this.tileAt(nx, ny);
     if (isDoor(t)) {
       const door = this.level.doors.get(index(nx, ny));
+      // 未发现的密门当成墙，找出来才能过。
+      if (door?.hidden) return { result: 'blocked' };
       if (door && door.closed) {
         if (door.locked) {
           // 沿用 NetHack 的踢门判定：按力量与等级掷骰，失败同样消耗一回合，
@@ -1463,8 +1465,14 @@ export class GameSession {
         }
         continue;
       }
-      // 门上的机关也能搜出来。
+      // 门上的机关与密门都能搜出来。
       const door = this.level.doors.get(i);
+      if (door?.hidden && this.rng.chance(chance)) {
+        door.hidden = false;
+        this.markTilesChanged(i);
+        found++;
+        continue;
+      }
       if (door?.trapped && !door.trapKnown && this.rng.chance(chance)) {
         door.trapKnown = true;
         found++;
@@ -2938,7 +2946,13 @@ export class GameSession {
    */
   revealDoors(): number {
     let revealed = 0;
-    for (const [i] of this.level.doors) {
+    for (const [i, door] of this.level.doors) {
+      // 密门先现形，再写进记忆。
+      if (door.hidden) {
+        door.hidden = false;
+        this.markTilesChanged(i);
+        revealed++;
+      }
       if (this.level.seen[i] === 1) continue;
       this.level.seen[i] = 1;
       revealed++;
@@ -3836,6 +3850,8 @@ export class GameSession {
       const i = index(nx, ny);
       const t = this.level.tiles[i];
       if (!isWalkable(t)) continue;
+      // 未发现的密门对怪物也按墙处理。
+      if (this.level.doors.get(i)?.hidden) continue;
       // 已知的陷阱会绕开，对应原版的 mon_knows_traps。
       const trap = this.level.traps.get(i);
       if (trap && this.monsterKnowsTrap(mon, trap.type)) continue;
@@ -4166,6 +4182,7 @@ export class GameSession {
   monsterDoorMove(mon: Monster, door: DoorState): 'open' | 'break' | 'squeeze' | 'none' {
     const flags = mon.data.flags;
     const amorphous = flags.includes('M1_AMORPHOUS');
+    if (door.hidden) return 'none';
     if (amorphous) return 'squeeze';
     if (door.locked) {
       const giant = flags.includes('M2_GIANT') || mon.data.size === 'MZ_HUGE';
@@ -4239,6 +4256,7 @@ export class GameSession {
         // 关着的门按怪物的开门能力判断：上锁的门挡住大部分怪物。
         if (ni !== goal && isDoor(tiles[ni])) {
           const door = this.level.doors.get(ni);
+          if (door?.hidden) continue;
           if (door?.closed && this.monsterDoorMove(mon, door) === 'none') continue;
         }
         if (ni !== goal && this.monsterFearsTile(mon, tiles[ni])) continue;

@@ -489,8 +489,10 @@ export class DungeonMesh extends THREE.Group {
     for (let i = 0; i < this.level.tiles.length; i++) {
       const t = this.level.tiles[i];
       if (t === T.STONE) continue;
-      if (isWall(t)) walls.push(i);
-      else if (isLiquid(t)) liquids.push(i);
+      // 未发现的密门按墙渲染，搜索或探门后会重建网格现出原形。
+      if (isWall(t) || (t === T.SDOOR && this.level.doors.get(i)?.hidden === true)) {
+        walls.push(i);
+      } else if (isLiquid(t)) liquids.push(i);
       else floors.push(i);
     }
 
@@ -540,6 +542,8 @@ export class DungeonMesh extends THREE.Group {
     };
 
     for (const [i, door] of this.level.doors) {
+      // 密门未发现前不建门扇，它按墙渲染。
+      if (door.hidden) continue;
       const x = i % COLNO;
       const y = (i / COLNO) | 0;
       addFeature(i, buildDoor(this.level, x, y, door), 'door');

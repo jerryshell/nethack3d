@@ -3448,6 +3448,69 @@ section('陷阱', async () => {
     }
   }
 });
+section('密门', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { generateBranchLevel } = await import('../src/game/dungeon');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { roleById, raceById } = await import('../src/game/roles.js');
+
+  // 考古学家起始层的固定地图有一扇符号 `S` 的密门。
+  const level = generateBranchLevel({
+    gameSeed: 20240101,
+    branch: 'quest',
+    depth: 1,
+    levels: 5,
+    questRole: 'ARCHEOLOGIST',
+    align: 'neutral',
+  });
+  const hidden = [...level.doors].filter(([, door]) => door.hidden);
+  ok(hidden.length > 0, `固定地图带密门（${hidden.length}）`);
+
+  const s = new GameSession({
+    seed: 4243,
+    character: {
+      role: roleById.ARCHEOLOGIST,
+      race: raceById.HUMAN,
+      align: 'neutral',
+      gender: 'male',
+    },
+  });
+  s.changeDepth(1, 'down', 'quest');
+  s.level.monsters = [];
+  const entry = [...s.level.doors].find(([, door]) => door.hidden);
+  ok(!!entry, '任务总部有密门');
+  if (entry) {
+    const [tile, door] = entry;
+    const dx = tile % COLNO;
+    const dy = Math.floor(tile / COLNO);
+    const near = [
+      [dx - 1, dy],
+      [dx + 1, dy],
+      [dx, dy - 1],
+      [dx, dy + 1],
+    ].find(([x, y]) => isWalkable(s.level.tiles[index(x, y)]));
+    ok(!!near, '密门旁边有可站立的位置');
+    if (near) {
+      s.player.x = near[0];
+      s.player.y = near[1];
+      s.refreshFov();
+      // 未发现时按墙处理，走不进去。
+      const blocked = s.movePlayer(dx - near[0], dy - near[1]);
+      ok(blocked.result === 'blocked', `未发现的密门挡路（${blocked.result}）`);
+      // 搜索可以现形。
+      for (let i = 0; i < 30 && door.hidden; i++) s.searchAction();
+      ok(!door.hidden, '搜索可以发现密门');
+      // 现形后是普通关门，撞上去就开。
+      const opened = s.movePlayer(dx - near[0], dy - near[1]);
+      ok(opened.result === 'opened', `现形后可以开门（${opened.result}）`);
+      // 状态随存档保留。
+      door.hidden = true;
+      const restored = restoreSession(serializeSession(s));
+      ok(restored.level.doors.get(tile)?.hidden === true, '密门状态随存档保留');
+    }
+  }
+});
+
 section('地形设施', async () => {
   const { GameSession } = await import('../src/game/session');
   const { FEATURE_ACTIONS, FEATURE_TABLES, rollFeatureEffect } =

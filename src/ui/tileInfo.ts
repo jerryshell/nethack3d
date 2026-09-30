@@ -177,6 +177,10 @@ export function describeTile(session: GameSession, x: number, y: number): TileIn
 
   // 搜索发现过机关的门单独标出来，提醒玩家开门前先做准备。
   const door = level.doors.get(i);
+  // 未发现的密门看起来就是墙。
+  if (door?.hidden && level.tiles[i] === T.SDOOR) {
+    return { title: t('terrain.wall'), kind: 'terrain' };
+  }
   if (door?.trapKnown) {
     return { title: t('terrain.trappedDoor'), hint: t('tile.trappedDoorHint'), kind: 'terrain' };
   }

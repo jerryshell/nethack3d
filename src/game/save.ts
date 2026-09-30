@@ -98,14 +98,17 @@ function serializeLevel(level: Level): SerializedLevel {
     ...(level.shopRestockAt !== undefined ? { shopRestockAt: level.shopRestockAt } : {}),
     seen: Array.from(level.seen),
     populated: !!level.populated,
-    doors: [...level.doors].map(([i, d]): [number, boolean, boolean, boolean, boolean, boolean] => [
-      i,
-      d.closed,
-      d.locked,
-      d.broken,
-      !!d.trapped,
-      !!d.trapKnown,
-    ]),
+    doors: [...level.doors].map(
+      ([i, d]): [number, boolean, boolean, boolean, boolean, boolean, boolean] => [
+        i,
+        d.closed,
+        d.locked,
+        d.broken,
+        !!d.trapped,
+        !!d.trapKnown,
+        !!d.hidden,
+      ],
+    ),
     traps: [...level.traps].map(([i, tp]): [number, string, boolean] => [i, tp.type, tp.seen]),
     ...(level.changedTiles?.size
       ? { tiles: [...level.changedTiles].map((i): [number, number] => [i, level.tiles[i]]) }
@@ -339,7 +342,7 @@ export function restoreSession(data: SaveData): GameSession {
     level.seen = Uint8Array.from(ld.seen ?? []);
     level.populated = !!ld.populated;
     level.doors = new Map(
-      (ld.doors ?? []).map(([i, closed, locked, broken, trapped, trapKnown]) => [
+      (ld.doors ?? []).map(([i, closed, locked, broken, trapped, trapKnown, hidden]) => [
         i,
         {
           closed: !!closed,
@@ -347,6 +350,7 @@ export function restoreSession(data: SaveData): GameSession {
           broken: !!broken,
           ...(trapped ? { trapped: true } : {}),
           ...(trapKnown ? { trapKnown: true } : {}),
+          ...(hidden ? { hidden: true } : {}),
         },
       ]),
     );
