@@ -616,6 +616,19 @@ function startGame(options: StartGameOptions = {}): void {
       });
     }
 
+    // 脚下或身边有已知陷阱时，可以动手拆除。
+    if (session.disarmTarget()) {
+      actions.push({
+        id: 'untrap',
+        label: t('actions.untrap'),
+        hint: t('actionHints.untrap'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.untrapAction());
+        },
+      });
+    }
+
     // 持镐站在地面上时，可以向下挖穿地板。
     if (session.canDigDown()) {
       actions.push({

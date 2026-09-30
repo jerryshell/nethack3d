@@ -1446,6 +1446,63 @@ export class GameSession {
     return { result: 'used', key: found > 0 ? 'msg.searchFound' : undefined };
   }
 
+  /** 脚下或相邻已知陷阱的下标；没有可拆的目标时返回 null。 */
+  disarmTarget(): { tile: number; type: string } | null {
+    const at = (dx: number, dy: number) => {
+      const tile = index(this.player.x + dx, this.player.y + dy);
+      const trap = this.level.traps.get(tile);
+      if (!trap || !trap.seen) return null;
+      // 传送门与振动方块是流程机关，不能拆。
+      if (trap.type === 'MAGIC_PORTAL' || trap.type === 'VIBRATING_SQUARE') return null;
+      return { tile, type: trap.type };
+    };
+    const offsets: [number, number][] = [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ];
+    for (const [dx, dy] of offsets) {
+      const found = at(dx, dy);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /**
+   * 解除陷阱：对脚下或相邻的已知陷阱动手，失败只浪费一回合。
+   *
+   * 成功率沿用原版 untrap_prob() 的门限：基础 1/3，
+   * 失明/混乱加一级难度，眩晕加两级，盗贼与游侠更熟练。
+   */
+  untrapAction(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    const target = this.disarmTarget();
+    if (!target) {
+      this.log('msg.untrapNone');
+      return { result: 'nothing' };
+    }
+    let chance = 3;
+    if (this.player.blind > 0 || this.player.confused > 0) chance++;
+    if (this.player.stun > 0) chance += 2;
+    if (this.player.role.id === 'ROGUE' || this.player.role.id === 'RANGER') chance--;
+    if (chance < 1) chance = 1;
+    const trapName = trapNameKey(target.type);
+    if (this.rng.rn2(chance) === 0) {
+      this.level.traps.delete(target.tile);
+      this.log('msg.untrapDone', { trap: trapName });
+    } else {
+      this.log('msg.untrapFail', { trap: trapName });
+    }
+    this.finishTurn();
+    return { result: 'used' };
+  }
+
   wait(): ActionResultInfo {
     if (this.dead) return { result: 'dead' };
     this.finishTurn();

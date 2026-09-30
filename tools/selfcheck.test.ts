@@ -4946,6 +4946,54 @@ section('搜索陷阱', async () => {
   }
 });
 
+section('解除陷阱', async () => {
+  const { GameSession } = await import('../src/game/session');
+
+  // 相邻的已知陷阱可以拆除，多试几次总能成功。
+  {
+    const s = new GameSession({ seed: 8401 });
+    s.level.monsters = [];
+    const i = index(s.player.x + 1, s.player.y);
+    s.level.traps.set(i, { type: 'PIT', seen: true });
+    let removed = false;
+    for (let n = 0; n < 30 && !removed; n++) {
+      s.untrapAction();
+      removed = !s.level.traps.has(i);
+    }
+    ok(removed, '解除陷阱最终能拆掉相邻的陷阱');
+    ok(
+      s.messages.some((m) => m.key === 'msg.untrapDone'),
+      '记录解除陷阱消息',
+    );
+  }
+
+  // 没有目标时只给提示，不消耗回合。
+  {
+    const s = new GameSession({ seed: 8402 });
+    s.level.monsters = [];
+    s.level.traps.clear();
+    const turn = s.turn;
+    s.untrapAction();
+    ok(
+      s.messages.some((m) => m.key === 'msg.untrapNone'),
+      '没有陷阱时给出提示',
+    );
+    ok(s.turn === turn, '没有陷阱时不消耗回合');
+  }
+
+  // 未见过的陷阱不在候选里，传送门也不能拆。
+  {
+    const s = new GameSession({ seed: 8403 });
+    s.level.monsters = [];
+    s.level.traps.clear();
+    s.level.traps.set(index(s.player.x + 1, s.player.y), { type: 'PIT', seen: false });
+    ok(s.disarmTarget() === null, '未见过的陷阱不可解除');
+    s.level.traps.clear();
+    s.level.traps.set(index(s.player.x + 1, s.player.y), { type: 'MAGIC_PORTAL', seen: true });
+    ok(s.disarmTarget() === null, '传送门不可解除');
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');
