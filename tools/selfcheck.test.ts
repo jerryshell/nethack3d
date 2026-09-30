@@ -2319,6 +2319,30 @@ section('怪物与陷阱', async () => {
       '陷阱记忆随存档保留',
     );
 
+    // 玩家发现陷阱时，身边的宠物也学会。
+    s.level.monsters = [];
+    s.level.traps.clear();
+    const pet = spawn('KOBOLD');
+    pet.tame = true;
+    pet.asleep = false;
+    const petSpot = [
+      [s.player.x + 2, s.player.y],
+      [s.player.x - 2, s.player.y],
+      [s.player.x, s.player.y + 2],
+      [s.player.x, s.player.y - 2],
+    ].find(([x, y]) => isWalkable(s.level.tiles[index(x, y)]));
+    if (petSpot) {
+      pet.x = petSpot[0];
+      pet.y = petSpot[1];
+    }
+    s.level.monsters = [pet];
+    s.player.maxHp = 200;
+    s.player.hp = 200;
+    const playerTrap = index(s.player.x, s.player.y);
+    s.level.traps.set(playerTrap, { type: 'PIT', seen: false });
+    s.springTrap(playerTrap);
+    ok(s.monsterKnowsTrap(pet, 'PIT'), '玩家发现陷阱时宠物也学会');
+
     // 地洞把怪物送到下一层。
     s.level.monsters = [stuck];
     s.level.traps.clear();

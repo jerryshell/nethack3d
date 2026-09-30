@@ -1457,6 +1457,7 @@ export class GameSession {
       if (trap && !trap.seen) {
         if (this.rng.chance(chance)) {
           trap.seen = true;
+          this.petsLearnTrap(this.player.x + dx, this.player.y + dy, trap.type);
           found++;
         }
         continue;
@@ -1579,16 +1580,18 @@ export class GameSession {
     if (!trap) return false;
     const effect = trapEffect(trap.type);
     const trapName = trapNameKey(trap.type);
+    const trapAt = coords(tile);
     // 浮空时从地面陷阱上方飘过；魔法传送门例外，否则终局会被浮空卡死。
     if (this.isFloating() && trap.type !== 'MAGIC_PORTAL') {
       trap.seen = true;
+      this.petsLearnTrap(trapAt.x, trapAt.y, trap.type);
       this.log('msg.levitateTrap', { trap: trapName });
       return false;
     }
     trap.seen = true;
-    const trapAt = coords(tile);
-    // 看见陷阱触发的怪物会记住这类陷阱。
+    // 看见陷阱触发的怪物会记住这类陷阱；宠物也跟着主人学会。
     this.monsSeeTrap(trapAt.x, trapAt.y, trap.type);
+    this.petsLearnTrap(trapAt.x, trapAt.y, trap.type);
     let moved = false;
 
     switch (effect.kind) {
@@ -1856,7 +1859,10 @@ export class GameSession {
     if (this.hasEquipmentPower('SEARCHING') && this.turn % 10 === 0) {
       for (const [i, trap] of this.level.traps) {
         const at = coords(i);
-        if (Math.max(Math.abs(at.x - p.x), Math.abs(at.y - p.y)) <= 2) trap.seen = true;
+        if (Math.max(Math.abs(at.x - p.x), Math.abs(at.y - p.y)) <= 2) {
+          trap.seen = true;
+          this.petsLearnTrap(at.x, at.y, trap.type);
+        }
       }
     }
     if (p.form) {
@@ -4062,6 +4068,17 @@ export class GameSession {
   /** 记住一类陷阱。 */
   monLearnsTrap(mon: Monster, type: string): void {
     mon.trapSeen = (mon.trapSeen ?? 0) | trapBit(type);
+  }
+
+  /**
+   * 玩家发现陷阱时，身边的宠物也记住它，避免宠物反复踩进同一个陷阱。
+   */
+  petsLearnTrap(x: number, y: number, type: string): void {
+    for (const mon of this.level.monsters) {
+      if (mon.dead || !mon.tame) continue;
+      if (Math.max(Math.abs(mon.x - x), Math.abs(mon.y - y)) > 8) continue;
+      this.monLearnsTrap(mon, type);
+    }
   }
 
   /** 是否已知这类陷阱。 */
