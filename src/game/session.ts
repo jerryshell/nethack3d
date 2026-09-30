@@ -881,6 +881,12 @@ export class GameSession {
       this.finishTurn();
       return { result: 'held' };
     }
+    // 受罚的铁球拖住脚步：每隔一回合才能移动一次。
+    if (this.player.punished && this.player.punishedTurn % 2 === 1) {
+      this.log('msg.punishedDrag');
+      this.finishTurn();
+      return { result: 'held' };
+    }
     // 眩晕时会踉跄，白白浪费一次行动。
     if (this.player.stun > 0 && this.rng.chance(0.33)) {
       this.log('msg.stumble');
@@ -1575,6 +1581,7 @@ export class GameSession {
     if (this.turn % 15 === 0 && p.pw < p.maxPw) p.pw++;
 
     // 计时状态递减。
+    if (p.punished) p.punishedTurn++;
     if (p.levitating > 0) {
       p.levitating--;
       if (p.levitating === 0) this.log('msg.levitateEnd');
@@ -2359,6 +2366,11 @@ export class GameSession {
         break;
       }
       case 'drop': {
+        // 受罚时铁球锁在脚踝上，放不下。
+        if (item.proto.id === 'HEAVY_IRON_BALL' && this.player.punished) {
+          outcome = { key: 'msg.ballStuck' };
+          break;
+        }
         // 被诅咒的装备取不下来，自然也无法放下。
         if (item.buc === 'cursed' && this.equipped(item)) {
           outcome = { key: 'msg.cursedStuck', vars: { item: describeItem(item) } };
@@ -2646,6 +2658,7 @@ export class GameSession {
         this.adjustAlign(1);
         const uncursed = this.uncurseEquipment();
         if (uncursed > 0) this.log('msg.prayerUncursed', { n: uncursed });
+        if (this.unpunish()) this.log('msg.punishmentLifted');
         this.log('msg.prayerBlessed', vars);
         break;
       }
@@ -2653,6 +2666,7 @@ export class GameSession {
         player.hp = Math.min(player.maxHp, player.hp + Math.ceil(player.maxHp / 2));
         player.pw = Math.min(player.maxPw, player.pw + Math.ceil(player.maxPw / 2));
         this.healAfflictions();
+        if (this.unpunish()) this.log('msg.punishmentLifted');
         this.log('msg.prayerHeard', vars);
         break;
       }
@@ -2761,6 +2775,16 @@ export class GameSession {
     }
     this.finishTurn();
     return { result: 'used' };
+  }
+
+  /** 解除铁球惩罚：收回脚踝上的铁球；未受罚时返回 false。 */
+  private unpunish(): boolean {
+    if (!this.player.punished) return false;
+    this.player.punished = false;
+    this.player.punishedTurn = 0;
+    const ball = this.player.inventory.find((i) => i.proto.id === 'HEAVY_IRON_BALL');
+    if (ball) removeFromInventory(this.player, ball);
+    return true;
   }
 
   /** 祝福祈祷解除装备上的诅咒，返回解除的件数。 */

@@ -72,6 +72,7 @@ export type ObjectClass =
   | 'tool'
   | 'gem'
   | 'rock'
+  | 'ball'
   | 'coin';
 
 /** 物品原型，对应 NetHack 的 struct objclass 中的静态部分。 */
@@ -463,6 +464,10 @@ export interface Player {
   sick: number;
   /** 阵营记录：正数表示神满意，负数表示失望，范围 [-128, 127]。 */
   alignRecord: number;
+  /** 是否受铁球惩罚；受罚期间移动减半。 */
+  punished: boolean;
+  /** 受罚计数：奇数回合无法移动。 */
+  punishedTurn: number;
   /** 祈祷冷却：大于 0 时再次祈祷会触怒神明。 */
   prayerTimeout: number;
   /** 当前变形形态；为空表示原形。 */
@@ -730,6 +735,10 @@ export interface SaveData {
     drowning?: number;
     alignRecord?: number;
     prayerTimeout?: number;
+    /** 是否受铁球惩罚。 */
+    punished?: 0 | 1;
+    /** 受罚计数。 */
+    punishedTurn?: number;
     form?: { id: string; turns: number } | null;
     skillUses?: Record<string, number>;
     skillLevels?: Record<string, number>;

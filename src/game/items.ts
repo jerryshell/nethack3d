@@ -51,6 +51,8 @@ export const INVOCATION_ITEMS = new Set([
 export const NEVER_SPAWN = new Set([
   'AMULET_OF_YENDOR',
   'FAKE_AMULET_OF_YENDOR',
+  // 铁球由惩罚卷轴召唤，不参与随机生成（提取出的 prob 不是生成权重）。
+  'HEAVY_IRON_BALL',
   ...INVOCATION_ITEMS,
   'NOVEL',
 ]);

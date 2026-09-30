@@ -99,6 +99,7 @@ const messages: MessageCatalog = {
     effectTelepathy: 'Telepathy',
     effectLevitation: 'Levitating',
     effectDrowning: 'Drowning',
+    effectPunished: 'Punished',
     effectPetrifying: 'Petrifying!',
     controls:
       'Click the floor to walk there · Move: arrows/hjkl · Pick up: g · Pack: i · Help: ? · Camera: drag/wheel · Esc: menu',
@@ -340,6 +341,9 @@ const messages: MessageCatalog = {
     castLevitate: 'The spell lifts you off the ground.',
     boulderBroken: 'The boulder shatters into rubble.',
     sokobanLuck: 'A tension in the air… (luck -1)',
+    punishedDrag: 'The iron ball drags at your leg; you can barely move.',
+    punishmentLifted: 'The shackle falls away, and you are free.',
+    ballStuck: 'The iron ball is chained to your ankle; you cannot drop it.',
     enlightenStats:
       'Str {str}, Int {int}, Wis {wis}, Dex {dex}, Con {con}, Cha {cha}, luck {luck}.',
     enlightenResist: 'You have {res}.',
@@ -627,6 +631,8 @@ const messages: MessageCatalog = {
     digBlocked: 'Digging is forbidden here — the wand fizzles.',
     levitate: 'Your feet leave the ground; you float ({n} turns).',
     oil: 'The oil is vile; your stomach turns.',
+    punished: 'A heavy iron ball is chained to your ankle.',
+    alreadyPunished: 'You are already being punished.',
     noCharges: 'Nothing happens — no charges left.',
     zapWish: 'The wand of wishing glows, awaiting your wish.',
     wishLamp: 'A djinni emerges from the lamp, ready to grant a wish.',

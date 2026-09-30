@@ -446,4 +446,5 @@ export const OBJECTS: ObjectData[] = [
   { id: "ROCK", name: "rock", cls: "gem", kind: "ROCK", prob: 100, weight: 10, cost: 0, material: "MINERAL", color: "#aaaaaa", gval: 0, nutrition: 10, mohs: 7 },
   { id: "BOULDER", name: "boulder", cls: "rock", kind: "OBJECT", prob: 100, weight: 6000, cost: 0, material: "MINERAL", color: "#aaaaaa", gval: 0, nutrition: 2000, mohs: 0 },
   { id: "STATUE", name: "statue", cls: "rock", kind: "OBJECT", prob: 900, weight: 2500, cost: 0, material: "MINERAL", color: "#ffffff", gval: 0, nutrition: 2500, mohs: 0 },
+  { id: "HEAVY_IRON_BALL", name: "heavy iron ball", cls: "ball", kind: "OBJECT", prob: 1000, weight: 480, cost: 10, material: "IRON", color: "#00aaaa" },
 ];

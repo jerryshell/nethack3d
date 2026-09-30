@@ -4446,6 +4446,101 @@ section('深水与溺水', async () => {
   }
 });
 
+section('铁球惩罚', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+
+  const freeStep = (s: InstanceType<typeof GameSession>) => {
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as [number, number][]) {
+      const x = s.player.x + dx;
+      const y = s.player.y + dy;
+      if (!isWalkable(s.level.tiles[index(x, y)])) continue;
+      if (s.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+      return { dx, dy };
+    }
+    return null;
+  };
+
+  // 读惩罚卷轴会招来铁球，再读提示已在受罚。
+  {
+    const s = new GameSession({ seed: 8001 });
+    s.level.monsters.length = 0;
+    s.useItem(makeItem(objById.get('SCR_PUNISHMENT') as ObjectData, s.rng));
+    ok(s.player.punished, '惩罚卷轴招来铁球');
+    const ball = s.player.inventory.find((i) => i.proto.id === 'HEAVY_IRON_BALL');
+    ok(!!ball, '铁球进了背包');
+    ok(
+      s.messages.some((m) => m.key === 'use.punished'),
+      '记录受罚消息',
+    );
+    s.useItem(makeItem(objById.get('SCR_PUNISHMENT') as ObjectData, s.rng));
+    ok(
+      s.messages.some((m) => m.key === 'use.alreadyPunished'),
+      '重复受罚只给提示',
+    );
+
+    // 铁球拖慢脚步：隔一回合才能动。
+    const step = freeStep(s);
+    ok(!!step, '找得到可走的方向');
+    if (step) {
+      s.player.punishedTurn = 0;
+      const first = s.movePlayer(step.dx, step.dy);
+      ok(first.result === 'moved', '受罚第一回合可以移动');
+      ok(s.player.punishedTurn === 1, '受罚计数递增');
+      const back = freeStep(s);
+      if (back) {
+        const second = s.movePlayer(back.dx, back.dy);
+        ok(second.result === 'held', '受罚隔回合被拖住');
+        ok(
+          s.messages.some((m) => m.key === 'msg.punishedDrag'),
+          '记录被拖住的消息',
+        );
+      }
+    }
+
+    // 铁球丢不掉。
+    if (ball) {
+      s.useItem(ball, 'drop');
+      ok(s.player.inventory.includes(ball), '受罚期间铁球丢不掉');
+      ok(
+        s.messages.some((m) => m.key === 'msg.ballStuck'),
+        '记录铁球丢不掉的消息',
+      );
+    }
+
+    // 祈祷可以解除惩罚。
+    s.player.alignRecord = 10;
+    s.pray();
+    ok(!s.player.punished, '祈祷解除铁球惩罚');
+    ok(!s.player.inventory.some((i) => i.proto.id === 'HEAVY_IRON_BALL'), '解除后铁球消失');
+    ok(
+      s.messages.some((m) => m.key === 'msg.punishmentLifted'),
+      '记录解除消息',
+    );
+  }
+
+  // 惩罚状态随存档保留。
+  {
+    const { serializeSession, restoreSession } = await import('../src/game/save');
+    const s = new GameSession({ seed: 8002 });
+    s.player.punished = true;
+    const ball = makeItem(objById.get('HEAVY_IRON_BALL') as ObjectData, s.rng);
+    addToInventory(s.player, ball);
+    const restored = restoreSession(serializeSession(s));
+    ok(restored.player.punished, '存档保留惩罚状态');
+    ok(
+      restored.player.inventory.some((i) => i.proto.id === 'HEAVY_IRON_BALL'),
+      '存档保留铁球',
+    );
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');

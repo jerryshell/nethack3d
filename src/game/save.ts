@@ -175,6 +175,8 @@ export function serializeSession(session: GameSession): SaveData {
       sick: p.sick ?? 0,
       alignRecord: p.alignRecord ?? 0,
       prayerTimeout: p.prayerTimeout ?? 0,
+      punished: p.punished ? 1 : 0,
+      punishedTurn: p.punishedTurn ?? 0,
       form: p.form ? { id: p.form.id, turns: p.form.turns } : null,
       skillUses: { ...p.skillUses },
       skillLevels: { ...p.skillLevels },
@@ -279,6 +281,8 @@ export function restoreSession(data: SaveData): GameSession {
   player.sick = p.sick ?? 0;
   player.alignRecord = p.alignRecord ?? 0;
   player.prayerTimeout = p.prayerTimeout ?? 0;
+  player.punished = !!p.punished;
+  player.punishedTurn = p.punishedTurn ?? 0;
   player.form = p.form ? { id: p.form.id, turns: p.form.turns } : null;
   player.skillUses = { ...p.skillUses };
   player.skillLevels = { ...p.skillLevels };

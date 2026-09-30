@@ -780,6 +780,24 @@ function readScroll(session: GameSession, item: ItemInstance): UseOutcome {
       out.key = 'use.blankScroll';
       break;
     }
+    case 'SCR_PUNISHMENT': {
+      if (session.player.punished) {
+        out.key = 'use.alreadyPunished';
+        break;
+      }
+      const proto = objById.get('HEAVY_IRON_BALL');
+      if (!proto) {
+        out.key = 'use.nothingHappens';
+        break;
+      }
+      const ball = makeItem(proto, rng);
+      ball.known = true;
+      addToInventory(session.player, ball);
+      session.player.punished = true;
+      session.player.punishedTurn = 0;
+      out.key = 'use.punished';
+      break;
+    }
     case 'SCR_EARTH': {
       // 地震：附近的怪物受创并被惊醒，身边留下一处陷坑。
       let hit = 0;

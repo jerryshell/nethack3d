@@ -500,6 +500,7 @@ const OBJ_CLASS = {
   GEM_CLASS: 'gem',
   COIN_CLASS: 'coin',
   ROCK_CLASS: 'rock',
+  BALL_CLASS: 'ball',
 };
 
 const ARMOR_SLOTS = {

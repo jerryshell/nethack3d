@@ -102,6 +102,10 @@ export class Player implements PlayerState {
   sick: number;
   /** 阵营记录与祈祷冷却。 */
   alignRecord: number;
+  /** 是否受铁球惩罚；受罚期间移动减半。 */
+  punished: boolean;
+  /** 受罚计数：奇数回合无法移动。 */
+  punishedTurn: number;
   prayerTimeout: number;
   /** 当前变形形态；为空表示原形。 */
   form: PolymorphForm | null;
@@ -186,6 +190,8 @@ export class Player implements PlayerState {
     this.drowning = 0;
     this.sick = 0;
     this.alignRecord = 0;
+    this.punished = false;
+    this.punishedTurn = 0;
     this.prayerTimeout = 0;
     this.form = null;
     this.skillUses = {};

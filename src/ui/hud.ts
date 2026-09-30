@@ -193,6 +193,7 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
       [p.hasted, 'hud.effectHasted', false],
       [p.senseMonsters, 'hud.effectSenseMonsters', false],
       [p.petrifying, 'hud.effectPetrifying', true],
+      [p.punished ? 1 : 0, 'hud.effectPunished', true],
     ];
     if (session.hasTelepathy()) all.push([1, 'hud.effectTelepathy', false]);
     if (session.hasLevitation())

@@ -98,6 +98,7 @@ const messages: MessageCatalog = {
     effectTelepathy: '心灵感应',
     effectLevitation: '浮空',
     effectDrowning: '溺水',
+    effectPunished: '受罚',
     effectPetrifying: '石化中！',
     controls:
       '点击地面即可走过去 · 移动：方向键/hjkl · 拾取：g · 背包：i · 帮助：? · 视角：拖拽/滚轮 · Esc：菜单',
@@ -263,6 +264,9 @@ const messages: MessageCatalog = {
     castLevitate: '咒语让你飘浮起来。',
     boulderBroken: '巨石碎成了粉末。',
     sokobanLuck: '推箱层的力量不满地波动着……（幸运 -1）',
+    punishedDrag: '铁球拖住了你，迈不开脚步。',
+    punishmentLifted: '镣铐应声而落，你重获自由。',
+    ballStuck: '铁球锁在脚踝上，丢不掉。',
     enlightenStats:
       '力量 {str}，智力 {int}，感知 {wis}，敏捷 {dex}，体质 {con}，魅力 {cha}，幸运 {luck}。',
     enlightenResist: '你拥有{res}。',
@@ -620,6 +624,8 @@ const messages: MessageCatalog = {
     digBlocked: '推箱层禁止破坏地形，魔杖失灵了。',
     levitate: '你的脚离开了地面，飘浮起来（{n} 回合）。',
     oil: '油腻得令人作呕，胃里一阵翻腾。',
+    punished: '一个沉重的铁球锁在了你的脚踝上。',
+    alreadyPunished: '你已经在受罚了。',
     noCharges: '没有充能，什么也没发生。',
     zapWish: '许愿魔杖亮起，等待你说出愿望。',
     wishLamp: '魔法灯里冒出一个精怪，愿意实现一个愿望。',
