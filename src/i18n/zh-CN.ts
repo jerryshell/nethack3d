@@ -350,6 +350,8 @@ const messages: MessageCatalog = {
     slainByGod: '你死于神罚。',
     monSteals: '{mon}抢走了{item}，随即消失。',
     monStealsGold: '{mon}抢走了 {n} 枚金币，随即消失。',
+    monPicksUp: '{mon}捡起了{item}。',
+    monPicksGold: '{mon}捡起了 {n} 枚金币。',
     stealNothing: '{mon}摸索了一番，什么也没找到。',
     monCurses: '{mon}诅咒了{item}。',
     monDisenchants: '{mon}消去了{obj}的附魔。',

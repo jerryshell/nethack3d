@@ -2230,6 +2230,103 @@ section('怪物与陷阱', async () => {
   }
 });
 
+section('怪物捡拾物品', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById, objById } = await import('../src/data/index');
+  const { makeGold, makeItem } = await import('../src/game/items');
+  const { createRng } = await import('../src/core/rng');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+  const { shopRoom, inRoom } = await import('../src/game/dungeon');
+
+  const s = new GameSession({ seed: 917 });
+  s.level.monsters = [];
+  s.level.traps.clear();
+  s.level.objects = [];
+  s.refreshFov();
+  const spot = (() => {
+    let fallback: { x: number; y: number } | null = null;
+    for (let x = 1; x < s.level.width - 1; x++) {
+      for (let y = 1; y < s.level.height - 1; y++) {
+        if (s.level.tiles[index(x, y)] !== T.ROOM) continue;
+        if (x === s.player.x && y === s.player.y) continue;
+        const at = { x, y };
+        if (s.visible?.[index(x, y)] === 1) return at;
+        fallback ??= at;
+      }
+    }
+    return fallback;
+  })();
+  ok(!!spot, '找得到放置物品的地面');
+  if (spot) {
+    const mon = new Monster(monById.get('KOBOLD') as MonsterData, spot.x, spot.y, createRng(5));
+    mon.asleep = false;
+    s.level.monsters = [mon];
+    const item = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+    const gold = makeGold(s.rng, s.depth, 42);
+    s.level.objects.push({ x: spot.x, y: spot.y, items: [item, gold] });
+    s.monsterPickup(mon);
+    ok((mon.carried?.length ?? 0) === 2, `怪物捡起了金币与物品（${mon.carried?.length}）`);
+    ok(!s.level.objects.some((p) => p.x === spot.x && p.y === spot.y), '地面堆被清空');
+    ok(
+      s.messages.some((m) => m.key === 'msg.monPicksGold'),
+      '捡金币有提示',
+    );
+    ok(
+      s.messages.some((m) => m.key === 'msg.monPicksUp'),
+      '捡物品有提示',
+    );
+
+    const restored = restoreSession(serializeSession(s));
+    const restoredMon = restored.level.monsters.find((m) => m.data.id === 'KOBOLD');
+    ok((restoredMon?.carried?.length ?? 0) === 2, '怪物携带的物品随存档保留');
+
+    // 死亡时掉回脚下。
+    s.slayMonster(mon, false);
+    const dropped = s.level.objects.find((p) => p.x === spot.x && p.y === spot.y);
+    ok(
+      !!dropped &&
+        dropped.items.some((i) => i.id === 'LONG_SWORD') &&
+        dropped.items.some((i) => i.gold),
+      '怪物死亡时把携带的物品掉回脚下',
+    );
+
+    // 不会收集的怪物不拿东西。
+    const blob = new Monster(monById.get('ACID_BLOB') as MonsterData, spot.x, spot.y, createRng(6));
+    s.level.monsters = [blob];
+    s.level.objects = [
+      { x: spot.x, y: spot.y, items: [makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng)] },
+    ];
+    s.monsterPickup(blob);
+    ok((blob.carried?.length ?? 0) === 0, '不会收集的怪物不拿东西');
+  }
+
+  // 商店里的货物不碰。
+  {
+    const shop = new GameSession({ seed: 20240101 });
+    let depth = -1;
+    for (let d = 2; d < 30 && depth < 0; d++) if (shopRoom(shop.getLevel(d))) depth = d;
+    if (depth < 0) {
+      fail('捡拾测试需要商店楼层');
+    } else {
+      shop.changeDepth(depth, 'down');
+      shop.level.monsters = shop.level.monsters.filter((m) => m.data.id === 'SHOPKEEPER');
+      const room = shopRoom(shop.level);
+      const pile = shop.level.objects.find(
+        (p) => room && inRoom(room, p.x, p.y) && !p.items.some((i) => i.gold),
+      );
+      if (!pile) {
+        fail('商店里没有可测试的货物堆');
+      } else {
+        const mon = new Monster(monById.get('KOBOLD') as MonsterData, pile.x, pile.y, createRng(7));
+        shop.level.monsters.push(mon);
+        shop.monsterPickup(mon);
+        ok((mon.carried?.length ?? 0) === 0, '怪物不拿商店里的货');
+      }
+    }
+  }
+});
+
 section('巨石', async () => {
   {
     const { GameSession } = await import('../src/game/session');

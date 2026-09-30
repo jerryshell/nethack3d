@@ -456,6 +456,13 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     if ((mon.hasted ?? 0) < 0 || (mon.slowed ?? 0) < 0) {
       problems.push(`怪物 ${mon.data.id} 加速/缓速回合为负`);
     }
+    // 怪物携带的物品：数量合法，且不含未付款的商店货物。
+    for (const item of mon.carried ?? []) {
+      if (item.quantity < 1) {
+        problems.push(`怪物 ${mon.data.id} 携带的物品数量小于 1：${item.proto.id}`);
+      }
+      if (item.unpaid) problems.push(`怪物 ${mon.data.id} 携带未付款货物：${item.proto.id}`);
+    }
   }
 
   // 坐骑必须是驯服宠物，且不能同时出现在地图怪物里。

@@ -57,6 +57,7 @@ function serializeMonster(m: MonsterState): SerializedMonster {
     ...(m.hunger !== undefined ? { hg: m.hunger } : {}),
     ...(m.peaceful ? { pf: 1 as const } : {}),
     ...(m.trapSeen ? { ts: m.trapSeen } : {}),
+    ...(m.carried?.length ? { inv: m.carried.map(serializeItem) } : {}),
     mv: m.mv,
   };
 }
@@ -83,6 +84,9 @@ function deserializeMonster(data: SerializedMonster, rng: Rng): MonsterState | n
   mon.hunger = data.hg ?? 900;
   mon.peaceful = !!data.pf;
   mon.trapSeen = data.ts ?? 0;
+  mon.carried = (data.inv ?? [])
+    .map(deserializeItem)
+    .filter((item): item is NonNullable<typeof item> => item !== null);
   mon.mv = data.mv ?? 0;
   return mon;
 }

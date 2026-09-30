@@ -6,7 +6,14 @@
  * 使回合流程集中在一处。
  */
 
-import type { Level, Monster as MonsterState, MonsterData, Player, Rng } from '../types';
+import type {
+  ItemInstance,
+  Level,
+  Monster as MonsterState,
+  MonsterData,
+  Player,
+  Rng,
+} from '../types';
 import { GENERATABLE_MONSTERS, monById } from '../data/index';
 import { inShopRoom, index, shopRoom } from './dungeon';
 import { T, isWalkable } from '../core/constants';
@@ -51,6 +58,8 @@ export class Monster implements MonsterState {
   peaceful?: boolean;
   /** 已知陷阱的位掩码：见过触发后就会绕开，对应原版的 mtrapseen。 */
   trapSeen?: number;
+  /** 会收集物品的怪物（M2_COLLECT）携带的东西；死亡时掉落。 */
+  carried?: ItemInstance[];
 
   constructor(data: MonsterData, x: number, y: number, rng: Rng, { mlev }: { mlev?: number } = {}) {
     this.id = nextId++;
@@ -78,6 +87,7 @@ export class Monster implements MonsterState {
     this.hunger = 900;
     this.peaceful = false;
     this.trapSeen = 0;
+    this.carried = [];
   }
 
   get ac(): number {

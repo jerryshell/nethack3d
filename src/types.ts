@@ -400,6 +400,8 @@ export interface Monster {
   peaceful?: boolean;
   /** 已知陷阱的位掩码：见过触发后就会绕开，对应原版的 mtrapseen。 */
   trapSeen?: number;
+  /** 会收集物品的怪物（M2_COLLECT）携带的东西；死亡时掉落。 */
+  carried?: ItemInstance[];
 }
 
 export type EquipmentSlot =
@@ -685,6 +687,8 @@ export interface SerializedMonster {
   pf?: 0 | 1;
   /** 已知陷阱的位掩码。 */
   ts?: number;
+  /** 怪物携带的物品。 */
+  inv?: SerializedItem[];
   mv: number;
 }
 

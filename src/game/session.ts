@@ -2135,6 +2135,8 @@ export class GameSession {
       this.questLeaderDead = true;
       log.info('任务领袖被击杀', { role: this.player.role.id });
     }
+    // 带着的东西先掉回脚下。
+    this.dropMonsterCarried(mon);
     this.kills++;
     const xp = killExperience(mon);
     log.info('怪物被击杀', {
@@ -3843,6 +3845,8 @@ export class GameSession {
     mon.y = choice.y;
     // 踩中陷阱就地结算：怪物也会中招，浮空的除外。
     this.monsterTrap(mon);
+    // 会收集的怪物顺手带走脚下的物品。
+    if (!mon.dead) this.monsterPickup(mon);
   }
 
   /**
@@ -3932,6 +3936,7 @@ export class GameSession {
     if (mon.dead) return;
     mon.dead = true;
     log.info('怪物死于陷阱', { monster: mon.data.id, turn: this.turn, depth: this.depth });
+    this.dropMonsterCarried(mon);
     if (mon.tame) this.log('msg.petDies', { mon: mon.data.id });
     if (this.rng.chance(0.35)) {
       const pile = pileAt(this.level, mon.x, mon.y);
@@ -3940,6 +3945,44 @@ export class GameSession {
       else this.level.objects.push({ x: mon.x, y: mon.y, items: [gold] });
     }
     this.maybeDropCorpse(mon);
+  }
+
+  /**
+   * 会收集物品的怪物走过地面堆时带走一些，对应原版的 M2_COLLECT。
+   *
+   * 商店里的货物不碰（对应原版避开 costly_spot）；金币优先，
+   * 加上小件物品最多三件；巨石不动。捡到的物品在怪物死亡时掉落。
+   */
+  monsterPickup(mon: Monster): void {
+    if (mon.dead || mon.tame) return;
+    if (!mon.data.flags.includes('M2_COLLECT')) return;
+    if (inShopRoom(this.level, mon.x, mon.y)) return;
+    const pile = this.level.objects.find((p) => p.x === mon.x && p.y === mon.y);
+    if (!pile || !pile.items.length) return;
+    const gold = pile.items.filter((item) => item.gold && item.id !== 'BOULDER');
+    const other = pile.items.filter((item) => !item.gold && item.id !== 'BOULDER');
+    const taken = [...gold, ...other].slice(0, 3);
+    if (!taken.length) return;
+    pile.items = pile.items.filter((item) => !taken.includes(item));
+    if (!pile.items.length) this.level.objects.splice(this.level.objects.indexOf(pile), 1);
+    (mon.carried ??= []).push(...taken);
+    // 玩家看得见才报出名字，否则物品只是从堆里消失。
+    if (this.visible?.[index(mon.x, mon.y)] === 1) {
+      for (const item of taken) {
+        if (item.gold) this.log('msg.monPicksGold', { mon: mon.data.id, n: item.quantity });
+        else this.log('msg.monPicksUp', { mon: mon.data.id, item: describeItem(item) });
+      }
+    }
+    log.debug('怪物捡拾物品', { monster: mon.data.id, count: taken.length });
+  }
+
+  /** 死亡时把怪物带着的东西掉回脚下。 */
+  private dropMonsterCarried(mon: Monster): void {
+    if (!mon.carried?.length) return;
+    const pile = pileAt(this.level, mon.x, mon.y);
+    if (pile) pile.items.push(...mon.carried);
+    else this.level.objects.push({ x: mon.x, y: mon.y, items: [...mon.carried] });
+    mon.carried = [];
   }
 
   /**
