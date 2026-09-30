@@ -1951,6 +1951,22 @@ export class GameSession {
       mon.angry = true;
       if (mon.data.id === 'SHOPKEEPER') this.log('msg.shopkeeperAngry');
     }
+    // 打任务领袖或护卫会让整个总部翻脸。
+    const quest = this.character.role.quest;
+    if (
+      quest &&
+      this.branch === 'quest' &&
+      (mon.data.id === quest.leader || mon.data.id === quest.guardian)
+    ) {
+      for (const other of this.level.monsters) {
+        if (other.dead) continue;
+        if (other.data.id === quest.leader || other.data.id === quest.guardian) {
+          other.angry = true;
+          other.asleep = false;
+        }
+      }
+      this.log('msg.questBetrayed');
+    }
     // 武器附魔参与命中与伤害；变形时用形态天然武器，不算手持附魔。
     const enchant = player.form ? 0 : (player.weapon?.enchant ?? 0);
     // 祝福武器对亡者与恶魔更有效：命中 +2、伤害 +1d4（weapon.c）。

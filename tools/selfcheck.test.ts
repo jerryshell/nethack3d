@@ -5151,6 +5151,26 @@ section('工具应用', async () => {
     );
   }
 
+  // 油灯点亮所在的房间。
+  {
+    const s = new GameSession({ seed: 8508 });
+    const room = s.level.rooms[0];
+    ok(!!room, '首层有房间');
+    if (room) {
+      s.player.x = (room.lx + room.hx) >> 1;
+      s.player.y = (room.ly + room.hy) >> 1;
+      room.lit = false;
+      const lamp = makeItem(objById.get('OIL_LAMP') as ObjectData, s.rng);
+      addToInventory(s.player, lamp);
+      s.useItem(lamp);
+      ok(!!room.lit, '油灯点亮所在的房间');
+      ok(
+        s.messages.some((m) => m.key === 'use.lampLit'),
+        '记录点灯消息',
+      );
+    }
+  }
+
   // 罐装油脂护住护甲一次，毁甲卷轴随之失效。
   {
     const s = new GameSession({ seed: 8505 });
@@ -6120,6 +6140,34 @@ section('职业神器', async () => {
       leader.angry = true;
       s.talkToLeader();
       ok(s.messages.at(-1)?.key === 'msg.questLeaderAngry', '愤怒的领袖拒绝交谈');
+    }
+  }
+
+  // 打任务领袖会让整个总部翻脸。
+  {
+    const s = new GameSession({
+      seed: 4246,
+      character: {
+        role: roleById.SAMURAI,
+        race: raceById.HUMAN,
+        align: 'lawful' as const,
+        gender: 'male' as const,
+      },
+    });
+    s.changeDepth(1, 'down', 'quest');
+    const quest = s.character.role.quest;
+    const leader = s.level.monsters.find((m) => m.data.id === quest.leader);
+    ok(!!leader, '任务总部有领袖');
+    if (leader) {
+      s.attackMonster(leader);
+      const allies = s.level.monsters.filter(
+        (m) => !m.dead && (m.data.id === quest.leader || m.data.id === quest.guardian),
+      );
+      ok(allies.length > 0 && allies.every((g) => g.angry), '打领袖后任务总部全员翻脸');
+      ok(
+        s.messages.some((m) => m.key === 'msg.questBetrayed'),
+        '记录背叛消息',
+      );
     }
   }
 });

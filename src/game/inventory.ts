@@ -495,6 +495,17 @@ export function applyItem(session: GameSession, item: ItemInstance): UseOutcome 
         }
         return { key: 'use.instrumentWake', vars: { n: woke }, identified: true };
       }
+      // 油灯与提灯：点亮所在的房间。
+      if (proto.id === 'OIL_LAMP' || proto.id === 'BRASS_LANTERN') {
+        const room = session.level.rooms.find((r) => inRoom(r, p.x, p.y));
+        if (!room) return { key: 'use.nothing' };
+        room.lit = true;
+        for (let x = room.lx; x <= room.hx; x++) {
+          for (let y = room.ly; y <= room.hy; y++) session.level.lit[index(x, y)] = 1;
+        }
+        session.refreshFov();
+        return { key: 'use.lampLit', identified: true };
+      }
       // 镜子：照一照，最近的怪物落荒而逃。
       if (proto.id === 'MIRROR') {
         const mon = session.level.monsters.find(
