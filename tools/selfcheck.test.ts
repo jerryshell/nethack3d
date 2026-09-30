@@ -1636,13 +1636,68 @@ section('商店', async () => {
     ok(s.player.gold === sellPrice, 'selling credits half the base cost');
     ok(!!sample.unpaid, 'sold item becomes shop property');
 
-    // 钱不够时拒绝拾取，物品留在原地。
+    // 钱不够时可以赊账拿走；离店结清或转为偷窃。
     s.player.gold = 0;
     const broke = s.pickupAction();
     ok(
-      broke.picked === 0 && !s.player.inventory.includes(sample),
-      'unaffordable goods stay on the floor',
+      broke.picked === 1 && s.player.inventory.includes(sample),
+      'unaffordable goods can be taken on credit',
     );
+    ok(!!sample.unpaid, 'credit keeps the unpaid mark');
+    ok(
+      s.messages.some((m) => m.key === 'msg.shopCredit'),
+      'credit is announced',
+    );
+
+    // 店外找一块空地用于结算。
+    let outside: { x: number; y: number } | null = null;
+    if (room) {
+      for (let x = 1; x < COLNO - 1 && !outside; x++) {
+        for (let y = 1; y < ROWNO - 1; y++) {
+          if (inRoom(room, x, y)) continue;
+          if (!isWalkable(s.level.tiles[index(x, y)])) continue;
+          if (s.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+          outside = { x, y };
+          break;
+        }
+      }
+    }
+    ok(!!outside, 'shop has a tile outside');
+
+    // 把金币补上再走出商店：账要结清。
+    if (outside) {
+      const bill = shopBuyPrice(sample, s.player.cha);
+      s.player.gold = bill + 2;
+      s.player.x = outside.x;
+      s.player.y = outside.y;
+      s.wait();
+      ok(!sample.unpaid, 'leaving the shop settles the bill');
+      ok(s.player.gold === 2, `bill equals the buy price（${s.player.gold}）`);
+      ok(
+        s.messages.some((m) => m.key === 'msg.shopBillPaid'),
+        'settlement is announced',
+      );
+    }
+
+    // 再赊一次，空着钱包离店：店主转为敌对，阵营记录下降。
+    const steal = pile.items.find((i) => i.unpaid);
+    if (outside && steal) {
+      s.player.x = pile.x;
+      s.player.y = pile.y;
+      s.player.gold = 0;
+      s.pickupAction();
+      const alignBefore = s.player.alignRecord;
+      s.player.x = outside.x;
+      s.player.y = outside.y;
+      s.wait();
+      ok(
+        s.messages.some((m) => m.key === 'msg.shopTheft'),
+        'theft is announced',
+      );
+      ok(s.player.alignRecord === alignBefore - 5, 'theft costs alignment');
+      ok(!steal.unpaid, 'stolen goods belong to the player');
+      ok(keeper?.angry === true, 'shopkeeper turns hostile after a theft');
+    }
 
     // 存档往返保留未付款标记。
     const restored = restoreSession(serializeSession(s));

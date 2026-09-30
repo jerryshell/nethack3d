@@ -1345,6 +1345,8 @@ export class GameSession {
   /** 玩家动作结束后依次执行怪物阶段与结算。 */
   finishTurn(): void {
     this.turn++;
+    // 手里有未付款货品却已经离开商店，先结账或转为偷窃。
+    this.settleShopDebt();
     // 加速：省掉这次怪物行动，多给玩家一次行动。
     if (this.player.hasted > 0) {
       this.player.hasted--;
@@ -2363,8 +2365,42 @@ export class GameSession {
       this.log('msg.shopBuy', { item: describeItem(item), n: price });
       return true;
     }
-    this.log('msg.shopCantAfford', { item: describeItem(item), n: price });
-    return false;
+    // 钱不够也可以赊账拿走；离开商店时结账，付不起就变成偷窃。
+    this.log('msg.shopCredit', { item: describeItem(item), n: price });
+    return true;
+  }
+
+  /** 背包里还没付钱的商店货品。 */
+  private unpaidItems(): ItemInstance[] {
+    return this.player.inventory.filter((item) => item.unpaid);
+  }
+
+  /**
+   * 离店结账：手里有未付款货品却已不在商店（或直接换层）时触发。
+   *
+   * 金币够就一次性付清；付不起则店主转为敌对，阵营记录下降。
+   */
+  private settleShopDebt(leaving = false): void {
+    const unpaid = this.unpaidItems();
+    if (!unpaid.length) return;
+    const shop = shopRoom(this.level);
+    if (!leaving && shop && inRoom(shop, this.player.x, this.player.y)) return;
+    const bill = unpaid.reduce((sum, item) => sum + shopBuyPrice(item, this.player.cha), 0);
+    if (this.player.gold >= bill) {
+      this.player.gold -= bill;
+      for (const item of unpaid) item.unpaid = false;
+      this.log('msg.shopBillPaid', { n: bill });
+      return;
+    }
+    // 赊账变偷窃：记下敌对与阵营惩罚，货物归玩家。
+    for (const item of unpaid) item.unpaid = false;
+    this.adjustAlign(-5);
+    const keeper = this.level.monsters.find(
+      (m) => !m.dead && m.data.id === 'SHOPKEEPER' && !m.angry,
+    );
+    if (keeper) keeper.angry = true;
+    this.log('msg.shopTheft');
+    log.info('玩家带着未付款货品离店', { turn: this.turn, depth: this.depth, bill });
   }
 
   /**
@@ -3900,6 +3936,8 @@ export class GameSession {
     });
     const fromBranch = this.branch;
     const from = this.level;
+    // 换层前先把商店的账结清，否则就成了跨层偷窃。
+    this.settleShopDebt(true);
     const target = branch === 'main' ? this.getLevel(depth) : this.getBranchLevel(branch, depth);
     let arrival = direction === 'down' ? target.up : target.down;
     // 从主地牢下到分支时，落在分支入口楼梯上（推箱的入口在底层）。

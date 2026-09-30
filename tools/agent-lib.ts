@@ -494,8 +494,11 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
   // 背包与装备
   for (const item of player.inventory) {
     if (item.quantity < 1) problems.push(`背包物品数量小于 1：${item.proto.id}`);
-    // 未付款的货品只能留在商店地面；一旦进了背包就是漏账。
-    if (item.unpaid) problems.push(`未付款物品在背包中：${item.proto.id}`);
+    // 赊账允许未付款货品暂时在背包里，但必须身处有商店的楼层；
+    // 离店或换层时由 settleShopDebt 结清或转为偷窃。
+    if (item.unpaid && !shopRoom(level)) {
+      problems.push(`未付款物品在无商店的楼层：${item.proto.id}`);
+    }
     checkContents(item, `背包 ${item.proto.id}`, problems);
   }
   for (const [slot, item] of Object.entries(player.equipment)) {

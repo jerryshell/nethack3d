@@ -714,6 +714,9 @@ const shop: Scenario = {
   run: (seed) =>
     runScenario('shop', seed, (checker) => {
       let session = newSession(seed);
+      // 后续要故意触怒店主，先给测试角色足够生命，避免被当场打死。
+      session.player.maxHp = 200;
+      session.player.hp = 200;
       checker.attachDump(() => `${describeState(session)}\n商店层=${session.depth}`);
 
       // 逐层查找商店：关卡生成是确定性的，同一颗种子结果一致；
@@ -810,17 +813,51 @@ const shop: Scenario = {
       );
       checker.ok(!!goods.unpaid, '卖出的物品重新变成店产', `unpaid=${goods.unpaid}`);
 
-      // 身无分文：拒绝拾取，物品留在原地。
+      // 身无分文：先赊账拿货，离店时结账。
       session.player.gold = 0;
       const broke = session.pickupAction();
       checker.ok(
-        broke.result === 'picked' && broke.picked === 0,
-        '付不起时拒绝拾取',
+        broke.picked === 1 && session.player.inventory.includes(goods),
+        '付不起时可以赊账取货',
         `结果=${broke.result} picked=${broke.picked}`,
-        repro('shop', seed),
       );
-      checker.ok(!session.player.inventory.includes(goods), '付不起的商品没进背包');
-      checker.ok(goods.unpaid === true, '付不起的商品保持未付款');
+      checker.ok(goods.unpaid === true, '赊账的货品保持未付款');
+      checker.ok(
+        session.messages.some((m) => m.key === 'msg.shopCredit'),
+        '有赊账提示',
+      );
+
+      // 找一间店外的空地用于结算测试。
+      const outside = (() => {
+        for (let x = 1; x < level.width - 1; x++) {
+          for (let y = 1; y < level.height - 1; y++) {
+            if (inRoom(room, x, y)) continue;
+            if (!walkableAt(level, x, y)) continue;
+            if (level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+            return { x, y };
+          }
+        }
+        return null;
+      })();
+      checker.ok(!!outside, '商店外有空地', '', repro('shop', seed));
+
+      // 离店前把金币补上，账要结清。
+      if (outside) {
+        const bill = shopBuyPrice(goods, session.player.cha);
+        session.player.gold = bill + 3;
+        teleportPlayer(session, outside.x, outside.y);
+        session.wait();
+        checker.ok(!goods.unpaid, '离店结清货款');
+        checker.ok(
+          session.player.gold === 3,
+          '扣款等于标价',
+          `金币=${session.player.gold}，标价=${bill}`,
+        );
+        checker.ok(
+          session.messages.some((m) => m.key === 'msg.shopBillPaid'),
+          '有结账提示',
+        );
+      }
 
       // 店主和平：清掉其它怪物贴身等待不应受伤；挑衅后转为敌对。
       if (keeper) {
@@ -843,6 +880,34 @@ const shop: Scenario = {
         );
         session.attackMonster(keeper);
         checker.ok(keeper.angry, '挑衅后店主转为敌对', `angry=${keeper.angry}`);
+      }
+
+      // 偷窃：带着未付款的货品离店，店主转为敌对并扣阵营记录。
+      if (outside && keeper) {
+        const stealPile = level.objects.find(
+          (p) => inRoom(room, p.x, p.y) && p.items.some((i) => i.unpaid),
+        );
+        const stolen = stealPile?.items.find((i) => i.unpaid);
+        if (stolen && stealPile) {
+          teleportPlayer(session, stealPile.x, stealPile.y);
+          session.player.gold = 0;
+          session.pickupAction();
+          const alignBefore = session.player.alignRecord;
+          teleportPlayer(session, outside.x, outside.y);
+          session.wait();
+          checker.ok(
+            session.messages.some((m) => m.key === 'msg.shopTheft'),
+            '偷窃有提示',
+            '',
+            repro('shop', seed),
+          );
+          checker.ok(
+            session.player.alignRecord === alignBefore - 5,
+            '偷窃扣阵营记录',
+            `${alignBefore} -> ${session.player.alignRecord}`,
+          );
+          checker.ok(!stolen.unpaid, '偷走的货物归玩家');
+        }
       }
 
       checker.absorb('商店操作后状态自洽', checkInvariants(session), repro('shop', seed));
