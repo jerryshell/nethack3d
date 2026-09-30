@@ -621,6 +621,7 @@ const messages: MessageCatalog = {
     digDown: 'The wand of digging bores a hole, and you fall through.',
     digBlocked: 'Digging is forbidden here — the wand fizzles.',
     levitate: 'Your feet leave the ground; you float ({n} turns).',
+    oil: 'The oil is vile; your stomach turns.',
     noCharges: 'Nothing happens — no charges left.',
     zapWish: 'The wand of wishing glows, awaiting your wish.',
     wishLamp: 'A djinni emerges from the lamp, ready to grant a wish.',

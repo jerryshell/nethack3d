@@ -4188,6 +4188,19 @@ section('冷门药水与卷轴', async () => {
     }
   }
 
+  // 喝油难以下咽：短暂恶心并损失饱食度。
+  {
+    const s = new GameSession({ seed: 6005 });
+    const hunger = s.player.hunger;
+    s.useItem(give(s, 'POT_OIL'));
+    ok(s.player.sick > 0, '喝油会恶心');
+    ok(s.player.hunger < hunger, '喝油损失饱食度');
+    ok(
+      s.messages.some((m) => m.key === 'use.oil'),
+      '记录喝油消息',
+    );
+  }
+
   // 邮件与空白卷轴只有提示，不改变状态。
   {
     const s = new GameSession({ seed: 6004 });

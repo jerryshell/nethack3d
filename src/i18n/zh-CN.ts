@@ -614,6 +614,7 @@ const messages: MessageCatalog = {
     digDown: '挖掘魔杖在地上开出一个洞，你掉了下去。',
     digBlocked: '推箱层禁止破坏地形，魔杖失灵了。',
     levitate: '你的脚离开了地面，飘浮起来（{n} 回合）。',
+    oil: '油腻得令人作呕，胃里一阵翻腾。',
     noCharges: '没有充能，什么也没发生。',
     zapWish: '许愿魔杖亮起，等待你说出愿望。',
     wishLamp: '魔法灯里冒出一个精怪，愿意实现一个愿望。',

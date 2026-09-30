@@ -526,6 +526,13 @@ function quaffPotion(session: GameSession, item: ItemInstance): UseOutcome {
       out.vars = { ...out.vars, n: turns };
       break;
     }
+    case 'POT_OIL': {
+      // 喝油难以下咽：短暂恶心，还可能没吃饱。
+      player.sick = Math.max(player.sick, 2 + rng.rn2(3));
+      player.hunger = Math.max(0, player.hunger - 20);
+      out.key = 'use.oil';
+      break;
+    }
     case 'POT_WATER':
       if (item.buc === 'blessed' || item.buc === 'cursed') {
         const count = blessInventory(player, item.buc);
