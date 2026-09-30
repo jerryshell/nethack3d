@@ -171,6 +171,7 @@ section('数据完整性', async () => {
 section('任务起始层数据', async () => {
   const { QUEST_HOME_LEVELS } = await import('../src/data/quest.gen');
   const { QUEST_MAP_CHARS } = await import('../src/game/quest');
+  const { generateBranchLevel } = await import('../src/game/dungeon');
 
   ok(QUEST_HOME_LEVELS.length === 12, `12 个职业有固定起始层（${QUEST_HOME_LEVELS.length}）`);
   const roles = new Set(QUEST_HOME_LEVELS.map((home) => home.role));
@@ -191,6 +192,34 @@ section('任务起始层数据', async () => {
       `${home.role} 有下行楼梯`,
     );
     ok(!!home.branch, `${home.role} 有分支落脚区`);
+  }
+
+  // 生成端：同一职业与种子两次生成完全一致，楼梯可站且连通。
+  const build = (role: string) =>
+    generateBranchLevel({
+      gameSeed: 20240101,
+      branch: 'quest',
+      depth: 1,
+      levels: 5,
+      questRole: role,
+      align: 'neutral',
+    });
+  for (const home of QUEST_HOME_LEVELS) {
+    const first = build(home.role);
+    const again = build(home.role);
+    ok(
+      first.doors.size === again.doors.size &&
+        first.stairs.length === again.stairs.length &&
+        first.traps.size === again.traps.size,
+      `${home.role} 固定地图可复现`,
+    );
+    ok(
+      !!first.up &&
+        !!first.down &&
+        isWalkable(first.tiles[index(first.up.x, first.up.y)]) &&
+        isWalkable(first.tiles[index(first.down.x, first.down.y)]),
+      `${home.role} 上下楼梯都可站`,
+    );
   }
 });
 
