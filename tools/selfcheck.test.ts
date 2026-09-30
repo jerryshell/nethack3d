@@ -4994,6 +4994,71 @@ section('解除陷阱', async () => {
   }
 });
 
+section('工具应用', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+
+  // 毛巾擦脸解除失明，没失明时什么也不做。
+  {
+    const s = new GameSession({ seed: 8501 });
+    const towel = makeItem(objById.get('TOWEL') as ObjectData, s.rng);
+    addToInventory(s.player, towel);
+    s.player.blind = 10;
+    s.useItem(towel);
+    ok(s.player.blind === 0, '毛巾解除失明');
+    ok(
+      s.messages.some((m) => m.key === 'use.towel'),
+      '记录擦脸消息',
+    );
+    s.useItem(towel);
+    ok(
+      s.messages.some((m) => m.key === 'use.nothing'),
+      '没失明时毛巾没有效果',
+    );
+  }
+
+  // 独角兽角随机祛除一项异常，无异常时只给提示。
+  {
+    const s = new GameSession({ seed: 8502 });
+    const horn = makeItem(objById.get('UNICORN_HORN') as ObjectData, s.rng);
+    addToInventory(s.player, horn);
+    s.player.blind = 10;
+    s.useItem(horn);
+    ok(s.player.blind === 0, '独角兽角解除失明');
+    ok(
+      s.messages.some((m) => m.key === 'use.hornBlind'),
+      '记录独角兽角消息',
+    );
+    s.useItem(horn);
+    ok(
+      s.messages.some((m) => m.key === 'use.hornNothing'),
+      '没有异常时只给提示',
+    );
+  }
+
+  // 听诊器报告自身或相邻怪物的状态。
+  {
+    const s = new GameSession({ seed: 8503 });
+    s.level.monsters = [];
+    const stethoscope = makeItem(objById.get('STETHOSCOPE') as ObjectData, s.rng);
+    addToInventory(s.player, stethoscope);
+    s.useItem(stethoscope);
+    ok(
+      s.messages.some((m) => m.key === 'use.stethoscopeSelf'),
+      '听诊器报告自身状态',
+    );
+    const mon = new Monster(monById.get('GIANT_ANT')!, s.player.x + 1, s.player.y, s.rng);
+    s.level.monsters.push(mon);
+    s.useItem(stethoscope);
+    ok(
+      s.messages.some((m) => m.key === 'use.stethoscopeMon'),
+      '听诊器报告怪物状态',
+    );
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');

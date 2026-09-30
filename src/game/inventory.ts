@@ -333,6 +333,7 @@ export function applyItem(session: GameSession, item: ItemInstance): UseOutcome 
     case 'weapon':
       return { key: 'use.equipHint' };
     case 'tool': {
+      const p = session.player;
       // 魔法灯：摩擦一次得到愿望，之后变成没用的灯。
       if (proto.id === 'MAGIC_LAMP') {
         if (item.charges === undefined) item.charges = 1;
@@ -340,6 +341,43 @@ export function applyItem(session: GameSession, item: ItemInstance): UseOutcome 
         item.charges -= 1;
         session.openWish();
         return { key: 'use.wishLamp', identified: true };
+      }
+      // 毛巾：擦脸解除失明。
+      if (proto.id === 'TOWEL') {
+        if (p.blind <= 0) return { key: 'use.nothing' };
+        p.blind = 0;
+        return { key: 'use.towel', identified: true };
+      }
+      // 独角兽角：随机祛除一项异常状态。
+      if (proto.id === 'UNICORN_HORN') {
+        const active = [
+          [p.blind > 0, 'use.hornBlind', () => (p.blind = 0)],
+          [p.confused > 0, 'use.hornConfused', () => (p.confused = 0)],
+          [p.stun > 0, 'use.hornStun', () => (p.stun = 0)],
+          [p.sick > 0, 'use.hornSick', () => (p.sick = 0)],
+        ].filter(([on]) => on) as [boolean, string, () => void][];
+        if (!active.length) return { key: 'use.hornNothing' };
+        const [, key, cure] = active[session.rng.rn2(active.length)];
+        cure();
+        return { key, identified: true };
+      }
+      // 听诊器：诊断相邻的怪物；身边没有怪物就听自己的心跳。
+      if (proto.id === 'STETHOSCOPE') {
+        const mon = session.level.monsters.find(
+          (m) => !m.dead && Math.max(Math.abs(m.x - p.x), Math.abs(m.y - p.y)) <= 1,
+        );
+        if (mon) {
+          return {
+            key: 'use.stethoscopeMon',
+            vars: { mon: mon.data.id, hp: mon.mhp, ac: mon.ac },
+            identified: true,
+          };
+        }
+        return {
+          key: 'use.stethoscopeSelf',
+          vars: { hp: p.hp, max: p.maxHp, ac: p.ac },
+          identified: true,
+        };
       }
       return { key: 'use.nothing' };
     }
