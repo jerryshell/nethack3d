@@ -195,7 +195,8 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
       [p.petrifying, 'hud.effectPetrifying', true],
     ];
     if (session.hasTelepathy()) all.push([1, 'hud.effectTelepathy', false]);
-    if (session.hasLevitation()) all.push([1, 'hud.effectLevitation', false]);
+    if (session.hasLevitation())
+      all.push([session.player.levitating || 1, 'hud.effectLevitation', false]);
     if (p.drowning > 0) all.push([p.drowning, 'hud.effectDrowning', true]);
     if (session.hasInvisibility()) all.push([1, 'hud.effectInvisible', false]);
     if (session.player.senseObjects > 0) all.push([1, 'hud.effectSenseObjects', false]);
@@ -205,10 +206,17 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     if (!active.length) return null;
     const cell = document.createElement('div');
     cell.className = 'hud-effects';
-    for (const [, key, danger] of active) {
+    for (const [turns, key, danger] of active) {
       const chip = document.createElement('span');
       chip.className = danger ? 'hud-chip danger' : 'hud-chip';
       chip.textContent = t(key);
+      // 计时状态额外标出剩余回合；常驻能力（心灵感应等）不进这个分支。
+      if (turns > 1) {
+        const count = document.createElement('span');
+        count.className = 'hud-chip-turns';
+        count.textContent = String(Math.ceil(turns));
+        chip.append(count);
+      }
       cell.append(chip);
     }
     return cell;

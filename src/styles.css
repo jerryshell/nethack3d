@@ -886,3 +886,11 @@ body {
   outline: 2px solid var(--gold-bright);
   outline-offset: 1px;
 }
+
+/* 状态标签上的剩余回合数。 */
+.hud-chip-turns {
+  margin-left: 0.3em;
+  color: var(--gold);
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+}
