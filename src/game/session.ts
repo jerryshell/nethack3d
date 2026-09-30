@@ -17,6 +17,7 @@ import type {
   Level,
   MessageVars,
   Monster,
+  MonsterData,
   ObjectData,
   Room,
   Rng,
@@ -442,8 +443,8 @@ export class GameSession {
     log.info('任务总部已布置', { role: this.player.role.id, depth: level.depth });
   }
 
-  /** 任务目标层：唤醒仇敌，并把本职业神器放在它脚下。 */
-  private placeQuestGoal(level: Level, quest: { nemesis: string }): void {
+  /** 任务目标层：唤醒仇敌，把本职业神器放在它脚下，并让爪牙把守门口。 */
+  private placeQuestGoal(level: Level, quest: { nemesis: string; enemies: string[] }): void {
     const nemesisProto = monById.get(quest.nemesis);
     const spot = this.questGoalSpot(level);
     if (!nemesisProto || !spot) return;
@@ -473,6 +474,29 @@ export class GameSession {
     const pile = level.objects.find((p) => p.x === spot.x && p.y === spot.y);
     if (pile) pile.items.push(...loot);
     else level.objects.push({ x: spot.x, y: spot.y, items: loot });
+    // 仇敌的爪牙把守巢穴门口，玩家要先闯过这一关。
+    const pool = MONSTERS.filter(
+      (m) =>
+        quest.enemies.includes(m.sym) &&
+        m.freq > 0 &&
+        !m.genFlags.includes('G_UNIQ') &&
+        m.diff <= 22,
+    );
+    const doorX = (QUEST_LAIR.lx + QUEST_LAIR.hx) >> 1;
+    const doorY = QUEST_LAIR.hy + 1;
+    for (const post of [
+      { x: doorX - 1, y: doorY + 1 },
+      { x: doorX, y: doorY + 1 },
+      { x: doorX + 1, y: doorY + 1 },
+    ]) {
+      if (!pool.length) break;
+      if (!isWalkable(this.tileAt(post.x, post.y))) continue;
+      if (monsterAt(this.level, post.x, post.y)) continue;
+      const data = this.rng.pick(pool) as MonsterData;
+      const guard = new MonsterEntity(data, post.x, post.y, this.rng);
+      guard.asleep = false;
+      level.monsters.push(guard);
+    }
     log.info('任务神器已放置', { artifact: def?.id ?? null, nemesis: quest.nemesis, at: spot });
   }
 

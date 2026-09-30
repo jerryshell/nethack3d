@@ -5598,6 +5598,17 @@ section('职业神器', async () => {
     const artifactPile = s.level.objects.find((p) => p.items.some((i) => i.artifact));
     ok(!!artifactPile && inside(artifactPile.x, artifactPile.y), '神器放在巢穴里');
     ok(s.level.doors.size === 1, `巢穴只开一扇门（${s.level.doors.size}）`);
+    // 门口有仇敌的爪牙把守，玩家要先闯过这一关。
+    const doorX = (lair.lx + lair.hx) >> 1;
+    const doorY = lair.hy + 1;
+    const guards = s.level.monsters.filter(
+      (m) => !m.dead && Math.abs(m.x - doorX) <= 1 && m.y === doorY + 1,
+    );
+    ok(guards.length >= 2, `巢穴门口有爪牙把守（${guards.length}）`);
+    ok(
+      guards.every((g) => s.character.role.quest.enemies.includes(g.data.sym)),
+      '门口守卫是仇敌的爪牙',
+    );
     const audit = auditDoors(s.level);
     ok(
       audit.problems.length === 0,
