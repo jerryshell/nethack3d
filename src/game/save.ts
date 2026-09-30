@@ -99,7 +99,7 @@ function serializeLevel(level: Level): SerializedLevel {
     seen: Array.from(level.seen),
     populated: !!level.populated,
     doors: [...level.doors].map(
-      ([i, d]): [number, boolean, boolean, boolean, boolean, boolean, boolean] => [
+      ([i, d]): [number, boolean, boolean, boolean, boolean, boolean, boolean, boolean] => [
         i,
         d.closed,
         d.locked,
@@ -107,6 +107,7 @@ function serializeLevel(level: Level): SerializedLevel {
         !!d.trapped,
         !!d.trapKnown,
         !!d.hidden,
+        !!d.drawbridge,
       ],
     ),
     traps: [...level.traps].map(([i, tp]): [number, string, boolean] => [i, tp.type, tp.seen]),
@@ -342,17 +343,20 @@ export function restoreSession(data: SaveData): GameSession {
     level.seen = Uint8Array.from(ld.seen ?? []);
     level.populated = !!ld.populated;
     level.doors = new Map(
-      (ld.doors ?? []).map(([i, closed, locked, broken, trapped, trapKnown, hidden]) => [
-        i,
-        {
-          closed: !!closed,
-          locked: !!locked,
-          broken: !!broken,
-          ...(trapped ? { trapped: true } : {}),
-          ...(trapKnown ? { trapKnown: true } : {}),
-          ...(hidden ? { hidden: true } : {}),
-        },
-      ]),
+      (ld.doors ?? []).map(
+        ([i, closed, locked, broken, trapped, trapKnown, hidden, drawbridge]) => [
+          i,
+          {
+            closed: !!closed,
+            locked: !!locked,
+            broken: !!broken,
+            ...(trapped ? { trapped: true } : {}),
+            ...(trapKnown ? { trapKnown: true } : {}),
+            ...(hidden ? { hidden: true } : {}),
+            ...(drawbridge ? { drawbridge: true } : {}),
+          },
+        ],
+      ),
     );
     level.traps = new Map((ld.traps ?? []).map(([i, type, seen]) => [i, { type, seen: !!seen }]));
     // 挖开的墙之类的瓦片差异覆盖回去。

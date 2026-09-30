@@ -4507,8 +4507,9 @@ section('特殊楼层', async () => {
     ok(missing === 0, `21 条神谕提示都有文案（缺 ${missing}）`);
   }
 
-  // 要塞：士兵把守，还有一根许愿魔杖。
+  // 要塞：原版固定地图，士兵把守，还有一根许愿魔杖。
   {
+    const { CASTLE_DRAWBRIDGE, CASTLE_TRAPS } = await import('../src/game/castle');
     const s = new GameSession({ seed: 20240101 });
     s.changeDepth(27, 'down');
     ok(s.level.special === 'castle', `第二十七层是要塞（${s.level.special}）`);
@@ -4520,6 +4521,25 @@ section('特殊楼层', async () => {
       .flatMap((p) => p.items)
       .filter((i) => i.proto.id === 'WAN_WISHING');
     ok(wish.length === 1, `要塞里有许愿魔杖（${wish.length}）`);
+    // 固定地图：护城河、吊桥、王座、地洞与上下楼梯。
+    let moat = 0;
+    let throne = 0;
+    for (const tile of s.level.tiles) {
+      if (tile === T.MOAT) moat++;
+      if (tile === T.THRONE) throne++;
+    }
+    ok(moat > 100, `要塞有护城河（${moat} 格）`);
+    ok(throne === 1, `要塞有王座（${throne}）`);
+    const bridge = s.level.doors.get(index(CASTLE_DRAWBRIDGE.x, CASTLE_DRAWBRIDGE.y));
+    ok(!!bridge && bridge.locked && bridge.drawbridge === true, '吊桥初始上锁且标记为吊桥');
+    ok(s.level.doors.size === 19, `要塞有 18 扇门与 1 座吊桥（${s.level.doors.size}）`);
+    ok(s.level.traps.size === CASTLE_TRAPS.length, `庭院地洞数量正确（${s.level.traps.size}）`);
+    ok(!!s.level.up && !!s.level.down, '要塞有上下楼梯');
+    ok(
+      s.level.monsters.filter((m) => m.data.id === 'GIANT_EEL' || m.data.id === 'SHARK').length ===
+        8,
+      '护城河里有水生怪物',
+    );
   }
 
   // 圣所：怪物全部是恶魔。

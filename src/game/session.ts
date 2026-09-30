@@ -94,6 +94,7 @@ import { resolveWish } from './wish';
 import { specialLevelById } from './special';
 import type { SpecialLevel } from './special';
 import { branchById, branchMaxDepth } from './branches';
+import { CASTLE_MOAT_MONSTERS } from './castle';
 import { clearBones, loadBones } from './bones';
 import { deserializeItem } from './itemcodec';
 import { containerCapacity, containerHasRoom, isContainer } from './containers';
@@ -355,6 +356,7 @@ export class GameSession {
     });
     spawnObjects(level, this.rng, level.depth, this.appearances);
     this.placeSpecialContent(level, special);
+    if (level.special === 'castle') this.placeCastleMoatMonsters(level);
     this.placeBones(level);
     this.placeQuestContent(level);
     if (!level.branch && level.depth >= MAX_DEPTH) this.placeAmulet(level);
@@ -374,6 +376,18 @@ export class GameSession {
       shopStock,
       special: level.special,
     });
+  }
+
+  /** 要塞护城河里的水生怪物：原版 castle.lua 的固定摆放。 */
+  private placeCastleMoatMonsters(level: Level): void {
+    for (const spawn of CASTLE_MOAT_MONSTERS) {
+      const data = monById.get(spawn.id);
+      if (!data) continue;
+      if (monsterAt(level, spawn.x, spawn.y)) continue;
+      const mon = new MonsterEntity(data, spawn.x, spawn.y, this.rng);
+      mon.asleep = false;
+      level.monsters.push(mon);
+    }
   }
 
   /** 推箱层的固定怪物：原版顶层有两只伪装成巨石的巨型拟形怪。 */

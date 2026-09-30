@@ -32,6 +32,13 @@ import { branchById, branchByEntrance } from './branches';
 import { SOKOBAN_LEVELS } from '../data/sokoban.gen';
 import { SOKOBAN_CLASSES, type SokobanVariant } from './sokoban';
 import { QUEST_HOME_LEVELS, QUEST_LOCATE_LEVELS, QUEST_GOAL_LEVELS } from '../data/quest.gen';
+import {
+  CASTLE_DOORS,
+  CASTLE_DRAWBRIDGE,
+  CASTLE_MAP,
+  CASTLE_STOREROOMS,
+  CASTLE_TRAPS,
+} from './castle';
 import { QUEST_MAP_CHARS } from './quest';
 import { makeBoulder, makeItem, randomItemOfClass } from './items';
 import { OBJECTS } from '../data/index';
@@ -1676,6 +1683,131 @@ function generateQuestHomeLevel({
   return level;
 }
 
+/**
+ * 要塞（主地厘第 27 层）的固定地图。
+ *
+ * 地图、门、吊桥、陷阱与护城河怪物来自 `dat/castle.lua`；储物间按原版
+ * 的四种类别随机铺货，上行楼梯放在原版落脚区，下行楼梯放进庭院。
+ */
+function generateCastleLevel({ gameSeed }: { gameSeed: number }): Level {
+  const rng = createRng(deriveSeed(gameSeed, 'castle'));
+  const width = Math.max(...CASTLE_MAP.map((line) => line.length));
+  const height = CASTLE_MAP.length;
+  // 原版把地图放在西北角，绝对坐标与地图坐标一致。
+  const ox = 0;
+  const oy = 0;
+  const at = (x: number, y: number): number => index(ox + x, oy + y);
+  const level: Level = {
+    depth: 27,
+    width: COLNO,
+    height: ROWNO,
+    tiles: new Uint8Array(COLNO * ROWNO),
+    seen: new Uint8Array(COLNO * ROWNO),
+    lit: new Uint8Array(COLNO * ROWNO),
+    rooms: [],
+    doors: new Map(),
+    traps: new Map(),
+    features: new Map(),
+    stairs: [],
+    up: null,
+    down: null,
+    start: null,
+    objects: [],
+    monsters: [],
+    populated: false,
+    visited: false,
+    special: 'castle',
+    branch: null,
+  };
+  for (let y = 0; y < height; y++) {
+    const line = CASTLE_MAP[y];
+    for (let x = 0; x < line.length; x++) {
+      level.tiles[at(x, y)] = questHomeTile(line[x]);
+    }
+  }
+  for (const door of CASTLE_DOORS) {
+    const i = at(door.x, door.y);
+    level.tiles[i] = T.DOOR;
+    level.doors.set(i, { closed: true, locked: door.state === 'locked', broken: false });
+  }
+  // 地图里的 `+` 与 `S` 补上默认状态；`S` 是未发现的密门。
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < CASTLE_MAP[y].length; x++) {
+      const i = at(x, y);
+      if (level.tiles[i] === T.DOOR && !level.doors.has(i)) {
+        level.doors.set(i, { closed: true, locked: false, broken: false });
+      } else if (level.tiles[i] === T.SDOOR && !level.doors.has(i)) {
+        level.doors.set(i, { closed: true, locked: false, broken: false, hidden: true });
+      }
+    }
+  }
+  // 吊桥：原版初始收起（阻挡），用开门魔杖或踹门打开。
+  const bridge = at(CASTLE_DRAWBRIDGE.x, CASTLE_DRAWBRIDGE.y);
+  level.tiles[bridge] = T.DOOR;
+  level.doors.set(bridge, { closed: true, locked: true, broken: false, drawbridge: true });
+  // 上行楼梯：原版落脚区中心 (5,10)。
+  const upSpot = nearestWalkable(level, 5, 10, width, height, at) ?? { x: 5, y: 10 };
+  {
+    const i = at(upSpot.x, upSpot.y);
+    level.tiles[i] = T.STAIRS;
+    const spot = { x: ox + upSpot.x, y: oy + upSpot.y };
+    level.stairs.push({ x: spot.x, y: spot.y, dir: 'up' });
+    level.up = spot;
+    level.start = spot;
+  }
+  // 下行楼梯：庭院正中，和原版的地洞同一排。
+  {
+    const downSpot = nearestWalkable(level, 40, 8, width, height, at);
+    if (downSpot) {
+      const i = at(downSpot.x, downSpot.y);
+      level.tiles[i] = T.STAIRS;
+      const spot = { x: ox + downSpot.x, y: oy + downSpot.y };
+      level.stairs.push({ x: spot.x, y: spot.y, dir: 'down' });
+      level.down = spot;
+    }
+  }
+  // 庭院地洞：原版的陷阱门。
+  for (const trap of CASTLE_TRAPS) {
+    const i = at(trap.x, trap.y);
+    if (isWalkable(level.tiles[i])) level.traps.set(i, { type: 'HOLE', seen: false });
+  }
+  // 护城河里的水生怪物由会话侧摆放（避免生成器依赖怪物模块）。
+  // 储物间：四种类别洗牌后各铺八件。
+  const classes: ObjectClass[] = ['armor', 'weapon', 'gem', 'food'];
+  for (let i = classes.length - 1; i > 0; i--) {
+    const j = rng.rn2(i + 1);
+    [classes[i], classes[j]] = [classes[j], classes[i]];
+  }
+  for (const [index2, room] of CASTLE_STOREROOMS.entries()) {
+    const cls = classes[index2] ?? 'food';
+    for (let n = 0; n < 8; n++) {
+      const x = room.x1 + rng.rn2(room.x2 - room.x1 + 1);
+      const y = room.y1 + rng.rn2(room.y2 - room.y1 + 1);
+      const item = randomItemOfClass(rng, cls);
+      if (!item) continue;
+      const pile = level.objects.find((p) => p.x === ox + x && p.y === oy + y);
+      if (pile) pile.items.push(item);
+      else level.objects.push({ x: ox + x, y: oy + y, items: [item] });
+    }
+  }
+  // 整个地图一个房间：给 inRoom 之类的判断一个范围即可。
+  level.rooms.push({
+    lx: 1,
+    ly: 1,
+    hx: COLNO - 2,
+    hy: ROWNO - 2,
+    index: 0,
+    type: 'room',
+    lit: true,
+  });
+  log.info('要塞固定地图已生成', {
+    doors: level.doors.size,
+    traps: level.traps.size,
+    monsters: level.monsters.length,
+  });
+  return level;
+}
+
 /** 任务楼层的特殊标识：首层是总部，中间是搜索层，底层是目标层。 */
 function questLevelSpecial(depth: number, levels: number): string | null {
   if (depth === 1) return 'quest_home';
@@ -1704,6 +1836,11 @@ function generateLevelCore({
   const label = branch ? `${branch} 第 ${depth} 层` : `第 ${depth} 层`;
   const done = log.time(`生成 ${label}`);
   log.debug('开始生成关卡', { depth, branch, gameSeed, levelSeed: seed });
+  // 要塞（第 27 层）用原版固定地图。
+  if (!branch && depth === 27 && specialLevelFor(depth)?.id === 'castle') {
+    return generateCastleLevel({ gameSeed });
+  }
+
   const level: Level = {
     depth,
     width: COLNO,

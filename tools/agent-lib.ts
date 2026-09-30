@@ -668,10 +668,19 @@ export function auditDoors(level: Level): DoorAudit {
     }
   }
   const out: DoorAudit = { doors: doors.length, proper: 0, problems: [] };
-  if (doors.length !== level.doors.size) {
-    out.problems.push(`ASCII 地图有 ${doors.length} 扇门，门表有 ${level.doors.size} 扇`);
+  // 未发现的密门在 ASCII 里渲染成非门字符，计数时扣除。
+  const hiddenDoors = [...level.doors.values()].filter((d) => d.hidden).length;
+  if (doors.length !== level.doors.size - hiddenDoors) {
+    out.problems.push(
+      `ASCII 地图有 ${doors.length} 扇门，门表有 ${level.doors.size - hiddenDoors} 扇可见门`,
+    );
   }
   for (const [x, y] of doors) {
+    // 吊桥不按房间门的形状规则审计。
+    if (level.doors.get(index(x, y))?.drawbridge) {
+      out.proper++;
+      continue;
+    }
     const n = at(x, y - 1);
     const s = at(x, y + 1);
     const e = at(x + 1, y);

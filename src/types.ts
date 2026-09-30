@@ -254,6 +254,8 @@ export interface DoorState {
   trapKnown?: boolean;
   /** 密门：未发现前按墙渲染与阻挡，搜索或探门后现形。 */
   hidden?: boolean;
+  /** 吊桥：不参与「前后通道、两侧墙」的门形审计，初始上锁。 */
+  drawbridge?: boolean;
 }
 
 interface TrapState {
@@ -706,7 +708,7 @@ export interface SerializedLevel {
   branch?: string;
   seen: number[];
   populated: boolean;
-  doors: [number, boolean, boolean, boolean, boolean?, boolean?, boolean?][];
+  doors: [number, boolean, boolean, boolean, boolean?, boolean?, boolean?, boolean?][];
   traps: [number, string, boolean][];
   /** 设施的可变状态：[下标, 是否失效, 是否用过]，省略时按生成时的默认值。 */
   features?: [number, 0 | 1, 0 | 1][];
