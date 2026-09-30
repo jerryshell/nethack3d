@@ -11,6 +11,7 @@ import type {
   Attributes,
   CharacterChoice,
   CombatFeedback,
+  DoorState,
   GameMessage,
   GroundPile,
   ItemInstance,
@@ -3817,16 +3818,43 @@ export class GameSession {
     if (isDoor(choice.t)) {
       const door = this.level.doors.get(index(choice.x, choice.y));
       if (door && door.closed) {
-        // 怪物可以推开门；体型较大的必定成功。
-        if (mon.data.size === 'MZ_LARGE' || mon.data.size === 'MZ_HUGE' || this.rng.chance(0.5)) {
+        const action = this.monsterDoorMove(mon, door);
+        if (action === 'none') return;
+        if (action === 'open') {
           door.closed = false;
           return;
         }
-        return;
+        if (action === 'break') {
+          door.closed = false;
+          door.locked = false;
+          door.broken = true;
+          return;
+        }
+        // squeeze：从门缝下钻过去，门保持原样。
       }
     }
     mon.x = choice.x;
     mon.y = choice.y;
+  }
+
+  /**
+   * 怪物对一扇关着的门能做什么，对应原版 m_move 的开门规则。
+   *
+   * - `open`：有手且不小的怪物推开门（上锁的门推不开）：
+   * - `break`：巨型怪物直接砸开上锁的门；
+   * - `squeeze`：变形怪从门缝下钻过，门保持原样；
+   * - `none`：没手、体型太小或上锁的门，过不去。
+   */
+  monsterDoorMove(mon: Monster, door: DoorState): 'open' | 'break' | 'squeeze' | 'none' {
+    const flags = mon.data.flags;
+    const amorphous = flags.includes('M1_AMORPHOUS');
+    if (amorphous) return 'squeeze';
+    if (door.locked) {
+      const giant = flags.includes('M2_GIANT') || mon.data.size === 'MZ_HUGE';
+      return giant ? 'break' : 'none';
+    }
+    const noHands = flags.includes('M1_NOHANDS');
+    return noHands || mon.data.size === 'MZ_TINY' ? 'none' : 'open';
   }
 
   /**
@@ -3864,6 +3892,11 @@ export class GameSession {
         const ni = index(nx, ny);
         if (prev[ni] !== -1) continue;
         if (ni !== goal && !isWalkable(tiles[ni])) continue;
+        // 关着的门按怪物的开门能力判断：上锁的门挡住大部分怪物。
+        if (ni !== goal && isDoor(tiles[ni])) {
+          const door = this.level.doors.get(ni);
+          if (door?.closed && this.monsterDoorMove(mon, door) === 'none') continue;
+        }
         if (ni !== goal && this.monsterFearsTile(mon, tiles[ni])) continue;
         if (ni !== goal && monsterAt(this.level, nx, ny)) continue;
         prev[ni] = cur;

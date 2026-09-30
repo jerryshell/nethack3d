@@ -2013,6 +2013,70 @@ section('锁门与踹门', async () => {
   }
 });
 
+section('怪物开门', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById } = await import('../src/data/index');
+  const { createRng } = await import('../src/core/rng');
+
+  // 开门规则：有手且不小的怪物推门，变形怪钻门缝，巨型怪物砸锁。
+  const s = new GameSession({ seed: 4242 });
+  const mon = (id: string): InstanceType<typeof Monster> =>
+    new Monster(monById.get(id) as MonsterData, s.player.x, s.player.y, createRng(5));
+  const door = { closed: true, locked: false, broken: false };
+  const locked = { closed: true, locked: true, broken: false };
+  ok(s.monsterDoorMove(mon('KOBOLD'), door) === 'open', '有手的怪物能推开普通门');
+  ok(s.monsterDoorMove(mon('GIANT_ANT'), door) === 'none', '没手的小怪物开不了门');
+  ok(s.monsterDoorMove(mon('ACID_BLOB'), door) === 'squeeze', '变形怪从门缝钻过');
+  ok(s.monsterDoorMove(mon('KOBOLD'), locked) === 'none', '普通怪物推不开上锁的门');
+  ok(s.monsterDoorMove(mon('GIANT'), locked) === 'break', '巨型怪物砸开上锁的门');
+  ok(s.monsterDoorMove(mon('ACID_BLOB'), locked) === 'squeeze', '变形怪能从锁着的门下钻过');
+
+  // 集成：普通怪物反复尝试也推不开上锁的门；巨型怪物一下砸开。
+  const doorScene = (monId: string) => {
+    const world = new GameSession({ seed: 4242 });
+    world.level.monsters = [];
+    for (const [tile, target] of world.level.doors) {
+      if (!target.locked || !target.closed) continue;
+      const dx = tile % world.level.width;
+      const dy = Math.floor(tile / world.level.width);
+      const sides: [number, number][] = [
+        [dx - 1, dy],
+        [dx + 1, dy],
+        [dx, dy - 1],
+        [dx, dy + 1],
+      ];
+      const spot = sides.find(([x, y]) => isWalkable(world.level.tiles[index(x, y)]));
+      if (!spot) continue;
+      let across: [number, number];
+      if (spot[0] === dx - 1) across = [dx + 1, dy];
+      else if (spot[0] === dx + 1) across = [dx - 1, dy];
+      else if (spot[1] === dy - 1) across = [dx, dy + 1];
+      else across = [dx, dy - 1];
+      if (!isWalkable(world.level.tiles[index(across[0], across[1])])) continue;
+      const keeper = new Monster(monById.get(monId) as MonsterData, spot[0], spot[1], createRng(7));
+      keeper.asleep = false;
+      world.level.monsters.push(keeper);
+      world.player.x = across[0];
+      world.player.y = across[1];
+      return { world, keeper, door: target };
+    }
+    return null;
+  };
+  const plain = doorScene('KOBOLD');
+  ok(!!plain, '找得到可用于开门测试的锁门');
+  if (plain) {
+    for (let i = 0; i < 5; i++) plain.world.stepMonster(plain.keeper, 1);
+    ok(plain.door.closed && plain.door.locked, '普通怪物反复尝试也推不开上锁的门');
+  }
+  const giant = doorScene('GIANT');
+  ok(!!giant, '找得到巨型怪物砸门的现场');
+  if (giant) {
+    giant.world.stepMonster(giant.keeper, 1);
+    ok(!giant.door.closed && giant.door.broken, '巨型怪物一下砸开上锁的门');
+  }
+});
+
 section('巨石', async () => {
   {
     const { GameSession } = await import('../src/game/session');
