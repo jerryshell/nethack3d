@@ -135,7 +135,7 @@ const ORACLE_TIPS = 21;
 /** 武器熟练度上限与每级所需使用次数。 */
 const SKILL_MAX = 7;
 
-/** 镐类工具凿穿一面墙或一层地板所需的回合数。 */
+/** 镐类工具凿穿一面墙或一层地板所需的默认回合数。 */
 const DIG_TURNS = 3;
 const SKILL_USES_PER_LEVEL = 8;
 
@@ -2189,18 +2189,24 @@ export class GameSession {
     return id === 'PICK_AXE' || id === 'DWARVISH_MATTOCK';
   }
 
+  /** 当前工具凿穿一层需要的回合数：矮人锹比普通镐快一回合。 */
+  private digTurns(): number {
+    return this.player.weapon?.id === 'DWARVISH_MATTOCK' ? DIG_TURNS - 1 : DIG_TURNS;
+  }
+
   /**
-   * 凿墙进度：对同一面墙连续凿 DIG_TURNS 回合才会穿。
+   * 凿墙进度：对同一面墙连续凿 digTurns() 回合才会穿。
    *
    * 目标或方向一变就从头计起，最后一步交给 `digWall` 收尾。
    */
   private progressDigWall(x: number, y: number): void {
+    const turns = this.digTurns();
     if (!this.digging || this.digging.down || this.digging.x !== x || this.digging.y !== y) {
       this.digging = { x, y, down: false, progress: 0 };
     }
     this.digging.progress++;
-    if (this.digging.progress < DIG_TURNS) {
-      this.log('msg.digWallProgress', { n: DIG_TURNS - this.digging.progress });
+    if (this.digging.progress < turns) {
+      this.log('msg.digWallProgress', { n: turns - this.digging.progress });
       return;
     }
     this.digging = null;
@@ -2232,8 +2238,9 @@ export class GameSession {
       this.digging = { x, y, down: true, progress: 0 };
     }
     this.digging.progress++;
-    if (this.digging.progress < DIG_TURNS) {
-      this.log('msg.digDownProgress', { n: DIG_TURNS - this.digging.progress });
+    const turns = this.digTurns();
+    if (this.digging.progress < turns) {
+      this.log('msg.digDownProgress', { n: turns - this.digging.progress });
       this.finishTurn();
       return { result: 'used' };
     }

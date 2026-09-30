@@ -4027,6 +4027,26 @@ section('挖掘与地形改造', async () => {
     }
   }
 
+  // 矮人锹比普通镐快一回合：两回合凿穿一面墙。
+  {
+    const s = new GameSession({ seed: 4248 });
+    const mattock = makeItem(objById.get('DWARVISH_MATTOCK') as ObjectData, s.rng);
+    addToInventory(s.player, mattock);
+    wieldItem(s.player, mattock);
+    const spot = emptyNeighborWall(s);
+    ok(!!spot, '矮人锹能找到可挖的墙');
+    if (spot) {
+      s.player.x = spot.from.x;
+      s.player.y = spot.from.y;
+      const dx = spot.wall.x - spot.from.x;
+      const dy = spot.wall.y - spot.from.y;
+      s.movePlayer(dx, dy);
+      ok(s.level.tiles[index(spot.wall.x, spot.wall.y)] !== T.CORR, '矮人锹第一回合只是凿入口');
+      s.movePlayer(dx, dy);
+      ok(s.level.tiles[index(spot.wall.x, spot.wall.y)] === T.CORR, '矮人锹两回合凿穿');
+    }
+  }
+
   // 推箱分支禁止破坏结构：挖墙只给提示，地形不变。
   {
     const s = new GameSession({ seed: 4243 });
