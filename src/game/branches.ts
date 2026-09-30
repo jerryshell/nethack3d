@@ -34,6 +34,10 @@ interface BranchDef {
   sokoban?: boolean;
   /** 职业任务线：内容随角色变化，由会话按职业填充。 */
   quest?: boolean;
+  /** 隐藏分支：入口不随关卡生成，由仪式之类的特殊事件开启。 */
+  hidden?: boolean;
+  /** 怪物难度补偿，加在玩家等级上；隐藏分支的固定楼层靠它拉满强度。 */
+  difficulty?: number;
 }
 
 export const BRANCHES: Record<string, BranchDef> = {
@@ -78,6 +82,15 @@ export const BRANCHES: Record<string, BranchDef> = {
     boss: 'CROESUS',
     loot: { gold: 1200, gems: 6, items: 3 },
     guards: ['SOLDIER', 'SOLDIER', 'SERGEANT', 'LIEUTENANT'],
+  },
+  planes: {
+    // 圣所的振动方块在开启仪式后打开通往异界的传送门；入口层不预生成楼梯。
+    id: 'planes',
+    entranceDepth: 29,
+    levels: 1,
+    hidden: true,
+    // 星界是终局，随机怪物也要按深层强度生成。
+    difficulty: 24,
   },
 };
 

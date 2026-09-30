@@ -41,12 +41,17 @@ const UNKNOWN_CLASSES = new Set(['potion', 'scroll', 'wand', 'ring', 'amulet', '
 /** 可随机出现的物品：生成概率大于 0，且不是占位条目或唯一任务物品。 */
 const SPAWNABLE = REAL_OBJECTS.filter((o) => o.prob > 0 && o.cls !== 'coin');
 
+/** 开启仪式所需的三件圣物：固定以未诅咒状态出现，避免随机 BUC 造成死局。 */
+export const INVOCATION_ITEMS = new Set([
+  'BELL_OF_OPENING',
+  'CANDELABRUM_OF_INVOCATION',
+  'SPE_BOOK_OF_THE_DEAD',
+]);
+
 export const NEVER_SPAWN = new Set([
   'AMULET_OF_YENDOR',
   'FAKE_AMULET_OF_YENDOR',
-  'BELL_OF_OPENING',
-  'CANDELABRUM_OF_INVOCATION',
-  'BOOK_OF_THE_DEAD',
+  ...INVOCATION_ITEMS,
   'NOVEL',
 ]);
 

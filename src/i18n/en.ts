@@ -156,6 +156,9 @@ const messages: MessageCatalog = {
     loot: 'Loot',
     talk: 'Talk',
     offer: 'Offer',
+    invoke: 'Perform the ritual',
+    enterPortal: 'Enter the portal',
+    ascend: 'Offer the Amulet',
   },
 
   actionHints: {
@@ -178,6 +181,10 @@ const messages: MessageCatalog = {
     talk: 'Speak with your quest leader',
     talkDone: 'Speak with your quest leader again',
     offer: 'Sacrifice a corpse on the altar',
+    invoke: 'Perform the invocation with the Bell, Candelabrum, and Book',
+    invokeMissing: 'A relic of the invocation is missing',
+    enterPortal: 'Step through the portal to the other world',
+    ascend: 'Offer the Amulet of Yendor at an altar of your alignment',
     travelInterrupted: 'Stopped: something is in the way',
     travelBlocked: 'No known path to that spot',
   },
@@ -233,6 +240,18 @@ const messages: MessageCatalog = {
     wakesUp: 'You wake up.',
     freeFromTrap: 'You pull yourself free.',
     victory: 'You have the Amulet of Yendor!',
+    portalStep: 'You step through the portal into the other world.',
+    invocationNoSquare: 'You are not standing on the vibrating square.',
+    invocationMissing: 'The ritual lacks {obj}.',
+    invocationCursed: 'One of the relics is cursed — the invocation fails!',
+    invocationOpened:
+      'The relics ring out and the vibrating square splits open — a portal appears! ({n} monsters wake)',
+    offerNoAmulet: 'The altar waits for the Amulet of Yendor.',
+    ascendBeyond: 'An ordinary altar cannot grant ascension — only the other world can.',
+    offerFake: 'The altar ignores the imitation.',
+    offerWrong: 'The god of {align} is outraged: this altar is not yours! (-{dmg} HP)',
+    offerMoloch: 'Moloch accepts the Amulet, and darkness engulfs you.',
+    ascended: 'You offer the Amulet of Yendor, and {align} accepts it. You have ascended!',
     welcome: 'Hello — welcome to NetHack 3D!',
     youAre: 'You are a {role} {race}, {align}.',
     doorOpens: 'The door opens.',
@@ -688,6 +707,7 @@ const messages: MessageCatalog = {
     vlad: "Vlad's Tower",
     quest: 'your Quest',
     ludios: 'Fort Ludios',
+    planes: 'the other world',
   },
   quest: {
     ARCHEOLOGIST: { home: 'the College of Archeology', goal: 'the Tomb of the Toltec Kings' },
@@ -750,12 +770,14 @@ const messages: MessageCatalog = {
     medusa: "Medusa's Lair",
     valley: 'the Valley of the Dead',
     oracle: 'the Oracle',
+    sanctum: 'the Sanctum',
+    astral: 'the Astral Plane',
     quest_home: 'your quest headquarters',
     quest_locate: 'the quest search level',
     quest_goal: 'the goal of your quest',
   },
   oracle: {
-    tip1: 'The Amulet of Yendor lies on depth 30. Claim it to win.',
+    tip1: 'The Amulet of Yendor lies on depth 30. Carry it back to depth 1 to win.',
     tip2: 'Fountains heal and restore power, dry up, and sometimes release a water demon.',
     tip3: 'Pray at an altar of your own alignment for the best results, but prayers need time to recharge.',
     tip4: 'Cockatrices and Medusa petrify with a glance; a potion of full healing cures it.',
@@ -783,6 +805,8 @@ const messages: MessageCatalog = {
       'Invoke artifacts from your pack: reveal the map, teleport, conjure arrows, restore power, heal, or recharge an item.',
     tip20:
       'Rings work while worn: regeneration, slow digestion, searching, stealth, invisibility and protection all have real effects.',
+    tip21:
+      'With the Bell of Opening, Candelabrum of Invocation and Book of the Dead in hand, perform the ritual on the Sanctum\u2019s vibrating square to open a portal to the Astral Plane.',
   },
   trap: {
     arrow: 'an arrow trap',
@@ -806,6 +830,7 @@ const messages: MessageCatalog = {
     antiMagic: 'an anti-magic field',
     polymorph: 'a polymorph trap',
     vibratingSquare: 'a vibrating square',
+    magicPortal: 'a magic portal',
   },
   about: {
     title: 'About NetHack 3D',

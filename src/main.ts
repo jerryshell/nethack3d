@@ -589,6 +589,33 @@ function startGame(options: StartGameOptions = {}): void {
       });
     }
 
+    // 圣所的振动方块：集齐三件圣物后可以举行开启仪式。
+    const onTrap = level.traps.get(index(player.x, player.y));
+    if (onTrap?.type === 'VIBRATING_SQUARE') {
+      const ready = !!session.invocationRelics();
+      actions.push({
+        id: 'invoke',
+        label: t('actions.invoke'),
+        hint: ready ? t('actionHints.invoke') : t('actionHints.invokeMissing'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.invokeRitual());
+        },
+      });
+    }
+    // 仪式开启的魔法传送门：站上去就能踏入异界。
+    if (onTrap?.type === 'MAGIC_PORTAL') {
+      actions.push({
+        id: 'enterPortal',
+        label: t('actions.enterPortal'),
+        hint: t('actionHints.enterPortal'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.enterPortal());
+        },
+      });
+    }
+
     // 站在祭坛上且背包里有尸体时，可以献祭。
     if (level.tiles[index(player.x, player.y)] === T.ALTAR) {
       const corpse = player.inventory.find((item) => item.corpse);
@@ -600,6 +627,21 @@ function startGame(options: StartGameOptions = {}): void {
           onRun: () => {
             cancelTravel();
             afterAction(session.offerCorpse());
+          },
+        });
+      }
+      // 带着尤恩多护身符时，可以在异界的祭坛上献礼登神。
+      if (
+        session.branch === 'planes' &&
+        player.inventory.some((item) => item.proto.id === 'AMULET_OF_YENDOR')
+      ) {
+        actions.push({
+          id: 'ascend',
+          label: t('actions.ascend'),
+          hint: t('actionHints.ascend'),
+          onRun: () => {
+            cancelTravel();
+            afterAction(session.offerAmulet());
           },
         });
       }

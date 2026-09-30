@@ -3248,8 +3248,8 @@ section('特殊楼层', async () => {
   {
     const { t } = await import('../src/i18n/index');
     let missing = 0;
-    for (let i = 1; i <= 20; i++) if (t(`oracle.tip${i}`) === `oracle.tip${i}`) missing++;
-    ok(missing === 0, `20 条神谕提示都有文案（缺 ${missing}）`);
+    for (let i = 1; i <= 21; i++) if (t(`oracle.tip${i}`) === `oracle.tip${i}`) missing++;
+    ok(missing === 0, `21 条神谕提示都有文案（缺 ${missing}）`);
   }
 
   // 要塞：士兵把守，还有一根许愿魔杖。
@@ -3327,6 +3327,157 @@ section('特殊楼层', async () => {
     ok(ids(a) === ids(b), '特殊楼层的怪物组合可复现');
   }
 });
+section('开启仪式与异界', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+  const { objById } = await import('../src/data/index');
+  const { COLNO } = await import('../src/core/constants');
+  const { branchByEntrance } = await import('../src/game/branches');
+  const { branchSpecialFor, specialLevelById } = await import('../src/game/special');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+
+  const give = (
+    s: InstanceType<typeof GameSession>,
+    id: string,
+    buc: 'cursed' | 'uncursed' = 'uncursed',
+  ) => {
+    const proto = objById.get(id);
+    if (!proto) throw new Error(`缺少物品原型 ${id}`);
+    const item = makeItem(proto, s.rng);
+    item.buc = buc;
+    addToInventory(s.player, item);
+    return item;
+  };
+
+  // 三件圣物各有出处。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(1, 'down', 'quest');
+    s.changeDepth(5, 'down', 'quest');
+    ok(
+      s.level.objects.flatMap((p) => p.items).some((i) => i.id === 'BELL_OF_OPENING'),
+      '开启之铃在任务仇敌脚下',
+    );
+    s.changeDepth(1, 'down', 'vlad');
+    s.changeDepth(4, 'down', 'vlad');
+    ok(
+      s.level.objects.flatMap((p) => p.items).some((i) => i.id === 'CANDELABRUM_OF_INVOCATION'),
+      '祈祷烛台在巫妖塔底层',
+    );
+    s.changeDepth(29, 'down', 'main');
+    const book = s.level.objects
+      .flatMap((p) => p.items)
+      .find((i) => i.id === 'SPE_BOOK_OF_THE_DEAD');
+    ok(!!book, '死亡之书在圣所');
+    ok(book?.buc === 'uncursed' && book?.known === true, '开启圣物保持未诅咒且已鉴定');
+  }
+
+  // 隐藏分支不在入口层预生成楼梯，仪式后才能由传送门进入。
+  ok(
+    branchByEntrance(29)?.id === 'planes' && branchByEntrance(29)?.hidden === true,
+    '异界是第 29 层的隐藏分支',
+  );
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(29, 'down');
+    ok(!s.level.stairs.some((st) => st.dir === 'branch'), '仪式前没有通往异界的楼梯');
+    const square = [...s.level.traps].find(([, t]) => t.type === 'VIBRATING_SQUARE');
+    ok(!!square, '圣所有振动方块');
+    if (!square) return;
+    s.player.x = square[0] % COLNO;
+    s.player.y = Math.floor(square[0] / COLNO);
+    s.invokeRitual();
+    ok(s.level.traps.get(square[0])?.type === 'VIBRATING_SQUARE', '缺圣物时仪式不生效');
+    give(s, 'BELL_OF_OPENING', 'cursed');
+    give(s, 'CANDELABRUM_OF_INVOCATION');
+    give(s, 'SPE_BOOK_OF_THE_DEAD');
+    s.invokeRitual();
+    ok(s.level.traps.get(square[0])?.type === 'VIBRATING_SQUARE', '诅咒圣物让仪式失败');
+    const bell = s.player.inventory.find((i) => i.id === 'BELL_OF_OPENING');
+    if (bell) bell.buc = 'uncursed';
+    s.invokeRitual();
+    ok(s.level.traps.get(square[0])?.type === 'MAGIC_PORTAL', '集齐圣物后开启传送门');
+    s.enterPortal();
+    ok(s.branch === 'planes' && s.depth === 1, `传送门通往异界（${s.branch} ${s.depth}）`);
+    ok(s.level.special === 'astral', '异界第一层是星界位面');
+    ok(!!s.level.up, '星界保留回程楼梯');
+    const altars = [...s.level.features.values()].filter((f) => f.type === 'ALTAR');
+    ok(altars.length === 3, `星界有三座祭坛（${altars.length}）`);
+    ok(
+      ['lawful', 'neutral', 'chaotic'].every((a) => altars.some((f) => f.align === a)),
+      '三座祭坛分属三个阵营',
+    );
+
+    // 献错祭坛受罚，献对祭坛登神。
+    s.player.maxHp = 300;
+    s.player.hp = 300;
+    give(s, 'AMULET_OF_YENDOR');
+    const wrong = [...s.level.features].find(
+      ([, f]) => f.type === 'ALTAR' && f.align && f.align !== s.player.align,
+    );
+    if (wrong) {
+      s.player.x = wrong[0] % COLNO;
+      s.player.y = Math.floor(wrong[0] / COLNO);
+      const hp = s.player.hp;
+      s.offerAmulet();
+      ok(!s.victory && s.player.hp < hp, '献错祭坛受罚但不登神');
+      ok(
+        s.player.inventory.some((i) => i.id === 'AMULET_OF_YENDOR'),
+        '献错祭坛保留护身符',
+      );
+    }
+    const own = [...s.level.features].find(
+      ([, f]) => f.type === 'ALTAR' && f.align === s.player.align,
+    );
+    if (own) {
+      s.player.hp = s.player.maxHp;
+      s.player.x = own[0] % COLNO;
+      s.player.y = Math.floor(own[0] / COLNO);
+      s.offerAmulet();
+      ok(s.victory, '在自家祭坛献上护身符即登神');
+      ok(!s.player.inventory.some((i) => i.id === 'AMULET_OF_YENDOR'), '献上的护身符已经交出');
+    }
+
+    // 存档保留传送门与异界位置。
+    const restored = restoreSession(serializeSession(s));
+    ok(restored.branch === 'planes', '存档保留异界位置');
+    ok(
+      [...restored.getLevel(29).traps.values()].some((t) => t.type === 'MAGIC_PORTAL'),
+      '存档保留魔法传送门',
+    );
+  }
+
+  // 星界在分支特殊楼层表里可查。
+  ok(branchSpecialFor('planes', 1)?.id === 'astral', '星界登记在分支特殊楼层里');
+  ok(specialLevelById('astral')?.altars?.length === 3, '按标识能找到星界定义');
+
+  // 普通楼层的祭坛不足以登神：必须先经传送门到异界。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    let altarAt: { depth: number; x: number; y: number } | null = null;
+    for (let d = 2; d <= 29 && !altarAt; d++) {
+      const found = [...s.getLevel(d).features].find(([, f]) => f.type === 'ALTAR');
+      if (found) {
+        altarAt = { depth: d, x: found[0] % COLNO, y: Math.floor(found[0] / COLNO) };
+      }
+    }
+    ok(!!altarAt, '主地牢里能找到祭坛');
+    if (altarAt) {
+      s.changeDepth(altarAt.depth, 'down');
+      s.player.x = altarAt.x;
+      s.player.y = altarAt.y;
+      give(s, 'AMULET_OF_YENDOR');
+      s.offerAmulet();
+      ok(!s.victory, '主地牢的祭坛不能登神');
+      ok(
+        s.messages.some((m) => m.key === 'msg.ascendBeyond'),
+        '提示登神只能在异界',
+      );
+    }
+  }
+});
+
 section('骨头文件', async () => {
   const { GameSession } = await import('../src/game/session');
   const { saveBones, loadBones, clearBones } = await import('../src/game/bones');

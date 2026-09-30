@@ -4,7 +4,7 @@
  * 每种陷阱归到少数几种「效果类型」，会话层按类型执行，
  * 因此新增陷阱类型只是往表里加一行。
  *
- * 振动方块有专属提示但还没有「开启传送门」的机制，
+ * 振动方块在开启仪式后变成魔法传送门，通往异界。
  * 边界记录在 docs/COGNITION.md。
  */
 
@@ -23,6 +23,8 @@ type TrapKind =
   | 'polymorph'
   /** 雕像活过来：生成一只敌对怪物。 */
   | 'statue'
+  /** 通往分支地牢的魔法传送门。 */
+  | 'portal'
   | 'flavor';
 
 interface TrapEffect {
@@ -58,6 +60,7 @@ const TRAP_EFFECTS: Record<string, TrapEffect> = {
   POLY_TRAP: { kind: 'polymorph', message: 'msg.trapPolymorph' },
   STATUE_TRAP: { kind: 'statue', message: 'msg.trapStatue' },
   VIBRATING_SQUARE: { kind: 'flavor', message: 'msg.trapVibrating' },
+  MAGIC_PORTAL: { kind: 'portal', message: 'msg.portalStep' },
 };
 
 /** 未登记的陷阱类型按无事发生处理，避免新数据导致异常。 */
@@ -92,6 +95,7 @@ const TRAP_NAME_KEYS: Record<string, string> = {
   ANTI_MAGIC: 'antiMagic',
   POLY_TRAP: 'polymorph',
   VIBRATING_SQUARE: 'vibratingSquare',
+  MAGIC_PORTAL: 'magicPortal',
 };
 
 /** 陷阱名称的文案键；未知类型回退到通用名称。 */

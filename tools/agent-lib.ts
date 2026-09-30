@@ -514,6 +514,7 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
   }
   if (
     !level.branch &&
+    branchByEntrance(session.depth)?.hidden !== true &&
     branchByEntrance(session.depth) &&
     !level.stairs.some((s) => s.dir === 'branch')
   ) {

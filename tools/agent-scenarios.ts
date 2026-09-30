@@ -429,6 +429,157 @@ const combat: Scenario = {
 };
 
 /** 物品：拾取、持握、穿戴、喝药、进食，验证状态变化与消耗。 */
+/**
+ * 开启仪式：三件圣物的位置、振动方块的传送门与星界的登神。
+ *
+ * 覆盖完整终局路径：任务仇敌守着开启之铃、巫妖塔底藏着祈祷烛台、
+ * 死亡之书在圣所；集齐后在振动方块举行仪式，进入异界把护身符献给
+ * 自己阵营的祭坛。
+ */
+const invocation: Scenario = {
+  name: 'invocation',
+  description: '收集三件开启圣物，在振动方块开启传送门，到星界献上护身符',
+  run: (seed) =>
+    runScenario('invocation', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(() => `${describeState(session)}\n\n${renderMap(session)}`);
+      const call = repro('invocation', seed);
+      const hasItem = (id: string): boolean =>
+        session.player.inventory.some((i) => i.proto.id === id);
+      const pickUp = (id: string, buc: 'cursed' | 'uncursed' = 'uncursed') => {
+        const proto = objById.get(id);
+        if (!proto) throw new Error(`缺少物品原型 ${id}`);
+        const item = makeItem(proto, session.rng);
+        item.buc = buc;
+        addToInventory(session.player, item);
+      };
+
+      // 开启之铃在任务仇敌脚下。
+      session.changeDepth(1, 'down', 'quest');
+      session.changeDepth(5, 'down', 'quest');
+      const bell = session.level.objects
+        .flatMap((p) => p.items)
+        .find((i) => i.id === 'BELL_OF_OPENING');
+      checker.ok(!!bell, '任务目标层放着开启之铃', '', call);
+      // 祈祷烛台在巫妖塔底层。
+      session.changeDepth(1, 'down', 'vlad');
+      session.changeDepth(4, 'down', 'vlad');
+      const candelabrum = session.level.objects
+        .flatMap((p) => p.items)
+        .find((i) => i.id === 'CANDELABRUM_OF_INVOCATION');
+      checker.ok(!!candelabrum, '巫妖塔底层放着祈祷烛台', '', call);
+      // 死亡之书在圣所。
+      session.changeDepth(29, 'down', 'main');
+      const book = session.level.objects
+        .flatMap((p) => p.items)
+        .find((i) => i.id === 'SPE_BOOK_OF_THE_DEAD');
+      checker.ok(!!book, '圣所放着死亡之书', '', call);
+      const square = [...session.level.traps].find(([, t]) => t.type === 'VIBRATING_SQUARE');
+      checker.ok(!!square, '圣所有一块振动方块', '', call);
+      if (!square) {
+        return {
+          metrics: { relics: 0 } as Record<string, number | string | boolean>,
+          actions: 4,
+          invariantChecks: 1,
+        };
+      }
+      teleportPlayer(session, square[0] % COLNO, Math.floor(square[0] / COLNO));
+
+      // 缺圣物时仪式不生效，也无传送门。
+      session.invokeRitual();
+      checker.ok(
+        session.level.traps.get(square[0])?.type === 'VIBRATING_SQUARE',
+        '缺圣物时不会开启传送门',
+      );
+      // 诅咒的圣物让仪式失败。
+      pickUp('BELL_OF_OPENING', 'cursed');
+      pickUp('CANDELABRUM_OF_INVOCATION');
+      pickUp('SPE_BOOK_OF_THE_DEAD');
+      session.invokeRitual();
+      checker.ok(
+        session.level.traps.get(square[0])?.type === 'VIBRATING_SQUARE',
+        '诅咒的圣物让仪式失败',
+      );
+      // 解除诅咒后仪式成功，原地出现传送门。
+      const cursedBell = session.player.inventory.find((i) => i.id === 'BELL_OF_OPENING');
+      if (cursedBell) cursedBell.buc = 'uncursed';
+      session.invokeRitual();
+      checker.ok(
+        session.level.traps.get(square[0])?.type === 'MAGIC_PORTAL',
+        '仪式开启魔法传送门',
+        session.level.traps.get(square[0])?.type ?? '-',
+        call,
+      );
+      checker.absorb('开启传送门后状态自洽', checkInvariants(session), call);
+
+      // 踏入传送门：星界位面有成组的祭坛与天启骑士。
+      session.enterPortal();
+      checker.ok(
+        session.branch === 'planes' && session.level.special === 'astral',
+        '传送门通往星界位面',
+        `branch=${session.branch} special=${session.level.special ?? '-'}`,
+        call,
+      );
+      const altars = [...session.level.features].filter(([, f]) => f.type === 'ALTAR');
+      checker.ok(altars.length === 3, '星界有三座阵营祭坛', `n=${altars.length}`, call);
+      checker.ok(
+        altars.some(([, f]) => f.align === session.player.align),
+        '祭坛包含玩家阵营',
+        altars.map(([, f]) => f.align).join(','),
+        call,
+      );
+      checker.absorb('星界状态自洽', checkInvariants(session), call);
+
+      // 带着护身符：献错祭坛会受罚，献给自己阵营的祭坛则登神。
+      session.player.maxHp = 300;
+      session.player.hp = 300;
+      pickUp('AMULET_OF_YENDOR');
+      const wrong = altars.find(([, f]) => f.align && f.align !== session.player.align);
+      if (wrong) {
+        teleportPlayer(session, wrong[0] % COLNO, Math.floor(wrong[0] / COLNO));
+        const hpBefore = session.player.hp;
+        session.offerAmulet();
+        checker.ok(!session.victory, '献错祭坛不会登神');
+        checker.ok(session.player.hp < hpBefore, '献错祭坛会受到惩罚', `hp=${session.player.hp}`);
+        checker.ok(hasItem('AMULET_OF_YENDOR'), '献错祭坛不会失去护身符');
+      }
+      const own = altars.find(([, f]) => f.align === session.player.align);
+      checker.ok(!!own, '存在玩家阵营的祭坛', '', call);
+      if (own) {
+        session.player.hp = session.player.maxHp;
+        teleportPlayer(session, own[0] % COLNO, Math.floor(own[0] / COLNO));
+        session.offerAmulet();
+        checker.ok(
+          session.victory,
+          '在自家祭坛献上护身符即登神',
+          `victory=${session.victory}`,
+          call,
+        );
+        checker.ok(!hasItem('AMULET_OF_YENDOR'), '献上的护身符已经交出');
+        checker.ok(
+          session.messages.some((m) => m.key === 'msg.ascended'),
+          '记录登神消息',
+          session.messages
+            .slice(-2)
+            .map((m) => m.key)
+            .join(','),
+        );
+        checker.absorb('登神后状态自洽', checkInvariants(session), call);
+      }
+
+      return {
+        metrics: {
+          relics: Number(!!bell) + Number(!!candelabrum) + Number(!!book),
+          altars: altars.length,
+          ascended: session.victory,
+          attempts: session.player.alignRecord,
+        },
+        actions: 6,
+        invariantChecks: 3,
+      };
+    }),
+};
+
 const items: Scenario = {
   name: 'items',
   description: '拾取与使用物品，检查鉴定、恢复与消耗',
@@ -2709,6 +2860,7 @@ export const SCENARIOS: Record<string, Scenario> = Object.fromEntries(
     flee,
     fov,
     hunger,
+    invocation,
     items,
     ludios,
     mines,

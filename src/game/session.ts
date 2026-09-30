@@ -73,6 +73,7 @@ import {
   stockShop,
   shopBuyPrice,
   shopSellPrice,
+  INVOCATION_ITEMS,
 } from './items';
 import type { FeatureAction, FeatureEffect } from './features';
 import { FEATURE_ACTIONS, rollFeatureEffect } from './features';
@@ -129,7 +130,7 @@ const DIR8 = [
 
 /** 神谕咨询的价格与提示条数。 */
 const ORACLE_COST = 20;
-const ORACLE_TIPS = 20;
+const ORACLE_TIPS = 21;
 
 /** 武器熟练度上限与每级所需使用次数。 */
 const SKILL_MAX = 7;
@@ -303,11 +304,12 @@ export class GameSession {
       });
       return;
     }
-    const branchTheme = branchById(level.branch)?.monsterTheme;
+    const branchDef = branchById(level.branch);
+    const branchTheme = branchDef?.monsterTheme;
     const theme = special?.monsterTheme ?? branchTheme;
     const quest = level.branch === 'quest' ? this.character.role.quest : null;
     // 分支的怪物难度跟着层数走：主题怪物的难度普遍高于同层主地牢。
-    const themeBoost = branchTheme || quest ? level.depth + 2 : 0;
+    const themeBoost = (branchTheme || quest ? level.depth + 2 : 0) + (branchDef?.difficulty ?? 0);
     spawnMonsters(level, this.rng, {
       player: this.player,
       heroLevel: this.player.level + themeBoost,
@@ -433,20 +435,29 @@ export class GameSession {
     nemesis.asleep = false;
     level.monsters.push(nemesis);
 
+    // 开启之铃由任务仇敌看守，是开启仪式所需的三件圣物之一。
+    const loot: ItemInstance[] = [makeGold(this.rng, level.depth, 200 + this.rng.rn2(300))];
+    const bellProto = objById.get('BELL_OF_OPENING');
+    if (bellProto) {
+      const bell = makeItem(bellProto, this.rng);
+      bell.buc = 'uncursed';
+      bell.known = true;
+      loot.push(bell);
+    }
     const def = artifactForRole(this.player.role.id);
-    if (!def) return;
-    const proto = objById.get(def.proto);
-    if (!proto) return;
-    const item = makeItem(proto, this.rng);
-    item.artifact = def.id;
-    item.enchant = def.enchant;
-    item.known = true;
-    // 神器与一小堆金币垫在仇敌脚下，击败它就能拿走。
-    const gold = makeGold(this.rng, level.depth, 200 + this.rng.rn2(300));
+    const proto = def ? objById.get(def.proto) : null;
+    if (def && proto) {
+      const item = makeItem(proto, this.rng);
+      item.artifact = def.id;
+      item.enchant = def.enchant;
+      item.known = true;
+      loot.push(item);
+    }
+    // 圣物、神器与一小堆金币垫在仇敌脚下，击败它就能拿走。
     const pile = level.objects.find((p) => p.x === spot.x && p.y === spot.y);
-    if (pile) pile.items.push(gold, item);
-    else level.objects.push({ x: spot.x, y: spot.y, items: [gold, item] });
-    log.info('任务神器已放置', { artifact: def.id, nemesis: quest.nemesis, at: spot });
+    if (pile) pile.items.push(...loot);
+    else level.objects.push({ x: spot.x, y: spot.y, items: loot });
+    log.info('任务神器已放置', { artifact: def?.id ?? null, nemesis: quest.nemesis, at: spot });
   }
 
   /** 任务目标层的落点：不进商店，尽量远离入口楼梯。 */
@@ -610,6 +621,16 @@ export class GameSession {
           items.push(stone);
         }
       }
+      // 巫妖塔底层的祈祷烛台：弗拉德看守的开启圣物。
+      if (level.branch === 'vlad') {
+        const proto = objById.get('CANDELABRUM_OF_INVOCATION');
+        if (proto) {
+          const candelabrum = makeItem(proto, this.rng);
+          candelabrum.buc = 'uncursed';
+          candelabrum.known = true;
+          items.push(candelabrum);
+        }
+      }
       if (pile) pile.items.push(...items);
       else level.objects.push({ x: spot.x, y: spot.y, items });
     }
@@ -663,6 +684,11 @@ export class GameSession {
         const spot = this.floorSpot(level);
         if (!spot) break;
         const item = makeItem(proto, this.rng);
+        // 开启圣物固定未诅咒，避免随机 BUC 让仪式变成死局。
+        if (INVOCATION_ITEMS.has(proto.id)) {
+          item.buc = 'uncursed';
+          item.known = true;
+        }
         const pile = level.objects.find((p) => p.x === spot.x && p.y === spot.y);
         if (pile) pile.items.push(item);
         else level.objects.push({ x: spot.x, y: spot.y, items: [item] });
@@ -1391,6 +1417,13 @@ export class GameSession {
             this.level.monsters.push(mon);
           }
         }
+        break;
+      }
+      // 魔法传送门：通往异界的入口，踩上去立刻换层。
+      case 'portal': {
+        this.log(effect.message, { trap: trapName });
+        this.changeDepth(branchById('planes')?.entryDepth ?? 1, 'down', 'planes');
+        moved = true;
         break;
       }
       default: {
@@ -2130,6 +2163,133 @@ export class GameSession {
     if (effect.depletes) feature.depleted = true;
     this.finishTurn();
     return { result: 'used', key: effect.message };
+  }
+
+  // -------------------------------------------------------------------------
+  // 开启仪式与异界
+  // -------------------------------------------------------------------------
+
+  /** 背包里的三件开启圣物；缺任何一件都返回 null。 */
+  invocationRelics(): {
+    bell: ItemInstance;
+    candelabrum: ItemInstance;
+    book: ItemInstance;
+  } | null {
+    const find = (id: string) => this.player.inventory.find((item) => item.proto.id === id);
+    const bell = find('BELL_OF_OPENING');
+    const candelabrum = find('CANDELABRUM_OF_INVOCATION');
+    const book = find('SPE_BOOK_OF_THE_DEAD');
+    return bell && candelabrum && book ? { bell, candelabrum, book } : null;
+  }
+
+  /**
+   * 在圣所的振动方块上举行开启仪式。
+   *
+   * 需要开启之铃、祈祷烛台与死亡之书都在身上，且一件都不能被诅咒；
+   * 成功后原地开启通往异界的魔法传送门，并惊醒附近的怪物。
+   */
+  invokeRitual(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    const i = index(this.player.x, this.player.y);
+    const trap = this.level.traps.get(i);
+    if (!trap || trap.type !== 'VIBRATING_SQUARE') {
+      this.log('msg.invocationNoSquare');
+      return { result: 'nothing' };
+    }
+    const relics = this.invocationRelics();
+    if (!relics) {
+      const missing = ['BELL_OF_OPENING', 'CANDELABRUM_OF_INVOCATION', 'SPE_BOOK_OF_THE_DEAD'].find(
+        (id) => !this.player.inventory.some((item) => item.proto.id === id),
+      );
+      this.log('msg.invocationMissing', { obj: missing ?? null });
+      return { result: 'nothing' };
+    }
+    if (
+      relics.bell.buc === 'cursed' ||
+      relics.candelabrum.buc === 'cursed' ||
+      relics.book.buc === 'cursed'
+    ) {
+      this.log('msg.invocationCursed');
+      return { result: 'nothing' };
+    }
+    // 振动方块化作传送门；玩家需要踏进去（或使用情境动作）。
+    this.level.traps.set(i, { type: 'MAGIC_PORTAL', seen: true });
+    let woken = 0;
+    for (const mon of this.level.monsters) {
+      if (mon.dead || !mon.asleep) continue;
+      mon.asleep = false;
+      woken++;
+    }
+    this.log('msg.invocationOpened', { n: woken });
+    log.info('开启传送门', { depth: this.depth, at: { x: this.player.x, y: this.player.y } });
+    this.finishTurn();
+    return { result: 'used' };
+  }
+
+  /** 站在传送门上直接踏入异界，不必走出再踏回。 */
+  enterPortal(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    const trap = this.level.traps.get(index(this.player.x, this.player.y));
+    if (!trap || trap.type !== 'MAGIC_PORTAL') return { result: 'nothing' };
+    this.turn++;
+    this.changeDepth(branchById('planes')?.entryDepth ?? 1, 'down', 'planes');
+    this.monsterTurns();
+    return { result: this.dead ? 'dead' : 'descended' };
+  }
+
+  /**
+   * 在祭坛上奉献尤恩多护身符。
+   *
+   * 只认真正的护身符：献给自己阵营的祭坛即登神；摩洛克与异教神祇
+   * 会把僭越者当作祭品。
+   */
+  offerAmulet(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    if (this.branch !== 'planes') {
+      // 普通祭坛不具备登神的资格，只有在异界献礼才有意义。
+      this.log('msg.ascendBeyond');
+      return { result: 'nothing' };
+    }
+    const i = index(this.player.x, this.player.y);
+    if (this.level.tiles[i] !== T.ALTAR) {
+      this.log('msg.sacrificeNotAltar');
+      return { result: 'nothing' };
+    }
+    const amulet = this.player.inventory.find((item) => item.proto.id === 'AMULET_OF_YENDOR');
+    if (!amulet) {
+      const fake = this.player.inventory.some((item) => item.proto.id === 'FAKE_AMULET_OF_YENDOR');
+      this.log(fake ? 'msg.offerFake' : 'msg.offerNoAmulet');
+      return { result: 'nothing' };
+    }
+    const altar = this.level.features.get(i);
+    const vars: MessageVars = { align: this.player.align };
+    if (altar?.align === this.player.align) {
+      removeFromInventory(this.player, amulet);
+      this.victory = true;
+      this.log('msg.ascended', vars);
+      log.info('玩家在异界献上护身符', { turn: this.turn, align: this.player.align });
+      return { result: 'used' };
+    }
+    if (!altar?.align) {
+      // 摩洛克亲自收下护身符：僭越者当场丧命。
+      this.adjustAlign(-10);
+      removeFromInventory(this.player, amulet);
+      this.log('msg.offerMoloch');
+      if (this.player.takeDamage(9999)) {
+        this.dead = true;
+        this.log('msg.slainByGod');
+      }
+      return { result: 'used' };
+    }
+    // 异教神祇：重罚，但不夺走护身符。
+    this.adjustAlign(-10);
+    const dmg = this.rng.dice(4, 10);
+    this.log('msg.offerWrong', { ...vars, dmg });
+    if (this.player.takeDamage(dmg)) {
+      this.dead = true;
+      this.log('msg.slainByGod');
+    }
+    return { result: 'used' };
   }
 
   /**
@@ -3318,6 +3478,11 @@ export class GameSession {
     if (direction === 'up' && branch === 'main' && fromBranch !== 'main') {
       const exit = target.stairs.find((s) => s.dir === 'branch' && s.branch === fromBranch);
       if (exit) arrival = { x: exit.x, y: exit.y };
+      else {
+        // 隐藏分支（异界）的入口是魔法传送门，不在楼梯表里。
+        const portal = [...target.traps].find(([, trap]) => trap.type === 'MAGIC_PORTAL');
+        if (portal) arrival = coords(portal[0]);
+      }
     }
     if (!arrival) arrival = target.down ?? target.up ?? target.start ?? { x: 1, y: 1 };
     this.depth = depth;

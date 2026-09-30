@@ -26,7 +26,7 @@ import {
 } from '../core/constants';
 import { createRng, deriveSeed } from '../core/rng';
 import { createLogger, LOG_NS } from '../core/log';
-import { specialLevelFor } from './special';
+import { specialLevelFor, branchSpecialFor } from './special';
 import { branchById, branchByEntrance } from './branches';
 import { SOKOBAN_LEVELS } from '../data/sokoban.gen';
 import { SOKOBAN_CLASSES, type SokobanVariant } from './sokoban';
@@ -754,7 +754,12 @@ function placeBranchStairs(level: Level, rng: Rng, branch: string): void {
 }
 
 /** 布置喷泉、水槽、祭坛、坟墓与王座。 */
-function placeFeatures(level: Level, rng: Rng, gameSeed: number): void {
+function placeFeatures(
+  level: Level,
+  rng: Rng,
+  gameSeed: number,
+  { fixedAltars = false }: { fixedAltars?: boolean } = {},
+): void {
   // 祭坛归属用独立随机流，不扰动其它设施的生成顺序。
   const altarSeed = level.branch
     ? deriveSeed(gameSeed, 'altar', level.branch, level.depth)
@@ -784,12 +789,16 @@ function placeFeatures(level: Level, rng: Rng, gameSeed: number): void {
       ...extra(),
     });
   };
-  add(T.FOUNTAIN, 0.22);
-  add(T.SINK, 0.08);
-  add(T.ALTAR, 0.12, () =>
-    // 四分之一的祭坛不属于任何阵营（摩洛克），其余随机归属三神之一。
-    altarRng.rn2(4) === 0 ? {} : { align: altarRng.pick(ALIGNMENTS) as Alignment },
-  );
+  // 固定祭坛的特殊楼层（星界位面）由 placeSpecialAltars 单独布置，
+  // 也不再撒喷泉与水槽，保持终局大厅干净。
+  if (!fixedAltars) {
+    add(T.FOUNTAIN, 0.22);
+    add(T.SINK, 0.08);
+    add(T.ALTAR, 0.12, () =>
+      // 四分之一的祭坛不属于任何阵营（摩洛克），其余随机归属三神之一。
+      altarRng.rn2(4) === 0 ? {} : { align: altarRng.pick(ALIGNMENTS) as Alignment },
+    );
+  }
   if (level.depth >= 3) add(T.GRAVE, 0.08);
   if (level.depth >= 6) add(T.THRONE, 0.07);
 }
@@ -832,6 +841,45 @@ function placeExtraFeatures(
     level.tiles[i] = tile;
     level.features.set(i, { type });
   }
+}
+
+/**
+ * 特殊楼层的固定祭坛（星界位面的三座神殿）。
+ *
+ * 空地按「到已选祭坛的最近距离」打分，逐座挑最远的，让三座祭坛分散在大厅里。
+ */
+function placeSpecialAltars(level: Level, aligns: Alignment[]): void {
+  const chosen: { x: number; y: number }[] = [];
+  for (const align of aligns) {
+    const spots = freeTiles(
+      level,
+      (t, i, x, y) =>
+        t === T.ROOM &&
+        !level.traps.has(i) &&
+        !level.stairs.some((s) => index(s.x, s.y) === i) &&
+        !level.features.has(i) &&
+        !nearDoor(level, i) &&
+        !inShopRoom(level, x, y),
+    );
+    if (!spots.length) return;
+    let best = spots[0];
+    let bestScore = -1;
+    for (const i of spots) {
+      const at = coords(i);
+      const score = chosen.length
+        ? Math.min(...chosen.map((c) => Math.abs(c.x - at.x) + Math.abs(c.y - at.y)))
+        : Math.abs(at.x - COLNO / 2) + Math.abs(at.y - ROWNO / 2);
+      if (score > bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    }
+    const at = coords(best);
+    chosen.push(at);
+    level.tiles[best] = T.ALTAR;
+    level.features.set(best, { type: 'ALTAR', align });
+  }
+  log.debug('特殊祭坛已布置', { depth: level.depth, count: chosen.length });
 }
 
 /** 房间四周一圈内是否有门。 */
@@ -1137,7 +1185,7 @@ function generateLevelCore({
   };
 
   /** 特殊楼层只存在于主地牢；任务分支按层号标记总部、搜索层与目标层。 */
-  const special = branch ? null : specialLevelFor(depth);
+  const special = branch ? branchSpecialFor(branch, depth) : specialLevelFor(depth);
   const branchDef = branch ? branchById(branch) : null;
   level.special = special?.id ?? (branchDef?.quest ? questLevelSpecial(depth, levels) : null);
   // 任务目标层用一整间大厅，让仇敌与神器更醒目。
@@ -1158,7 +1206,8 @@ function generateLevelCore({
   placeStairs(level, rng, { isBranch: !!branch, isBottom: !!branch && depth >= levels });
   if (!branch) {
     const entrance = branchByEntrance(depth);
-    if (entrance) {
+    // 隐藏分支（异界）的入口由仪式开启，不在生成时铺楼梯。
+    if (entrance && !entrance.hidden) {
       // 分支楼梯用独立随机流，不扰动本层的陷阱与设施分布。
       placeBranchStairs(
         level,
@@ -1174,7 +1223,12 @@ function generateLevelCore({
   // 矿镇：市集层必有一间商店。
   placeShop(level, createRng(shopSeed), branchDef?.town ? 1 : 0.25);
   placeTraps(level, rng);
-  placeFeatures(level, rng, gameSeed);
+  if (special?.altars?.length) {
+    placeFeatures(level, rng, gameSeed, { fixedAltars: true });
+    placeSpecialAltars(level, special.altars);
+  } else {
+    placeFeatures(level, rng, gameSeed);
+  }
   const graves = special?.graves ?? branchDef?.graves;
   const fountains = special?.fountains ?? branchDef?.fountains;
   if (graves) {

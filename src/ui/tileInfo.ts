@@ -83,6 +83,7 @@ const TRAP_KEYS: Record<string, string> = {
   ANTI_MAGIC: 'antiMagic',
   POLY_TRAP: 'polymorph',
   VIBRATING_SQUARE: 'vibratingSquare',
+  MAGIC_PORTAL: 'magicPortal',
 };
 
 /** 该格是否已经被玩家看到过。 */
