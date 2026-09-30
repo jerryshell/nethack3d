@@ -2343,6 +2343,17 @@ section('怪物与陷阱', async () => {
     s.springTrap(playerTrap);
     ok(s.monsterKnowsTrap(pet, 'PIT'), '玩家发现陷阱时宠物也学会');
 
+    // 坐骑不在关卡怪物列表里，也会跟着记住。
+    s.level.monsters = [];
+    const mount = spawn('PONY');
+    mount.tame = true;
+    mount.x = s.player.x + 1;
+    mount.y = s.player.y;
+    s.ride = mount;
+    s.petsLearnTrap(s.player.x, s.player.y, 'FIRE_TRAP');
+    ok(s.monsterKnowsTrap(mount, 'FIRE_TRAP'), '坐骑也会记住陷阱');
+    s.ride = null;
+
     // 地洞把怪物送到下一层。
     s.level.monsters = [stuck];
     s.level.traps.clear();

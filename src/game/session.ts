@@ -4085,6 +4085,13 @@ export class GameSession {
       if (Math.max(Math.abs(mon.x - x), Math.abs(mon.y - y)) > 8) continue;
       this.monLearnsTrap(mon, type);
     }
+    // 坐骑不在关卡怪物列表里，单独处理。
+    const mount = this.ride;
+    if (mount && !mount.dead && mount.tame) {
+      if (Math.max(Math.abs(mount.x - x), Math.abs(mount.y - y)) <= 8) {
+        this.monLearnsTrap(mount, type);
+      }
+    }
   }
 
   /** 是否已知这类陷阱。 */
