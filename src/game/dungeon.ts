@@ -31,6 +31,8 @@ import { specialLevelFor, branchSpecialFor } from './special';
 import { branchById, branchByEntrance } from './branches';
 import { SOKOBAN_LEVELS } from '../data/sokoban.gen';
 import { SOKOBAN_CLASSES, type SokobanVariant } from './sokoban';
+import { QUEST_HOME_LEVELS } from '../data/quest.gen';
+import { QUEST_MAP_CHARS } from './quest';
 import { makeBoulder, makeItem, randomItemOfClass } from './items';
 import { OBJECTS } from '../data/index';
 import type {
@@ -1087,6 +1089,7 @@ export function generateBranchLevel({
   depth,
   levels,
   questRole = null,
+  align = 'neutral',
 }: {
   gameSeed: number;
   branch: string;
@@ -1094,9 +1097,16 @@ export function generateBranchLevel({
   levels: number;
   /** 职业任务分支时传入职业 id，用于选择总部布局。 */
   questRole?: string | null;
+  /** 玩家阵营：任务起始层的同阵营祭坛按它落归属。 */
+  align?: Alignment;
 }): Level {
   // 推箱用原版提取的固定布局，不跑随机房间生成。
   if (branchById(branch)?.sokoban) return generateSokobanLevel({ gameSeed, depth });
+  // 任务起始层有固定地图，不连通或缺失时退回通用布局。
+  if (branch === 'quest' && depth === 1 && questRole) {
+    const fixed = generateQuestHomeLevel({ gameSeed, role: questRole, align });
+    if (fixed) return fixed;
+  }
   return generateLevelCore({ gameSeed, depth, branch, levels, questRole });
 }
 
@@ -1248,6 +1258,306 @@ function generateSokobanLevel({ gameSeed, depth }: { gameSeed: number; depth: nu
     boulders: variant.boulders.length,
     traps: variant.traps.length,
   });
+  return level;
+}
+
+/** 任务地图字符到引擎瓦片的映射，字符语义来自 `char2typ`。 */
+function questHomeTile(ch: string): number {
+  switch (QUEST_MAP_CHARS[ch]) {
+    case 'stone':
+      return T.STONE;
+    case 'corr':
+      return T.CORR;
+    case 'scorr':
+      return T.SCORR;
+    case 'hwall':
+      return T.HWALL;
+    case 'vwall':
+      return T.VWALL;
+    case 'crosswall':
+      // 原版的 B 是“隐形边界”：remove_boundary_syms() 会把它换成 ROOM。
+      return T.ROOM;
+    case 'door':
+    case 'sdoor':
+      return T.DOOR;
+    case 'air':
+      return T.AIR;
+    case 'cloud':
+      return T.CLOUD;
+    case 'fountain':
+      return T.FOUNTAIN;
+    case 'throne':
+      return T.THRONE;
+    case 'sink':
+      return T.SINK;
+    case 'moat':
+      return T.MOAT;
+    case 'pool':
+      return T.POOL;
+    case 'lava':
+    case 'lavawall':
+      return T.LAVA;
+    case 'ice':
+      return T.ICE;
+    case 'water':
+      return T.WATER;
+    case 'tree':
+      return T.TREE;
+    case 'ironbars':
+      return T.IRONBARS;
+    default:
+      return T.ROOM;
+  }
+}
+
+/** 祭坛归属：coaligned 用玩家阵营，noalign 在本作按中立处理。 */
+function questAltarAlign(raw: string | undefined, align: Alignment): Alignment {
+  if (raw === 'coaligned') return align;
+  return 'neutral';
+}
+
+/** 离指定地图坐标最近的、可站立的瓦片；找不到返回 null。 */
+function nearestWalkable(
+  level: Level,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  at: (x: number, y: number) => number,
+): { x: number; y: number } | null {
+  for (let r = 0; r < 30; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        if (isWalkable(level.tiles[at(nx, ny)])) return { x: nx, y: ny };
+      }
+    }
+  }
+  return null;
+}
+
+/** 离起点最远的一处可站地面，供固定地图缺少下行楼梯时兜底。 */
+function pickFarWalkable(
+  level: Level,
+  rng: Rng,
+  from: { x: number; y: number },
+): { x: number; y: number } | null {
+  const spots: { x: number; y: number }[] = [];
+  let best = -1;
+  for (let i = 0; i < level.tiles.length; i++) {
+    if (!isWalkable(level.tiles[i])) continue;
+    const at = coords(i);
+    const d = Math.max(Math.abs(at.x - from.x), Math.abs(at.y - from.y));
+    if (d > best) {
+      best = d;
+      spots.length = 0;
+    }
+    if (d === best) spots.push(at);
+  }
+  return spots.length ? (rng.pick(spots) as { x: number; y: number }) : null;
+}
+
+/** 从落脚点能否走下行楼梯；固定地图不连通时调用方会退回通用布局。 */
+function questHomeConnected(
+  level: Level,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): boolean {
+  const start = index(from.x, from.y);
+  const goal = index(to.x, to.y);
+  const seen = new Uint8Array(level.tiles.length);
+  const queue: number[] = [start];
+  seen[start] = 1;
+  for (let head = 0; head < queue.length; head++) {
+    const cur = queue[head];
+    if (cur === goal) return true;
+    const cx = cur % COLNO;
+    const cy = (cur / COLNO) | 0;
+    for (const [dx, dy] of [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+      [-1, -1],
+    ]) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= COLNO || ny >= ROWNO) continue;
+      const ni = index(nx, ny);
+      if (seen[ni] || !isWalkable(level.tiles[ni])) continue;
+      seen[ni] = 1;
+      queue.push(ni);
+    }
+  }
+  return false;
+}
+
+/**
+ * 任务起始层的固定地图（12 个职业，数据见 quest.gen.ts）。
+ *
+ * 地图里的门、楼梯、设施与亮暗按原版摆放；领袖与护卫仍由会话的
+ * `placeQuestContent` 布置。地图不连通或缺少关键楼梯时返回 null，
+ * 调用方退回通用布局，保证不会把玩家困住。
+ */
+function generateQuestHomeLevel({
+  gameSeed,
+  role,
+  align,
+}: {
+  gameSeed: number;
+  role: string;
+  align: Alignment;
+}): Level | null {
+  const data = QUEST_HOME_LEVELS.find((home) => home.role === role);
+  if (!data) return null;
+  const rng = createRng(deriveSeed(gameSeed, 'quest-home', role));
+  const width = Math.max(...data.map.map((line) => line.length));
+  const height = data.map.length;
+  const ox = Math.floor((COLNO - width) / 2);
+  const oy = Math.floor((ROWNO - height) / 2);
+  const at = (x: number, y: number): number => index(ox + x, oy + y);
+  const level: Level = {
+    depth: 1,
+    width: COLNO,
+    height: ROWNO,
+    tiles: new Uint8Array(COLNO * ROWNO),
+    seen: new Uint8Array(COLNO * ROWNO),
+    lit: new Uint8Array(COLNO * ROWNO),
+    rooms: [],
+    doors: new Map(),
+    traps: new Map(),
+    features: new Map(),
+    stairs: [],
+    up: null,
+    down: null,
+    start: null,
+    objects: [],
+    monsters: [],
+    populated: false,
+    visited: false,
+    special: 'quest_home',
+    branch: 'quest',
+  };
+  for (let y = 0; y < height; y++) {
+    const line = data.map[y];
+    for (let x = 0; x < line.length; x++) {
+      level.tiles[at(x, y)] = questHomeTile(line[x]);
+    }
+  }
+  // 亮暗区域按原版顺序覆盖。
+  for (const region of data.regions) {
+    for (let y = region.y1; y <= region.y2; y++) {
+      for (let x = region.x1; x <= region.x2; x++) {
+        if (x < 0 || y < 0 || x >= width || y >= height) continue;
+        level.lit[at(x, y)] = region.lit ? 1 : 0;
+      }
+    }
+  }
+  for (const door of data.doors) {
+    const i = at(door.x, door.y);
+    level.tiles[i] = T.DOOR;
+    level.doors.set(i, { closed: true, locked: door.state === 'locked', broken: false });
+  }
+  // 地图里直接画出的 `+` 也要有门状态；`des.door` 未列出的按普通关门处理。
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < data.map[y].length; x++) {
+      const i = at(x, y);
+      if (level.tiles[i] === T.DOOR && !level.doors.has(i)) {
+        level.doors.set(i, { closed: true, locked: false, broken: false });
+      }
+    }
+  }
+  // 地图字符自带的设施。
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < data.map[y].length; x++) {
+      const i = at(x, y);
+      if (level.tiles[i] === T.FOUNTAIN) level.features.set(i, { type: 'FOUNTAIN' });
+      else if (level.tiles[i] === T.THRONE) level.features.set(i, { type: 'THRONE' });
+      else if (level.tiles[i] === T.SINK) level.features.set(i, { type: 'SINK' });
+    }
+  }
+  // 数据里单独写的设施（祭坛、喷泉等）。
+  for (const feature of data.features) {
+    const i = at(feature.x, feature.y);
+    const type = feature.type.toUpperCase();
+    if (type === 'FOUNTAIN') level.tiles[i] = T.FOUNTAIN;
+    if (type === 'ALTAR') {
+      level.tiles[i] = T.ALTAR;
+      level.features.set(i, { type, align: questAltarAlign(feature.align, align) });
+      continue;
+    }
+    level.features.set(i, { type });
+  }
+  // 分支落脚点：原版 levregion 的中心；不可站时往周围找一格。
+  const branchSpot = data.branch
+    ? nearestWalkable(level, data.branch.x, data.branch.y, width, height, at)
+    : null;
+  if (branchSpot) {
+    const i = at(branchSpot.x, branchSpot.y);
+    level.tiles[i] = T.STAIRS;
+    const spot = { x: ox + branchSpot.x, y: oy + branchSpot.y };
+    level.stairs.push({ x: spot.x, y: spot.y, dir: 'branch', branch: 'quest' });
+    level.up = spot;
+    level.start = spot;
+  }
+  // 下行楼梯：优先原版坐标，不可站或缺失时挑最远的地面兜底。
+  const downSpot = data.stairs
+    .filter((stair) => stair.dir === 'down')
+    .map((stair) => nearestWalkable(level, stair.x, stair.y, width, height, at))
+    .find((spot): spot is { x: number; y: number } => !!spot);
+  const chosen = downSpot ?? (level.up ? pickFarWalkable(level, rng, level.up) : null);
+  if (chosen) {
+    const i = at(chosen.x, chosen.y);
+    level.tiles[i] = T.STAIRS;
+    const spot = { x: ox + chosen.x, y: oy + chosen.y };
+    level.stairs.push({ x: spot.x, y: spot.y, dir: 'down' });
+    level.down = spot;
+  }
+  // 陷阱：写了坐标的照放，随机陷阱按个数落在空地上。
+  for (const trap of data.traps) {
+    const i = at(trap.x, trap.y);
+    if (isWalkable(level.tiles[i])) level.traps.set(i, { type: trap.type, seen: false });
+  }
+  if (data.trapCount > 0) {
+    const floors: number[] = [];
+    for (let i = 0; i < level.tiles.length; i++) {
+      if (isWalkable(level.tiles[i]) && !level.traps.has(i) && !level.features.has(i)) {
+        floors.push(i);
+      }
+    }
+    const kinds = [
+      'PIT',
+      'SPIKED_PIT',
+      'DART_TRAP',
+      'ARROW_TRAP',
+      'FIRE_TRAP',
+      'SLEEPING_GAS_TRAP',
+    ];
+    for (let n = 0; n < data.trapCount && floors.length; n++) {
+      const pick = rng.pick(floors) as number;
+      floors.splice(floors.indexOf(pick), 1);
+      level.traps.set(pick, { type: rng.pick(kinds) as string, seen: false });
+    }
+  }
+  // 单一房间覆盖全图：给 inRoom 之类的判断一个范围即可。
+  level.rooms.push({
+    lx: 1,
+    ly: 1,
+    hx: COLNO - 2,
+    hy: ROWNO - 2,
+    index: 0,
+    type: 'room',
+    lit: true,
+  });
+  if (!level.up || !level.down) return null;
+  if (!questHomeConnected(level, level.up, level.down)) return null;
+  log.debug('任务起始层使用固定地图', { role, doors: level.doors.size });
   return level;
 }
 
