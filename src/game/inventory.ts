@@ -21,7 +21,7 @@ import { monsterMagicResists, monsterResists, playerResists } from './resist';
 import type { ResistKind } from './resist';
 import { isWalkable, MAX_DEPTH, COLNO, T } from '../core/constants';
 import { index, inRoom } from './dungeon';
-import { monById, objById } from '../data/index';
+import { monById, objById, REAL_OBJECTS } from '../data/index';
 import { pickMonsterType, Monster as MonsterEntity } from './monsters';
 
 export const INVENTORY_LIMIT = 52; // 字母 a 到 z、A 到 Z
@@ -360,6 +360,43 @@ export function applyItem(session: GameSession, item: ItemInstance): UseOutcome 
         const [, key, cure] = active[session.rng.rn2(active.length)];
         cure();
         return { key, identified: true };
+      }
+      // 水晶球：凝视片刻，本层地图尽收眼底。
+      if (proto.id === 'CRYSTAL_BALL') {
+        session.revealLevel();
+        return { key: 'use.crystalBall', identified: true };
+      }
+      // 魔法记号笔：在空白卷轴上写一张随机卷轴。
+      if (proto.id === 'MAGIC_MARKER') {
+        const blank = p.inventory.find((it) => it.id === 'SCR_BLANK_PAPER');
+        if (!blank) return { key: 'use.markerNoPaper' };
+        if (item.charges !== undefined) {
+          if (item.charges <= 0) return { key: 'use.lampSpent' };
+          item.charges -= 1;
+        }
+        const pool = REAL_OBJECTS.filter(
+          (o) => o.cls === 'scroll' && o.prob > 0 && !o.dummy && o.id !== 'SCR_BLANK_PAPER',
+        );
+        const written = pool.length ? session.rng.pick(pool) : null;
+        if (!written) return { key: 'use.nothing' };
+        removeFromInventory(p, blank);
+        const made = makeItem(written, session.rng);
+        made.known = true;
+        addToInventory(p, made);
+        return { key: 'use.markerWrite', vars: { obj: made.proto.id }, identified: true };
+      }
+      // 罐装油脂：给一件穿戴中的护甲涂油，护它一次。
+      if (proto.id === 'CAN_OF_GREASE') {
+        const armor =
+          p.equipment.suit ?? p.equipment.shield ?? p.equipment.helm ?? p.equipment.cloak;
+        if (!armor) return { key: 'use.nothing' };
+        if (armor.greased) return { key: 'use.alreadyGreased' };
+        if (item.charges !== undefined) {
+          if (item.charges <= 0) return { key: 'use.lampSpent' };
+          item.charges -= 1;
+        }
+        armor.greased = true;
+        return { key: 'use.greased', vars: { obj: armor.proto.id }, identified: true };
       }
       // 听诊器：诊断相邻的怪物；身边没有怪物就听自己的心跳。
       if (proto.id === 'STETHOSCOPE') {
@@ -812,6 +849,13 @@ function readScroll(session: GameSession, item: ItemInstance): UseOutcome {
         session.player.equipment.helm;
       if (!armor || armor.buc === 'blessed') {
         out.key = 'use.nothingHappens';
+        break;
+      }
+      // 涂过油的护甲躲过一劫，油脂随之耗掉。
+      if (armor.greased) {
+        armor.greased = false;
+        out.key = 'use.greaseSaves';
+        out.vars = { obj: armor.proto.id };
         break;
       }
       removeFromInventory(session.player, armor);

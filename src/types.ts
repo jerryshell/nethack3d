@@ -348,6 +348,8 @@ export interface ItemInstance {
   tin?: string;
   /** 起始装备标记，装备后清空。 */
   equipped?: EquipIntent | null;
+  /** 涂过油脂：下次锈蚀或摧毁会消耗它并保住装备。 */
+  greased?: boolean;
 }
 
 export type EquipIntent = 'wield' | 'wear' | 'offhand' | null;
@@ -637,6 +639,8 @@ export interface SerializedItem {
   ag?: number;
   /** 罐头的怪物原型 id。 */
   tn?: string;
+  /** 涂过油脂。 */
+  gr?: 0 | 1;
   /** 容器内容；递归存储。 */
   n?: SerializedItem[];
 }

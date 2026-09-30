@@ -1590,6 +1590,12 @@ export class GameSession {
       }
       case 'rust': {
         const suit = this.player.equipment.suit;
+        // 涂过油的护甲躲过一劫，油脂随之耗掉。
+        if (suit?.greased) {
+          suit.greased = false;
+          this.log('msg.greaseSaves', { obj: suit.proto.id });
+          break;
+        }
         if (suit && suit.enchant > -5) {
           suit.enchant--;
           // item 变量需要物品描述，交给界面翻译。
@@ -3824,6 +3830,12 @@ export class GameSession {
       case 'AD_CORR': {
         // 先腐蚀所穿护甲，没有可腐蚀的护甲时转向手中武器。
         const suit = player.equipment.suit;
+        // 涂过油的护甲躲过一劫，油脂随之耗掉。
+        if (suit?.greased) {
+          suit.greased = false;
+          this.log('msg.greaseSaves', { obj: suit.proto.id });
+          return;
+        }
         if (suit && suit.enchant > -5) {
           suit.enchant--;
           this.log('msg.rustAttack', { mon: monId, obj: suit.proto.id });

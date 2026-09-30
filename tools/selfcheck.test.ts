@@ -4998,7 +4998,7 @@ section('工具应用', async () => {
   const { GameSession } = await import('../src/game/session');
   const { Monster } = await import('../src/game/monsters');
   const { makeItem } = await import('../src/game/items');
-  const { addToInventory } = await import('../src/game/inventory');
+  const { addToInventory, wearItem } = await import('../src/game/inventory');
 
   // 毛巾擦脸解除失明，没失明时什么也不做。
   {
@@ -5056,6 +5056,57 @@ section('工具应用', async () => {
       s.messages.some((m) => m.key === 'use.stethoscopeMon'),
       '听诊器报告怪物状态',
     );
+  }
+
+  // 水晶球揭示地图，记号笔在空白卷轴上写字。
+  {
+    const s = new GameSession({ seed: 8504 });
+    const ball = makeItem(objById.get('CRYSTAL_BALL') as ObjectData, s.rng);
+    addToInventory(s.player, ball);
+    s.useItem(ball);
+    ok(
+      s.messages.some((m) => m.key === 'use.crystalBall'),
+      '水晶球揭示本层地图',
+    );
+    const marker = makeItem(objById.get('MAGIC_MARKER') as ObjectData, s.rng);
+    addToInventory(s.player, marker);
+    s.useItem(marker);
+    ok(
+      s.messages.some((m) => m.key === 'use.markerNoPaper'),
+      '没有空白卷轴时记号笔无从下笔',
+    );
+    const blank = makeItem(objById.get('SCR_BLANK_PAPER') as ObjectData, s.rng);
+    addToInventory(s.player, blank);
+    s.useItem(marker);
+    ok(
+      s.messages.some((m) => m.key === 'use.markerWrite'),
+      '记号笔在空白卷轴上写字',
+    );
+    ok(
+      !s.player.inventory.includes(blank) &&
+        s.player.inventory.some((it) => it.id !== 'SCR_BLANK_PAPER' && it.proto.cls === 'scroll'),
+      '写成的卷轴取代了空白卷轴',
+    );
+  }
+
+  // 罐装油脂护住护甲一次，毁甲卷轴随之失效。
+  {
+    const s = new GameSession({ seed: 8505 });
+    const armor = makeItem(objById.get('PLATE_MAIL') as ObjectData, s.rng);
+    addToInventory(s.player, armor);
+    wearItem(s.player, armor);
+    const grease = makeItem(objById.get('CAN_OF_GREASE') as ObjectData, s.rng);
+    addToInventory(s.player, grease);
+    s.useItem(grease);
+    ok(armor.greased === true, '涂油后护甲受保护');
+    s.useItem(grease);
+    ok(
+      s.messages.some((m) => m.key === 'use.alreadyGreased'),
+      '重复涂油只给提示',
+    );
+    s.useItem(makeItem(objById.get('SCR_DESTROY_ARMOR') as ObjectData, s.rng));
+    ok(s.player.inventory.includes(armor), '涂过油的护甲躲过毁甲');
+    ok(armor.greased === false, '油脂随之耗掉');
   }
 });
 
