@@ -591,6 +591,22 @@ body {
   padding-right: 0.25rem;
 }
 
+.inv-filter {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(160, 176, 208, 0.35);
+  border-radius: 0.4rem;
+  background: rgba(14, 17, 26, 0.7);
+  color: inherit;
+  font: inherit;
+}
+
+.inv-filter:focus {
+  outline: none;
+  border-color: rgba(230, 198, 122, 0.7);
+}
+
 .inv-row {
   display: flex;
   align-items: baseline;

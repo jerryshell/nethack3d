@@ -783,6 +783,8 @@ const messages: MessageCatalog = {
   inventory: {
     hint: '按字母选择物品，Esc 关闭。i：背包 · g：拾取 · w/W：持握/穿戴 · q/e/r/z：喝/吃/读/挥 · d：放下',
     empty: '背包是空的。',
+    noMatch: '没有匹配的物品。',
+    filterHint: '筛选物品…',
   },
   creation: {
     title: '创建角色',

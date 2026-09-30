@@ -124,6 +124,12 @@ export function createInventoryPanel({
   hint.className = 'inv-hint';
   hint.dataset.i18n = 'inventory.hint';
 
+  // 筛选框：按名称或类别过滤列表，背包字母不受影响。
+  const filterInput = document.createElement('input');
+  filterInput.className = 'inv-filter';
+  filterInput.type = 'search';
+  filterInput.addEventListener('input', () => render());
+
   const closeBtn = document.createElement('button');
   closeBtn.className = 'btn small';
   closeBtn.dataset.i18n = 'menu.close';
@@ -132,7 +138,7 @@ export function createInventoryPanel({
     onClose?.();
   });
 
-  panel.append(title, list, hint, closeBtn);
+  panel.append(title, filterInput, list, hint, closeBtn);
   el.append(panel);
 
   let mode: 'view' | 'select' = 'view';
@@ -171,11 +177,20 @@ export function createInventoryPanel({
   function render(): void {
     title.textContent = t(VERB_TITLE[(pendingVerb ?? 'view') as keyof typeof VERB_TITLE]);
     list.innerHTML = '';
-    const entries = session.inventoryLetters();
+    filterInput.placeholder = t('inventory.filterHint');
+    const query = filterInput.value.trim().toLowerCase();
+    const all = session.inventoryLetters();
+    const entries = query
+      ? all.filter(({ item }) => {
+          const name = itemName(describeItem(item)).toLowerCase();
+          const cls = t(`item.class.${item.proto.cls}`).toLowerCase();
+          return name.includes(query) || cls.includes(query);
+        })
+      : all;
     if (!entries.length) {
       const empty = document.createElement('div');
       empty.className = 'inv-empty';
-      empty.textContent = t('inventory.empty');
+      empty.textContent = t(all.length ? 'inventory.noMatch' : 'inventory.empty');
       list.append(empty);
     }
     for (const { item, letter } of entries) {
@@ -232,6 +247,8 @@ export function createInventoryPanel({
   }
 
   function onKeyDown(e: KeyboardEvent): void {
+    // 筛选框获得焦点时，按键交给输入框自己处理。
+    if (e.target === filterInput) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       // 先收起展开的菜单，再关闭面板。

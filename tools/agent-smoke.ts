@@ -495,6 +495,30 @@ async function main(): Promise<void> {
         return JSON.stringify({ rows: document.querySelectorAll('.inv-row').length, x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) });
       })()`,
     ) as { rows?: number; x?: number; y?: number } | null;
+    // 筛选：输入不匹配的关键字时列表清空，清空后恢复。
+    const filterProbe = evaluate(
+      session,
+      `(() => {
+        const input = document.querySelector('.inv-filter');
+        if (!input) return JSON.stringify({ error: 'missing' });
+        const before = document.querySelectorAll('.inv-row').length;
+        input.value = 'zzzz';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        const filtered = document.querySelectorAll('.inv-row').length;
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        const restored = document.querySelectorAll('.inv-row').length;
+        return JSON.stringify({ before, filtered, restored });
+      })()`,
+    ) as { before?: number; filtered?: number; restored?: number } | null;
+    record(
+      '背包可以筛选',
+      (filterProbe?.before ?? 0) > 0 &&
+        filterProbe?.filtered === 0 &&
+        filterProbe?.restored === filterProbe?.before,
+      `条目 ${filterProbe?.before} → ${filterProbe?.filtered} → ${filterProbe?.restored}`,
+      true,
+    );
     if (Number(invPoint?.rows ?? 0) > 0) {
       clickAt(session, Number(invPoint?.x), Number(invPoint?.y));
       await Bun.sleep(400);

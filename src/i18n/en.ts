@@ -791,6 +791,8 @@ const messages: MessageCatalog = {
   inventory: {
     hint: 'Press a letter to act, Esc to close. i: pack · g: pick up · w/W: wield/wear · q/e/r/z: quaff/eat/read/zap · d: drop',
     empty: 'Your pack is empty.',
+    noMatch: 'No items match the filter.',
+    filterHint: 'Filter items…',
   },
   creation: {
     title: 'Create your character',
