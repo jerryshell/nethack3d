@@ -3852,9 +3852,9 @@ export class GameSession {
   /**
    * 怪物踩中陷阱，对应原版 mintrap() 的简化版。
    *
-   * 目前只结算伤害、定身、睡眠与同层传送四类；地洞、楼层传送、
-   * 变形与魔法陷阱对怪物暂不生效（写在已知边界）。飞行的怪物
-   * 从地面陷阱上方掠过，但魔法传送门例外。
+   * 结算伤害、定身、睡眠、同层传送、地洞与楼层传送；变形与魔法陷阱
+   * 对怪物暂不生效（写在已知边界）。飞行的怪物从地面陷阱上方掠过，
+   * 但魔法传送门例外。
    */
   monsterTrap(mon: Monster): void {
     const i = index(mon.x, mon.y);
@@ -3890,9 +3890,55 @@ export class GameSession {
         }
         break;
       }
+      // 地洞与楼层传送：把怪物送到本分支的另一层。
+      case 'hole': {
+        if (this.depth < this.maxDepth) {
+          this.sendMonsterToDepth(mon, this.depth + 1, 'msg.monFalls');
+        }
+        break;
+      }
+      case 'levelTeleport': {
+        const delta = this.rng.rn2(3) - 1 || 1;
+        const target = Math.max(1, Math.min(this.maxDepth, this.depth + delta));
+        if (target !== this.depth) this.sendMonsterToDepth(mon, target, 'msg.monLevelTeleports');
+        break;
+      }
       default:
         break;
     }
+  }
+
+  /**
+   * 把怪物送到本分支的另一层（陷阱击落 / 楼层传送）。
+   *
+   * 目标层还没生成时先生成；找不到落脚点就留在原地，避免怪物凭空消失。
+   */
+  private sendMonsterToDepth(mon: Monster, depth: number, key: string): void {
+    const target =
+      this.branch === 'main' ? this.getLevel(depth) : this.getBranchLevel(this.branch, depth);
+    const spot = this.freeSpotOn(target);
+    if (!spot) return;
+    const wasVisible = this.visible?.[index(mon.x, mon.y)] === 1;
+    this.level.monsters = this.level.monsters.filter((m) => m !== mon);
+    mon.x = spot.x;
+    mon.y = spot.y;
+    mon.mv = 0;
+    target.monsters.push(mon);
+    if (wasVisible) this.log(key, { mon: mon.data.id });
+    log.debug('怪物掉到另一层', { monster: mon.data.id, from: this.depth, to: depth });
+  }
+
+  /** 目标层上一处没人站的可通行格。 */
+  private freeSpotOn(level: Level): { x: number; y: number } | null {
+    const spots: { x: number; y: number }[] = [];
+    for (let x = 1; x < level.width - 1; x++) {
+      for (let y = 1; y < level.height - 1; y++) {
+        if (!isWalkable(level.tiles[index(x, y)])) continue;
+        if (level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+        spots.push({ x, y });
+      }
+    }
+    return spots.length ? (this.rng.pick(spots) as { x: number; y: number }) : null;
   }
 
   /**

@@ -2227,6 +2227,42 @@ section('怪物与陷阱', async () => {
       restored.level.monsters.some((m) => s.monsterKnowsTrap(m, 'FIRE_TRAP')),
       '陷阱记忆随存档保留',
     );
+
+    // 地洞把怪物送到下一层。
+    s.level.monsters = [stuck];
+    s.level.traps.clear();
+    s.level.traps.set(index(stuck.x, stuck.y), { type: 'HOLE', seen: false });
+    const depthBefore = s.depth;
+    s.monsterTrap(stuck);
+    ok(!s.level.monsters.includes(stuck), '怪物掉进地洞后离开当前层');
+    ok(s.getLevel(depthBefore + 1).monsters.includes(stuck), '怪物出现在下一层');
+  }
+
+  // 楼层传送陷阱把怪物送出当前层（在第二层测试，保证目标层不同）。
+  {
+    const s2 = new GameSession({ seed: 917, depth: 2 });
+    s2.level.monsters = [];
+    s2.level.traps.clear();
+    s2.refreshFov();
+    const spot2 = (() => {
+      for (let x = 1; x < s2.level.width - 1; x++) {
+        for (let y = 1; y < s2.level.height - 1; y++) {
+          if (s2.level.tiles[index(x, y)] !== T.ROOM) continue;
+          if (x === s2.player.x && y === s2.player.y) continue;
+          return { x, y };
+        }
+      }
+      return null;
+    })();
+    ok(!!spot2, '找得到楼层传送测试的地面');
+    if (spot2) {
+      const mon = new Monster(monById.get('KOBOLD') as MonsterData, spot2.x, spot2.y, createRng(5));
+      mon.asleep = false;
+      s2.level.monsters = [mon];
+      s2.level.traps.set(index(spot2.x, spot2.y), { type: 'LEVEL_TELEP', seen: false });
+      s2.monsterTrap(mon);
+      ok(!s2.level.monsters.includes(mon), '楼层传送陷阱把怪物送出当前层');
+    }
   }
 });
 

@@ -352,6 +352,8 @@ const messages: MessageCatalog = {
     monStealsGold: '{mon}抢走了 {n} 枚金币，随即消失。',
     monPicksUp: '{mon}捡起了{item}。',
     monPicksGold: '{mon}捡起了 {n} 枚金币。',
+    monFalls: '{mon}跌进地洞，掉到了下一层！',
+    monLevelTeleports: '{mon}被传送得不见了踪影。',
     stealNothing: '{mon}摸索了一番，什么也没找到。',
     monCurses: '{mon}诅咒了{item}。',
     monDisenchants: '{mon}消去了{obj}的附魔。',

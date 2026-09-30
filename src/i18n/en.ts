@@ -439,6 +439,8 @@ const messages: MessageCatalog = {
     monStealsGold: 'The {mon} snatches {n} gold and vanishes!',
     monPicksUp: 'The {mon} picks up {item}.',
     monPicksGold: 'The {mon} picks up {n} gold pieces.',
+    monFalls: 'The {mon} falls through a hole and lands below!',
+    monLevelTeleports: 'The {mon} vanishes from the level.',
     stealNothing: 'The {mon} gropes around but finds nothing.',
     monCurses: 'The {mon} curses {item}.',
     monDisenchants: 'The {mon} drains the enchantment from your {obj}.',
