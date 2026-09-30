@@ -97,6 +97,7 @@ const messages: MessageCatalog = {
     effectSenseFood: 'Food sense',
     effectHasted: 'Hasted',
     effectTelepathy: 'Telepathy',
+    effectLevitation: 'Levitating',
     effectPetrifying: 'Petrifying!',
     controls:
       'Click the floor to walk there · Move: arrows/hjkl · Pick up: g · Pack: i · Help: ? · Camera: drag/wheel · Esc: menu',
@@ -326,6 +327,9 @@ const messages: MessageCatalog = {
     digWall: 'Your pick digs through the wall.',
     digDown: 'You dig a shaft downward.',
     digBlocked: 'Digging is forbidden here — the walls will not yield.',
+    levitateTrap: 'You float over {trap}.',
+    levitateEnd: 'You settle back to the ground.',
+    castLevitate: 'The spell lifts you off the ground.',
     boulderBroken: 'The boulder shatters into rubble.',
     sokobanLuck: 'A tension in the air… (luck -1)',
     enlightenStats:
@@ -613,6 +617,7 @@ const messages: MessageCatalog = {
     digWall: 'The wand of digging breaches the wall.',
     digDown: 'The wand of digging bores a hole, and you fall through.',
     digBlocked: 'Digging is forbidden here — the wand fizzles.',
+    levitate: 'Your feet leave the ground; you float ({n} turns).',
     noCharges: 'Nothing happens — no charges left.',
     zapWish: 'The wand of wishing glows, awaiting your wish.',
     wishLamp: 'A djinni emerges from the lamp, ready to grant a wish.',
@@ -716,6 +721,7 @@ const messages: MessageCatalog = {
   },
   terrain: {
     stone: 'stone',
+    air: 'open air',
     wall: 'wall',
     door: 'door',
     corridor: 'corridor',

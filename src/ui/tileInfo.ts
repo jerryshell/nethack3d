@@ -57,6 +57,7 @@ const TERRAIN_KEYS: Partial<Record<number, string>> = {
   [T.ALTAR]: 'altar',
   [T.STAIRS]: 'stairs',
   [T.LADDER]: 'ladder',
+  [T.AIR]: 'air',
   [T.STONE]: 'stone',
 };
 

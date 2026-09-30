@@ -96,6 +96,7 @@ const messages: MessageCatalog = {
     effectSenseFood: '食物探测',
     effectHasted: '加速中',
     effectTelepathy: '心灵感应',
+    effectLevitation: '浮空',
     effectPetrifying: '石化中！',
     controls:
       '点击地面即可走过去 · 移动：方向键/hjkl · 拾取：g · 背包：i · 帮助：? · 视角：拖拽/滚轮 · Esc：菜单',
@@ -251,6 +252,9 @@ const messages: MessageCatalog = {
     digWall: '镐头凿穿了墙壁。',
     digDown: '你向下挖出一条通道。',
     digBlocked: '推箱层禁止破坏地形，墙挖不动。',
+    levitateTrap: '你从{trap}上方飘过。',
+    levitateEnd: '你落回了地面。',
+    castLevitate: '咒语让你飘浮起来。',
     boulderBroken: '巨石碎成了粉末。',
     sokobanLuck: '推箱层的力量不满地波动着……（幸运 -1）',
     enlightenStats:
@@ -606,6 +610,7 @@ const messages: MessageCatalog = {
     digWall: '挖掘魔杖轰开了墙壁。',
     digDown: '挖掘魔杖在地上开出一个洞，你掉了下去。',
     digBlocked: '推箱层禁止破坏地形，魔杖失灵了。',
+    levitate: '你的脚离开了地面，飘浮起来（{n} 回合）。',
     noCharges: '没有充能，什么也没发生。',
     zapWish: '许愿魔杖亮起，等待你说出愿望。',
     wishLamp: '魔法灯里冒出一个精怪，愿意实现一个愿望。',
@@ -709,6 +714,7 @@ const messages: MessageCatalog = {
   },
   terrain: {
     stone: '岩石',
+    air: '虚空',
     wall: '墙',
     door: '门',
     corridor: '走廊',

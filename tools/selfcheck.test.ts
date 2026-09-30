@@ -4177,6 +4177,118 @@ section('冷门药水与卷轴', async () => {
   }
 });
 
+section('浮空', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory, wearItem } = await import('../src/game/inventory');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+
+  const openNeighbor = (s: InstanceType<typeof GameSession>) => {
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as [number, number][]) {
+      const x = s.player.x + dx;
+      const y = s.player.y + dy;
+      const i = index(x, y);
+      if (s.level.tiles[i] !== T.ROOM && s.level.tiles[i] !== T.CORR) continue;
+      if (s.level.traps.has(i)) continue;
+      if (s.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+      return { dx, dy, x, y, i };
+    }
+    return null;
+  };
+
+  // 浮空药水与浮空戒指都能进入浮空状态。
+  {
+    const s = new GameSession({ seed: 7001 });
+    s.useItem(makeItem(objById.get('POT_LEVITATION') as ObjectData, s.rng));
+    ok(s.player.levitating > 0 && s.hasLevitation(), '浮空药水让人飘浮');
+    ok(
+      s.messages.some((m) => m.key === 'use.levitate'),
+      '记录浮空消息',
+    );
+    const restored = restoreSession(serializeSession(s));
+    ok(restored.player.levitating > 0, '浮空计时随存档保留');
+  }
+  {
+    const s = new GameSession({ seed: 7002 });
+    const ring = makeItem(objById.get('RIN_LEVITATION') as ObjectData, s.rng);
+    addToInventory(s.player, ring);
+    wearItem(s.player, ring);
+    ok(s.hasLevitation(), '浮空戒指戴上就飘浮');
+  }
+
+  // 浮空时从岩浆上方飘过，不受灼伤；落地后再踩会受伤。
+  {
+    const s = new GameSession({ seed: 7003 });
+    s.player.maxHp = 200;
+    s.player.hp = 200;
+    const spot = openNeighbor(s);
+    ok(!!spot, '找得到相邻空地');
+    if (spot) {
+      s.level.tiles[spot.i] = T.LAVA;
+      s.player.levitating = 5;
+      s.movePlayer(spot.dx, spot.dy);
+      ok(s.player.hp === 200, '浮空跳过岩浆伤害');
+      ok(s.player.x === spot.x && s.player.y === spot.y, '浮空时仍可移动到岩浆上');
+      // 取消浮空，再走回原格（把原格也变成岩浆）。
+      s.player.levitating = 0;
+      const back = openNeighbor(s);
+      ok(!!back, '岩浆旁边还有空地');
+      if (back) {
+        s.level.tiles[back.i] = T.LAVA;
+        const hp = s.player.hp;
+        s.movePlayer(back.dx, back.dy);
+        ok(s.player.hp < hp, `失去浮空后岩浆造成伤害（${hp} → ${s.player.hp}）`);
+      }
+    }
+  }
+
+  // 浮空时越过虚空，并从陷阱上方飘过。
+  {
+    const s = new GameSession({ seed: 7004 });
+    const spot = openNeighbor(s);
+    ok(!!spot, '找得到相邻空地');
+    if (spot) {
+      s.level.tiles[spot.i] = T.AIR;
+      s.player.levitating = 5;
+      s.movePlayer(spot.dx, spot.dy);
+      ok(s.player.x === spot.x && s.player.y === spot.y, '浮空可以越过虚空');
+    }
+  }
+  {
+    const s = new GameSession({ seed: 7005 });
+    const spot = openNeighbor(s);
+    ok(!!spot, '找得到相邻空地');
+    if (spot) {
+      s.level.traps.set(spot.i, { type: 'PIT', seen: false });
+      s.player.levitating = 5;
+      const hp = s.player.hp;
+      s.movePlayer(spot.dx, spot.dy);
+      ok(s.player.hp === hp, '浮空不触发陷阱伤害');
+      ok(
+        s.messages.some((m) => m.key === 'msg.levitateTrap'),
+        '记录从陷阱上方飘过的消息',
+      );
+    }
+  }
+
+  // 计时归零落回地面。
+  {
+    const s = new GameSession({ seed: 7006 });
+    s.player.levitating = 1;
+    s.upkeep();
+    ok(s.player.levitating === 0 && !s.hasLevitation(), '浮空计时归零');
+    ok(
+      s.messages.some((m) => m.key === 'msg.levitateEnd'),
+      '记录落地消息',
+    );
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');

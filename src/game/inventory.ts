@@ -517,6 +517,13 @@ function quaffPotion(session: GameSession, item: ItemInstance): UseOutcome {
       out.vars = { ...out.vars, n: restored };
       break;
     }
+    case 'POT_LEVITATION': {
+      const turns = item.buc === 'cursed' ? 8 + rng.rn2(5) : 15 + rng.rn2(10);
+      player.levitating = Math.max(player.levitating, turns);
+      out.key = 'use.levitate';
+      out.vars = { ...out.vars, n: turns };
+      break;
+    }
     case 'POT_WATER':
       if (item.buc === 'blessed' || item.buc === 'cursed') {
         const count = blessInventory(player, item.buc);

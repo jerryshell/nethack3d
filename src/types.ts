@@ -455,6 +455,8 @@ export interface Player {
   petrifying: number;
   /** 加速剩余回合；大于 0 时每次行动不给怪物回合。 */
   hasted: number;
+  /** 浮空剩余回合；大于 0 时飘浮，可越过虚空与地面陷阱。 */
+  levitating: number;
   /** 疾病剩余回合；大于 0 时停止自然回复并周期性掉血。 */
   sick: number;
   /** 阵营记录：正数表示神满意，负数表示失望，范围 [-128, 127]。 */
@@ -718,6 +720,8 @@ export interface SaveData {
     petrifying?: number;
     hasted?: number;
     sick?: number;
+    /** 浮空剩余回合。 */
+    levitating?: number;
     alignRecord?: number;
     prayerTimeout?: number;
     form?: { id: string; turns: number } | null;

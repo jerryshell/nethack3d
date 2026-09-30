@@ -539,6 +539,17 @@ export class GameSession {
     return this.player.invisible > 0 || this.hasEquipmentPower('INVIS');
   }
 
+  /** 当前是否浮空：浮空药水计时、浮空戒指/靴子或飞行护身符。 */
+  hasLevitation(): boolean {
+    const p = this.player;
+    return (
+      p.levitating > 0 ||
+      p.equipment.boots?.proto.id === 'LEVITATION_BOOTS' ||
+      this.hasEquipmentPower('LEVITATION') ||
+      this.hasEquipmentPower('FLYING')
+    );
+  }
+
   /**
    * 与身边的职业任务领袖交谈。
    *
@@ -915,7 +926,8 @@ export class GameSession {
       }
     }
 
-    if (!isWalkable(t)) {
+    const levitating = this.hasLevitation();
+    if (!isWalkable(t) && !(levitating && t === T.AIR)) {
       // 持握镐类工具时，向墙壁移动就是挖掘。
       if (isWall(t) && this.wieldingDigger()) {
         const dug = this.digWall(nx, ny);
@@ -976,9 +988,9 @@ export class GameSession {
     if (gold > 0) this.log('msg.gold', { n: gold });
     this.refreshFov();
 
-    // 元素位面的地表：岩浆灼伤，水流拖慢脚步。
+    // 元素位面的地表：岩浆灼伤，水流拖慢脚步；浮空时从上方飘过。
     const tileNow = this.tileAt(nx, ny);
-    if (tileNow === T.LAVA) {
+    if (!levitating && tileNow === T.LAVA) {
       const rolled = this.rng.dice(2, 6);
       const resisted = playerResists(this.player).has('fire');
       const dmg = resisted ? Math.ceil(rolled / 2) : rolled;
@@ -987,7 +999,7 @@ export class GameSession {
         this.dead = true;
         return { result: 'dead' };
       }
-    } else if (tileNow === T.WATER && this.rng.chance(0.25)) {
+    } else if (!levitating && tileNow === T.WATER && this.rng.chance(0.25)) {
       this.player.held = Math.max(this.player.held, 1);
       this.log('msg.waterDrag');
     }
@@ -1336,6 +1348,12 @@ export class GameSession {
     if (!trap) return false;
     const effect = trapEffect(trap.type);
     const trapName = trapNameKey(trap.type);
+    // 浮空时从地面陷阱上方飘过；魔法传送门例外，否则终局会被浮空卡死。
+    if (this.hasLevitation() && trap.type !== 'MAGIC_PORTAL') {
+      trap.seen = true;
+      this.log('msg.levitateTrap', { trap: trapName });
+      return false;
+    }
     trap.seen = true;
     let moved = false;
 
@@ -1541,6 +1559,10 @@ export class GameSession {
     if (this.turn % 15 === 0 && p.pw < p.maxPw) p.pw++;
 
     // 计时状态递减。
+    if (p.levitating > 0) {
+      p.levitating--;
+      if (p.levitating === 0) this.log('msg.levitateEnd');
+    }
     if (p.blind > 0) {
       p.blind--;
       if (p.blind === 0) this.log('msg.blindnessEnds');
@@ -1989,6 +2011,11 @@ export class GameSession {
         break;
       }
       case 'escape': {
+        if (item.proto.id === 'SPE_LEVITATION') {
+          this.player.levitating = Math.max(this.player.levitating, 10 + level);
+          key = 'msg.castLevitate';
+          break;
+        }
         if (this.teleportBlocked) {
           key = 'msg.teleportBlocked';
           break;

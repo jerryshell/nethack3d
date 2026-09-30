@@ -94,6 +94,8 @@ export class Player implements PlayerState {
   petrifying: number;
   /** 加速剩余回合；大于 0 时跳过怪物行动。 */
   hasted: number;
+  /** 浮空剩余回合；大于 0 时飘浮。 */
+  levitating: number;
   /** 疾病剩余回合；大于 0 时停止自然回复并周期性掉血。 */
   sick: number;
   /** 阵营记录与祈祷冷却。 */
@@ -178,6 +180,7 @@ export class Player implements PlayerState {
     this.stun = 0;
     this.petrifying = 0;
     this.hasted = 0;
+    this.levitating = 0;
     this.sick = 0;
     this.alignRecord = 0;
     this.prayerTimeout = 0;
