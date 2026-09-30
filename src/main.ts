@@ -1098,6 +1098,68 @@ function startGame(options: StartGameOptions = {}): void {
 
   const offLocale = onLocaleChange(() => hud.render(session));
 
+  // 触屏方向键：粗指针设备（手机/平板）上提供八方向与等待按钮；
+  // 自动化检查可以用 `?touch=1` 强制显示。
+  const forceTouch = new URLSearchParams(location.search).has('touch');
+  if (
+    forceTouch ||
+    (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches)
+  ) {
+    const pad = document.createElement('div');
+    pad.className = 'touch-pad';
+    const layout: Array<{ id: string; dx: number; dy: number; label: string } | 'wait' | null> = [
+      { id: 'NW', dx: -1, dy: -1, label: 'northwest' },
+      { id: 'N', dx: 0, dy: -1, label: 'north' },
+      { id: 'NE', dx: 1, dy: -1, label: 'northeast' },
+      { id: 'W', dx: -1, dy: 0, label: 'west' },
+      'wait',
+      { id: 'E', dx: 1, dy: 0, label: 'east' },
+      { id: 'SW', dx: -1, dy: 1, label: 'southwest' },
+      { id: 'S', dx: 0, dy: 1, label: 'south' },
+      { id: 'SE', dx: 1, dy: 1, label: 'southeast' },
+    ];
+    const glyph: Record<string, string> = {
+      NW: '↖',
+      N: '↑',
+      NE: '↗',
+      W: '←',
+      E: '→',
+      SW: '↙',
+      S: '↓',
+      SE: '↘',
+    };
+    for (const cell of layout) {
+      if (!cell) {
+        pad.append(document.createElement('span'));
+        continue;
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'touch-key';
+      if (cell === 'wait') {
+        button.textContent = '·';
+        button.setAttribute('aria-label', t('actions.wait'));
+        button.addEventListener('pointerdown', (e): void => {
+          e.preventDefault();
+          cancelTravel();
+          afterAction(session.wait());
+        });
+      } else {
+        button.textContent = glyph[cell.id];
+        button.setAttribute('aria-label', t(`dir.${cell.label}`));
+        const dx = cell.dx;
+        const dy = cell.dy;
+        button.addEventListener('pointerdown', (e): void => {
+          e.preventDefault();
+          cancelTravel();
+          afterAction(session.movePlayer(dx, dy));
+        });
+      }
+      pad.append(button);
+    }
+    ui.append(pad);
+  }
+
   game = {
     session,
     scene,

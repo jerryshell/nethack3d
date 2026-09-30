@@ -842,3 +842,47 @@ body {
   border-radius: 999px;
   min-height: 2rem;
 }
+
+/* ---------- 触屏方向键 ---------- */
+/*
+ * 只给粗指针设备用：八方向加中央等待。
+ * 容器本身不接收触控，避免挡住画布的点击移动；
+ * 每个按键自开事件并放大到 48px 以上，满足触控目标尺寸。
+ */
+#ui > .touch-pad {
+  position: absolute;
+  left: max(0.75rem, env(safe-area-inset-left));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: repeat(3, 3.2rem);
+  grid-template-rows: repeat(3, 3.2rem);
+  gap: 0.25rem;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.touch-pad .touch-key {
+  pointer-events: auto;
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(180deg, rgba(40, 48, 70, 0.82), rgba(22, 27, 42, 0.82));
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 1.25rem;
+  line-height: 1;
+  border-radius: 10px;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: pointer;
+}
+
+.touch-pad .touch-key:active {
+  background: rgba(216, 180, 92, 0.35);
+  border-color: var(--gold);
+}
+
+.touch-pad .touch-key:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 1px;
+}
