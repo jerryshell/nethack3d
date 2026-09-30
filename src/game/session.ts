@@ -3264,6 +3264,23 @@ export class GameSession {
     return !mon.angry && mon.data.flags.includes('M2_PEACEFUL');
   }
 
+  /**
+   * 地面是否会让怪物止步。
+   *
+   * 不会游泳、不能飞的怪物不主动下水；没有火焰抗性的怪物不踏进岩浆；
+   * 水元素、火元素这类有对应标志或抗性的怪物照常通行。
+   */
+  private monsterFearsTile(mon: Monster, tile: number): boolean {
+    const watery = tile === T.WATER || tile === T.POOL || tile === T.MOAT;
+    if (!watery && tile !== T.LAVA) return false;
+    const flags = mon.data.flags;
+    if (flags.includes('M1_SWIM') || flags.includes('M1_AMPHIBIOUS') || flags.includes('M1_FLY')) {
+      return false;
+    }
+    if (tile === T.LAVA) return !mon.data.resists.includes('MR_FIRE');
+    return true;
+  }
+
   /** 单步移动：direction 为 1 时靠近玩家，-1 时远离，0 时随机游走。 */
   stepMonster(mon: Monster, direction: number): void {
     const player = this.player;
@@ -3275,6 +3292,8 @@ export class GameSession {
       const i = index(nx, ny);
       const t = this.level.tiles[i];
       if (!isWalkable(t)) continue;
+      // 不会水、怕火的怪物主动绕开岩浆与水。
+      if (this.monsterFearsTile(mon, t)) continue;
       if (monsterAt(this.level, nx, ny)) continue;
       if (nx === player.x && ny === player.y) continue;
       const d = Math.max(Math.abs(nx - player.x), Math.abs(ny - player.y));
@@ -3344,6 +3363,7 @@ export class GameSession {
         const ni = index(nx, ny);
         if (prev[ni] !== -1) continue;
         if (ni !== goal && !isWalkable(tiles[ni])) continue;
+        if (ni !== goal && this.monsterFearsTile(mon, tiles[ni])) continue;
         if (ni !== goal && monsterAt(this.level, nx, ny)) continue;
         prev[ni] = cur;
         queue.push(ni);

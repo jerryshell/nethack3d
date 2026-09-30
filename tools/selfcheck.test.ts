@@ -4578,6 +4578,65 @@ section('铁球惩罚', async () => {
   }
 });
 
+section('怪物避让危险地形', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById } = await import('../src/data/index');
+  const { T } = await import('../src/core/constants');
+
+  /** 搭一个封闭场地：左格怪物、中格 hazard、右格玩家，其余全封死。 */
+  const arena = (hazard: number) => {
+    const s = new GameSession({ seed: 8100 });
+    s.level.monsters.length = 0;
+    const room = s.level.rooms[0];
+    const cx = Math.floor((room.lx + room.hx) / 2);
+    const cy = Math.floor((room.ly + room.hy) / 2);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        s.level.tiles[index(cx + dx, cy + dy)] = T.VWALL;
+      }
+    }
+    s.level.tiles[index(cx - 1, cy)] = T.ROOM;
+    s.level.tiles[index(cx, cy)] = hazard;
+    s.level.tiles[index(cx + 1, cy)] = T.ROOM;
+    s.player.x = cx + 1;
+    s.player.y = cy;
+    return { s, cx, cy };
+  };
+  const spawn = (s: InstanceType<typeof GameSession>, id: string, x: number, y: number) => {
+    const mon = new Monster(monById.get(id)!, x, y, s.rng);
+    mon.asleep = false;
+    s.level.monsters.push(mon);
+    return mon;
+  };
+
+  // 不会水的怪物不下水，水生怪物照走。
+  {
+    const first = arena(T.WATER);
+    const ant = spawn(first.s, 'GIANT_ANT', first.cx - 1, first.cy);
+    first.s.stepMonster(ant, 1);
+    ok(ant.x === first.cx - 1 && ant.y === first.cy, '不会水的怪物不下水');
+
+    const second = arena(T.WATER);
+    const eel = spawn(second.s, 'GIANT_EEL', second.cx - 1, second.cy);
+    second.s.stepMonster(eel, 1);
+    ok(eel.x === second.cx && eel.y === second.cy, '水生怪物照样进水');
+  }
+
+  // 无火抗的怪物不踏岩浆，有火抗的可以。
+  {
+    const first = arena(T.LAVA);
+    const ant = spawn(first.s, 'GIANT_ANT', first.cx - 1, first.cy);
+    first.s.stepMonster(ant, 1);
+    ok(ant.x === first.cx - 1 && ant.y === first.cy, '无火抗的怪物不踏岩浆');
+
+    const second = arena(T.LAVA);
+    const salamander = spawn(second.s, 'SALAMANDER', second.cx - 1, second.cy);
+    second.s.stepMonster(salamander, 1);
+    ok(salamander.x === second.cx && salamander.y === second.cy, '火抗怪物可以进岩浆');
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');
