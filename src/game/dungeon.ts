@@ -1325,6 +1325,19 @@ function generateLevelCore({
     placeDoors(level, rng);
   }
   computeWalls(level);
+  // 门上的机关：深层才有，用独立随机流，不扰动本层其它生成内容。
+  // 对应原版 mklev.c 的 D_TRAPPED（难度 5 起，关闭的门 1/25）。
+  if (depth >= 5) {
+    const doorTrapRng = createRng(
+      branch
+        ? deriveSeed(gameSeed, 'door-traps', branch, depth)
+        : deriveSeed(gameSeed, 'door-traps', depth),
+    );
+    for (const [, door] of level.doors) {
+      if (!door.closed) continue;
+      if (doorTrapRng.rn2(25) === 0) door.trapped = true;
+    }
+  }
   // 巢穴的室内不落楼梯，玩家要从门进去。
   const inLair = (i: number): boolean => {
     const x = i % COLNO;

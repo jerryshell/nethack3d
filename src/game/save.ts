@@ -98,11 +98,13 @@ function serializeLevel(level: Level): SerializedLevel {
     ...(level.shopRestockAt !== undefined ? { shopRestockAt: level.shopRestockAt } : {}),
     seen: Array.from(level.seen),
     populated: !!level.populated,
-    doors: [...level.doors].map(([i, d]): [number, boolean, boolean, boolean] => [
+    doors: [...level.doors].map(([i, d]): [number, boolean, boolean, boolean, boolean, boolean] => [
       i,
       d.closed,
       d.locked,
       d.broken,
+      !!d.trapped,
+      !!d.trapKnown,
     ]),
     traps: [...level.traps].map(([i, tp]): [number, string, boolean] => [i, tp.type, tp.seen]),
     ...(level.changedTiles?.size
@@ -336,9 +338,15 @@ export function restoreSession(data: SaveData): GameSession {
     level.seen = Uint8Array.from(ld.seen ?? []);
     level.populated = !!ld.populated;
     level.doors = new Map(
-      (ld.doors ?? []).map(([i, closed, locked, broken]) => [
+      (ld.doors ?? []).map(([i, closed, locked, broken, trapped, trapKnown]) => [
         i,
-        { closed: !!closed, locked: !!locked, broken: !!broken },
+        {
+          closed: !!closed,
+          locked: !!locked,
+          broken: !!broken,
+          ...(trapped ? { trapped: true } : {}),
+          ...(trapKnown ? { trapKnown: true } : {}),
+        },
       ]),
     );
     level.traps = new Map((ld.traps ?? []).map(([i, type, seen]) => [i, { type, seen: !!seen }]));

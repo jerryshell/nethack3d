@@ -1023,6 +1023,9 @@ export class GameSession {
           door.closed = false;
           this.log('msg.doorOpens');
         }
+        // 开门时触发门上的机关；触发后机关失效。
+        if (!door.closed) this.triggerDoorTrap(nx, ny, door);
+        if (this.dead) return { result: 'dead' };
         // 门开后视野立刻改变，不能等下一次移动才重算。
         this.refreshFov();
         this.finishTurn();
@@ -1447,9 +1450,17 @@ export class GameSession {
     for (const [dx, dy] of spots) {
       const i = index(this.player.x + dx, this.player.y + dy);
       const trap = this.level.traps.get(i);
-      if (!trap || trap.seen) continue;
-      if (this.rng.chance(chance)) {
-        trap.seen = true;
+      if (trap && !trap.seen) {
+        if (this.rng.chance(chance)) {
+          trap.seen = true;
+          found++;
+        }
+        continue;
+      }
+      // 门上的机关也能搜出来。
+      const door = this.level.doors.get(i);
+      if (door?.trapped && !door.trapKnown && this.rng.chance(chance)) {
+        door.trapKnown = true;
         found++;
       }
     }
@@ -3828,11 +3839,24 @@ export class GameSession {
       if (door && door.closed) {
         const action = this.monsterDoorMove(mon, door);
         if (action === 'none') return;
-        if (action === 'open') {
-          door.closed = false;
-          return;
-        }
-        if (action === 'break') {
+        if (action === 'open' || action === 'break') {
+          // 开门可能触发门上的机关；钻门缝的变形怪不触发。
+          if (door.trapped) {
+            door.trapped = false;
+            door.trapKnown = false;
+            if (this.visible?.[index(mon.x, mon.y)] === 1) {
+              this.log('msg.monDoorTrap', { mon: mon.data.id });
+            }
+            mon.mhp -= this.rng.dice(2, 4);
+            if (mon.mhp <= 0) {
+              this.trapKillMonster(mon);
+              return;
+            }
+          }
+          if (action === 'open') {
+            door.closed = false;
+            return;
+          }
           door.closed = false;
           door.locked = false;
           door.broken = true;
@@ -4049,6 +4073,32 @@ export class GameSession {
     }
     const noHands = flags.includes('M1_NOHANDS');
     return noHands || mon.data.size === 'MZ_TINY' ? 'none' : 'open';
+  }
+
+  /**
+   * 打开带机关的门：随机结算一种即时效果，机关随即失效。
+   *
+   * 借用陷阱表与 `springTrap`，只挑不会换层或改地形的影响；
+   * 临时陷阱放在门格上，结算完就移除，不留下可见陷阱。
+   */
+  private triggerDoorTrap(x: number, y: number, door: DoorState): void {
+    if (!door.trapped) return;
+    door.trapped = false;
+    door.trapKnown = false;
+    this.log('msg.doorTrap');
+    const kinds = [
+      'ARROW_TRAP',
+      'DART_TRAP',
+      'ROCKTRAP',
+      'FIRE_TRAP',
+      'SLEEPING_GAS_TRAP',
+      'TELEP_TRAP',
+    ];
+    const type = this.rng.pick(kinds) as string;
+    const i = index(x, y);
+    this.level.traps.set(i, { type, seen: false });
+    this.springTrap(i);
+    this.level.traps.delete(i);
   }
 
   /**

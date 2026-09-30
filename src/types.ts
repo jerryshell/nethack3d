@@ -248,6 +248,10 @@ export interface DoorState {
   closed: boolean;
   locked: boolean;
   broken: boolean;
+  /** 门上的机关：开门时触发一次。 */
+  trapped?: boolean;
+  /** 机关是否已被搜索发现（影响提示文字）。 */
+  trapKnown?: boolean;
 }
 
 interface TrapState {
@@ -698,7 +702,7 @@ export interface SerializedLevel {
   branch?: string;
   seen: number[];
   populated: boolean;
-  doors: [number, boolean, boolean, boolean][];
+  doors: [number, boolean, boolean, boolean, boolean?, boolean?][];
   traps: [number, string, boolean][];
   /** 设施的可变状态：[下标, 是否失效, 是否用过]，省略时按生成时的默认值。 */
   features?: [number, 0 | 1, 0 | 1][];

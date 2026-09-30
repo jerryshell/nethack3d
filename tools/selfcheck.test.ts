@@ -3029,6 +3029,124 @@ section('陷阱', async () => {
     ok(sprung, '未知陷阱类型可以正常结算');
     ok(!s.dead, '未知陷阱类型不会导致死亡');
   }
+
+  // 门上的机关：深层生成、开门触发、搜索可见、随存档保留。
+  {
+    const { serializeSession, restoreSession } = await import('../src/game/save');
+    const { Monster } = await import('../src/game/monsters');
+    const deep = generateLevel({ gameSeed: 20240101, depth: 15 });
+    const again = generateLevel({ gameSeed: 20240101, depth: 15 });
+    const trapped = [...deep.doors.values()].filter((d) => d.trapped).length;
+    const trappedAgain = [...again.doors.values()].filter((d) => d.trapped).length;
+    ok(trapped > 0, `深层门上有机关（${trapped} 扇）`);
+    ok(trapped === trappedAgain, '门上的机关可复现');
+    const shallow = generateLevel({ gameSeed: 20240101, depth: 3 });
+    ok(
+      [...shallow.doors.values()].every((d) => !d.trapped),
+      '浅层门上没有机关',
+    );
+
+    // 开门触发机关并消耗它。
+    const s = new GameSession({ seed: 4242 });
+    s.player.maxHp = 200;
+    s.player.hp = 200;
+    s.level.monsters = [];
+    const entry = [...s.level.doors].find(([, d]) => d.closed);
+    ok(!!entry, '开门测试需要一扇关闭的门');
+    if (entry) {
+      const [tile, door] = entry;
+      door.trapped = true;
+      door.trapKnown = true;
+      const dx = tile % s.level.width;
+      const dy = Math.floor(tile / s.level.width);
+      const near = [
+        [dx - 1, dy],
+        [dx + 1, dy],
+        [dx, dy - 1],
+        [dx, dy + 1],
+      ].find(([x, y]) => isWalkable(s.level.tiles[index(x, y)]));
+      ok(!!near, '门旁边有可站立的位置');
+      if (near) {
+        s.player.x = near[0];
+        s.player.y = near[1];
+        s.refreshFov();
+        const restored = restoreSession(serializeSession(s));
+        ok(restored.level.doors.get(tile)?.trapped === true, '门上机关随存档保留');
+        const r = s.movePlayer(dx - near[0], dy - near[1]);
+        ok(r.result === 'opened', `开门返回 opened（${r.result}）`);
+        ok(!door.trapped, '开门触发后机关失效');
+        ok(
+          s.messages.some((m) => m.key === 'msg.doorTrap'),
+          '触发门机关有提示',
+        );
+      }
+    }
+
+    // 搜索可以提前发现门上的机关。
+    const s2 = new GameSession({ seed: 4242 });
+    s2.level.monsters = [];
+    const entry2 = [...s2.level.doors].find(([, d]) => d.closed);
+    if (entry2) {
+      const [tile2, door2] = entry2;
+      door2.trapped = true;
+      const dx2 = tile2 % s2.level.width;
+      const dy2 = Math.floor(tile2 / s2.level.width);
+      const near2 = [
+        [dx2 - 1, dy2],
+        [dx2 + 1, dy2],
+        [dx2, dy2 - 1],
+        [dx2, dy2 + 1],
+      ].find(([x, y]) => isWalkable(s2.level.tiles[index(x, y)]));
+      if (near2) {
+        s2.player.x = near2[0];
+        s2.player.y = near2[1];
+        s2.refreshFov();
+        for (let i = 0; i < 30 && !door2.trapKnown; i++) s2.searchAction();
+        ok(door2.trapKnown === true, '搜索可以发现门上的机关');
+      }
+    }
+
+    // 怪物开门也会触发机关。
+    const s3 = new GameSession({ seed: 4242 });
+    s3.player.maxHp = 200;
+    s3.player.hp = 200;
+    s3.level.monsters = [];
+    const entry3 = [...s3.level.doors].find(([, d]) => d.closed);
+    if (entry3) {
+      const [tile3, door3] = entry3;
+      door3.trapped = true;
+      const dx3 = tile3 % s3.level.width;
+      const dy3 = Math.floor(tile3 / s3.level.width);
+      const near3 = [
+        [dx3 - 1, dy3],
+        [dx3 + 1, dy3],
+        [dx3, dy3 - 1],
+        [dx3, dy3 + 1],
+      ].find(([x, y]) => isWalkable(s3.level.tiles[index(x, y)]));
+      let opposite3: [number, number] | null = null;
+      if (near3) {
+        if (near3[0] === dx3 - 1) opposite3 = [dx3 + 1, dy3];
+        else if (near3[0] === dx3 + 1) opposite3 = [dx3 - 1, dy3];
+        else if (near3[1] === dy3 - 1) opposite3 = [dx3, dy3 + 1];
+        else opposite3 = [dx3, dy3 - 1];
+      }
+      if (near3 && opposite3 && isWalkable(s3.level.tiles[index(opposite3[0], opposite3[1])])) {
+        const mon = new Monster(
+          monById.get('KOBOLD') as MonsterData,
+          near3[0],
+          near3[1],
+          createRng(9),
+        );
+        mon.mhp = mon.mhpmax = 100;
+        mon.asleep = false;
+        s3.level.monsters = [mon];
+        s3.player.x = opposite3[0];
+        s3.player.y = opposite3[1];
+        s3.stepMonster(mon, 1);
+        ok(!door3.trapped, '怪物开门也会触发门上的机关');
+      }
+    }
+  }
 });
 section('地形设施', async () => {
   const { GameSession } = await import('../src/game/session');

@@ -175,6 +175,12 @@ export function describeTile(session: GameSession, x: number, y: number): TileIn
     return { title, hint: t('tile.featureHint'), kind: 'terrain' };
   }
 
+  // 搜索发现过机关的门单独标出来，提醒玩家开门前先做准备。
+  const door = level.doors.get(i);
+  if (door?.trapKnown) {
+    return { title: t('terrain.trappedDoor'), hint: t('tile.trappedDoorHint'), kind: 'terrain' };
+  }
+
   const tile = level.tiles[i];
   const key = TERRAIN_KEYS[tile] ?? 'stone';
   const digger = ['PICK_AXE', 'DWARVISH_MATTOCK'].includes(session.player.weapon?.id ?? '');
