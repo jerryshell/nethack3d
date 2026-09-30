@@ -4704,6 +4704,19 @@ export class GameSession {
 
   /** 宠物的行动：先攻击身边的敌对怪物，否则跟着玩家。 */
   private petAction(mon: Monster): void {
+    // 饿了就吃脚下的食物（未付款的商店货物不碰），对应原版宠物的自行捡食。
+    if ((mon.hunger ?? 900) < 300) {
+      const pile = pileAt(this.level, mon.x, mon.y);
+      const food = pile?.items.find((item) => item.proto.cls === 'food' && !item.unpaid);
+      if (pile && food) {
+        pile.items.splice(pile.items.indexOf(food), 1);
+        if (!pile.items.length) this.level.objects.splice(this.level.objects.indexOf(pile), 1);
+        mon.hunger = Math.min(2000, (mon.hunger ?? 900) + (food.proto.nutrition ?? 100));
+        mon.mhp = Math.min(mon.mhpmax, mon.mhp + Math.ceil(mon.mhpmax / 2));
+        this.log('msg.petEats', { mon: mon.data.id, item: describeItem(food) });
+        return;
+      }
+    }
     const foe = this.level.monsters.find(
       (m) =>
         !m.dead &&

@@ -4303,6 +4303,25 @@ section('宠物', async () => {
     }
   }
   {
+    // 饿了会自己吃脚下的食物，不需要玩家喂。
+    const s = newSession();
+    const pet = s.level.monsters.find((m) => m.tame);
+    ok(!!pet, '开局有宠物用于自食测试');
+    if (pet) {
+      s.level.monsters = [pet];
+      pet.hunger = 200;
+      const food = makeItem(objById.get('FOOD_RATION') as ObjectData, s.rng);
+      s.level.objects.push({ x: pet.x, y: pet.y, items: [food] });
+      const hungerBefore = pet.hunger;
+      s.monsterTurns();
+      ok((pet.hunger ?? 0) > hungerBefore, `宠物会自己吃脚下的食物（${pet.hunger}）`);
+      ok(
+        !s.level.objects.some((p) => p.x === pet.x && p.y === pet.y && p.items.length > 0),
+        '地面的食物被吃掉',
+      );
+    }
+  }
+  {
     const s = newSession();
     const pet = s.level.monsters.find((m) => m.tame);
     if (pet) {
