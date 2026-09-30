@@ -14,6 +14,7 @@ import { luckArtifactBonus } from '../game/combat';
 import { t, applyI18n, onLocaleChange, setLocale, nextLocale, LOCALES } from '../i18n/index';
 import { formatMessage } from './message';
 import { createMinimap } from './minimap';
+import { statusIconSvg } from './icons';
 import { buildDump, dumpFileName } from './dump';
 import { alignDisplayName } from '../data/i18n';
 import { isMuted, setMuted } from '../core/audio';
@@ -168,7 +169,11 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     if (hunger >= HUNGER_WARN) return null;
     const cell = document.createElement('div');
     cell.className = 'hud-stat hud-warn';
-    cell.textContent = t(hunger < HUNGER_DANGER ? 'hud.hungerFaint' : 'hud.hungerHungry');
+    const svg = statusIconSvg('hunger');
+    if (svg) cell.insertAdjacentHTML('beforeend', svg);
+    cell.append(
+      document.createTextNode(t(hunger < HUNGER_DANGER ? 'hud.hungerFaint' : 'hud.hungerHungry')),
+    );
     return cell;
   }
 
@@ -177,50 +182,59 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     if (session.player.sick <= 0) return null;
     const cell = document.createElement('div');
     cell.className = 'hud-stat hud-warn';
-    cell.textContent = t('hud.sick');
+    const svg = statusIconSvg('sick');
+    if (svg) cell.insertAdjacentHTML('beforeend', svg);
+    cell.append(document.createTextNode(t('hud.sick')));
     return cell;
   }
 
   /** 状态小标签：失明、混乱、隐形、沉睡、被缠、眩晕与石化。 */
   function effectsCell(session: GameSession): HTMLElement | null {
     const p = session.player;
-    const all: [number, string, boolean][] = [
-      [p.blind, 'hud.effectBlind', false],
-      [p.confused, 'hud.effectConfused', false],
-      [p.sleep, 'hud.effectSleep', false],
-      [p.held, 'hud.effectHeld', false],
-      [p.stun, 'hud.effectStun', false],
-      [p.hasted, 'hud.effectHasted', false],
-      [p.senseMonsters, 'hud.effectSenseMonsters', false],
-      [p.petrifying, 'hud.effectPetrifying', true],
-      [p.punished ? 1 : 0, 'hud.effectPunished', true],
+    const all: [number, string, boolean, string][] = [
+      [p.blind, 'hud.effectBlind', false, 'blind'],
+      [p.confused, 'hud.effectConfused', false, 'confused'],
+      [p.sleep, 'hud.effectSleep', false, 'sleep'],
+      [p.held, 'hud.effectHeld', false, 'held'],
+      [p.stun, 'hud.effectStun', false, 'stun'],
+      [p.hasted, 'hud.effectHasted', false, 'hasted'],
+      [p.senseMonsters, 'hud.effectSenseMonsters', false, 'eye'],
+      [p.petrifying, 'hud.effectPetrifying', true, 'petrifying'],
+      [p.punished ? 1 : 0, 'hud.effectPunished', true, 'punished'],
     ];
-    if (session.hasTelepathy()) all.push([1, 'hud.effectTelepathy', false]);
+    if (session.hasTelepathy()) all.push([1, 'hud.effectTelepathy', false, 'telepathy']);
     if (session.hasLevitation())
-      all.push([session.player.levitating || 1, 'hud.effectLevitation', false]);
-    if (p.drowning > 0) all.push([p.drowning, 'hud.effectDrowning', true]);
-    if (session.hasInvisibility()) all.push([1, 'hud.effectInvisible', false]);
-    if (session.player.senseObjects > 0) all.push([1, 'hud.effectSenseObjects', false]);
-    if (session.player.senseGold > 0) all.push([1, 'hud.effectSenseGold', false]);
-    if (session.player.senseFood > 0) all.push([1, 'hud.effectSenseFood', false]);
+      all.push([session.player.levitating || 1, 'hud.effectLevitation', false, 'levitation']);
+    if (p.drowning > 0) all.push([p.drowning, 'hud.effectDrowning', true, 'drowning']);
+    if (session.hasInvisibility()) all.push([1, 'hud.effectInvisible', false, 'invisible']);
+    if (session.player.senseObjects > 0) all.push([1, 'hud.effectSenseObjects', false, 'eye']);
+    if (session.player.senseGold > 0) all.push([1, 'hud.effectSenseGold', false, 'eye']);
+    if (session.player.senseFood > 0) all.push([1, 'hud.effectSenseFood', false, 'eye']);
     const active = all.filter(([turns]) => turns > 0);
     if (!active.length) return null;
     const cell = document.createElement('div');
     cell.className = 'hud-effects';
-    for (const [turns, key, danger] of active) {
-      const chip = document.createElement('span');
-      chip.className = danger ? 'hud-chip danger' : 'hud-chip';
-      chip.textContent = t(key);
-      // 计时状态额外标出剩余回合；常驻能力（心灵感应等）不进这个分支。
-      if (turns > 1) {
-        const count = document.createElement('span');
-        count.className = 'hud-chip-turns';
-        count.textContent = String(Math.ceil(turns));
-        chip.append(count);
-      }
-      cell.append(chip);
+    for (const [turns, key, danger, icon] of active) {
+      cell.append(chipOf(key, icon, danger, turns));
     }
     return cell;
+  }
+
+  /** 把图标、文字与剩余回合拼成一个状态标签。 */
+  function chipOf(key: string, icon: string, danger: boolean, turns = 0): HTMLElement {
+    const chip = document.createElement('span');
+    chip.className = danger ? 'hud-chip danger' : 'hud-chip';
+    const svg = statusIconSvg(icon);
+    if (svg) chip.insertAdjacentHTML('beforeend', svg);
+    chip.append(document.createTextNode(t(key)));
+    // 计时状态额外标出剩余回合；常驻能力（心灵感应等）不进这个分支。
+    if (turns > 1) {
+      const count = document.createElement('span');
+      count.className = 'hud-chip-turns';
+      count.textContent = String(Math.ceil(turns));
+      chip.append(count);
+    }
+    return chip;
   }
 
   function renderStats(session: GameSession): void {

@@ -433,23 +433,26 @@ async function main(): Promise<void> {
         const chips = [...document.querySelectorAll('.hud-chip')].map((c) => c.textContent.trim());
         const danger = document.querySelectorAll('.hud-chip.danger').length;
         const turns = [...document.querySelectorAll('.hud-chip-turns')].map((c) => c.textContent);
+        const icons = document.querySelectorAll('.hud-chip-icon').length;
         g.session.player.blind = 0;
         g.session.player.petrifying = 0;
         g.hud.render(g.session);
-        return JSON.stringify({ chips, danger, turns });
+        return JSON.stringify({ chips, danger, turns, icons });
       })()`,
     );
     const effectData = (effects.value ?? {}) as {
       chips?: string[];
       danger?: number;
       turns?: string[];
+      icons?: number;
     };
     record(
       '状态效果标签可用',
       (effectData.chips?.length ?? 0) >= 2 &&
         (effectData.danger ?? 0) >= 1 &&
-        (effectData.turns ?? []).includes('5'),
-      `标签=${(effectData.chips ?? []).join('/')} 危险=${effectData.danger ?? 0} 回合=${(effectData.turns ?? []).join(',')}`,
+        (effectData.turns ?? []).includes('5') &&
+        (effectData.icons ?? 0) >= 2,
+      `标签=${(effectData.chips ?? []).join('/')} 危险=${effectData.danger ?? 0} 回合=${(effectData.turns ?? []).join(',')} 图标=${effectData.icons ?? 0}`,
     );
 
     // 5b3. 转储按钮：弹出可复制的状态文本，含种子、地图与存档载荷

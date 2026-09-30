@@ -894,3 +894,11 @@ body {
   font-family: var(--font-mono);
   font-size: 0.72em;
 }
+
+/* 状态标签前的图标：内联 SVG，跟随文字颜色。 */
+.hud-chip-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  margin-right: 0.25em;
+}
