@@ -7,7 +7,7 @@
  */
 
 import type { Level } from '../types';
-import { COLNO, ROWNO, T, isWalkable } from '../core/constants';
+import { COLNO, ROWNO, T, isLiquid, isWalkable } from '../core/constants';
 import { index } from './dungeon';
 
 export interface Point {
@@ -38,21 +38,40 @@ const MAX_VISITS = 4000;
 const same = (a: Point, b: Point): boolean => a.x === b.x && a.y === b.y;
 
 /** 格子是否可以走过：需要已探索且地形可通行。 */
-function passable(level: Level, x: number, y: number, levitating: boolean): boolean {
+function passable(
+  level: Level,
+  x: number,
+  y: number,
+  levitating: boolean,
+  avoidHazards = false,
+): boolean {
   if (x < 0 || y < 0 || x >= COLNO || y >= ROWNO) return false;
   const i = index(x, y);
   if (level.seen[i] !== 1) return false;
-  if (isWalkable(level.tiles[i])) return true;
-  // 浮空时可以从虚空上方走过，与元素位面的移动规则一致。
-  return levitating && level.tiles[i] === T.AIR;
+  if (!isWalkable(level.tiles[i])) {
+    // 浮空时可以从虚空上方走过，与元素位面的移动规则一致。
+    return levitating && level.tiles[i] === T.AIR;
+  }
+  if (avoidHazards) {
+    // 已经见过的陷阱与液面不在自动路径上冒险，玩家仍可以手动走进去。
+    if (level.traps.get(i)?.seen === true) return false;
+    if (isLiquid(level.tiles[i]) && !levitating) return false;
+  }
+  return true;
 }
 
 /** 对角线移动时，两侧正交格都必须可通行。 */
-function diagonalAllowed(level: Level, from: Point, step: Step, levitating: boolean): boolean {
+function diagonalAllowed(
+  level: Level,
+  from: Point,
+  step: Step,
+  levitating: boolean,
+  avoidHazards: boolean,
+): boolean {
   if (step.dx === 0 || step.dy === 0) return true;
   return (
-    passable(level, from.x + step.dx, from.y, levitating) &&
-    passable(level, from.x, from.y + step.dy, levitating)
+    passable(level, from.x + step.dx, from.y, levitating, avoidHazards) &&
+    passable(level, from.x, from.y + step.dy, levitating, avoidHazards)
   );
 }
 
@@ -71,9 +90,13 @@ export function findPath(
   level: Level,
   from: Point,
   to: Point,
-  { levitating = false }: { levitating?: boolean } = {},
+  {
+    levitating = false,
+    avoidHazards = true,
+  }: { levitating?: boolean; avoidHazards?: boolean } = {},
 ): Step[] | null {
   if (same(from, to)) return [];
+  // 目标格只看可通行性：玩家点了陷阱或水面，也要能走到那里。
   if (!passable(level, to.x, to.y, levitating)) return null;
 
   const start = index(from.x, from.y);
@@ -99,9 +122,12 @@ export function findPath(
       if (nx < 0 || ny < 0 || nx >= COLNO || ny >= ROWNO) continue;
       const next = index(nx, ny);
       if (cameFrom[next] !== -1) continue;
-      if (next !== goal && (!passable(level, nx, ny, levitating) || hasMonster(level, nx, ny)))
+      if (
+        next !== goal &&
+        (!passable(level, nx, ny, levitating, avoidHazards) || hasMonster(level, nx, ny))
+      )
         continue;
-      if (!diagonalAllowed(level, { x: cx, y: cy }, step, levitating)) continue;
+      if (!diagonalAllowed(level, { x: cx, y: cy }, step, levitating, avoidHazards)) continue;
       cameFrom[next] = current;
       queue.push(next);
     }

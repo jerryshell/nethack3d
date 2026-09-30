@@ -2054,6 +2054,26 @@ section('点击移动寻路', async () => {
       points.every((p) => isWalkable(level.tiles[index(p.x, p.y)])),
       '路径只经过可通行的格子',
     );
+
+    // 自动路径避开已经见过的陷阱；目标格不受此限制。
+    if (path && path.length >= 2) {
+      const trapAt = {
+        x: start.x + path[0].dx + path[1].dx,
+        y: start.y + path[0].dy + path[1].dy,
+      };
+      if (trapAt.x !== target.x || trapAt.y !== target.y) {
+        const trapIndex = index(trapAt.x, trapAt.y);
+        level.traps.set(trapIndex, { type: 'PIT', seen: true });
+        const safe = findPath(level, start, target);
+        const safePoints = safe ? pathPoints(start, safe) : [];
+        ok(
+          safe === null || safePoints.every((p) => p.x !== trapAt.x || p.y !== trapAt.y),
+          '自动寻路绕开已见的陷阱',
+        );
+        ok(findPath(level, start, target, { avoidHazards: false }) !== null, '关掉避让仍可达');
+        level.traps.delete(trapIndex);
+      }
+    }
   } else {
     ok(false, '起点周围没有可用的目标格');
   }
