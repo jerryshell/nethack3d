@@ -742,6 +742,7 @@ export class GameSession {
       mon.asleep = false;
       level.monsters.push(mon);
     }
+    this.placeAltarGuards(level, special);
     for (const entry of special.objects ?? []) {
       const proto = objById.get(entry.proto);
       if (!proto) continue;
@@ -757,6 +758,30 @@ export class GameSession {
         const pile = level.objects.find((p) => p.x === spot.x && p.y === spot.y);
         if (pile) pile.items.push(item);
         else level.objects.push({ x: spot.x, y: spot.y, items: [item] });
+      }
+    }
+  }
+
+  /**
+   * 圣坛守卫：每座祭坛旁站一只守卫，与祭坛同阵营的守卫对玩家友好，
+   * 异教祭坛的守卫直接动手（星界位面的三座神殿各有一位天使）。
+   */
+  private placeAltarGuards(level: Level, special: SpecialLevel): void {
+    if (!special.altarGuards) return;
+    const data = monById.get(special.altarGuards);
+    if (!data) return;
+    for (const [i, feature] of level.features) {
+      if (feature.type !== 'ALTAR') continue;
+      const at = coords(i);
+      for (let n = 0; n < 2; n++) {
+        const at2 = this.spotNear(level, at, 1, 2);
+        if (!at2) break;
+        const guard = new MonsterEntity(data, at2.x, at2.y, this.rng);
+        guard.asleep = false;
+        // 同阵营神殿的天使只是守卫；异教神殿的天使直接动手。
+        guard.peaceful = feature.align === this.player.align;
+        guard.angry = false;
+        level.monsters.push(guard);
       }
     }
   }
@@ -2939,7 +2964,7 @@ export class GameSession {
   /** 击杀对阵营记录的影响：杀敌对的对立阵营加分，杀同阵营与和平生物扣分。 */
   private killAlignDelta(mon: Monster): number {
     const weight = Math.max(1, Math.floor(mon.mlev / 2));
-    if (mon.data.flags.includes('M2_PEACEFUL')) return -weight;
+    if (mon.peaceful === true || mon.data.flags.includes('M2_PEACEFUL')) return -weight;
     const monSign = Math.sign(mon.data.align);
     const playerSign = alignSign(this.player.align);
     if (monSign !== 0 && monSign === playerSign) return -weight;
@@ -3381,9 +3406,9 @@ export class GameSession {
     return fov[index(player.x, player.y)] === 1;
   }
 
-  /** 尚未被挑衅的和平生物，对应数据里的 M2_PEACEFUL。 */
+  /** 尚未被挑衅的和平生物：数据默认的 M2_PEACEFUL，或按站位判定的平和守卫。 */
   isPeaceful(mon: Monster): boolean {
-    return !mon.angry && mon.data.flags.includes('M2_PEACEFUL');
+    return !mon.angry && (mon.peaceful === true || mon.data.flags.includes('M2_PEACEFUL'));
   }
 
   /**

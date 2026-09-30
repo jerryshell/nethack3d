@@ -26,6 +26,8 @@ export interface SpecialLevel {
   fountains?: number;
   /** 保证出现的祭坛归属；星界位面用它铺出三座神殿。 */
   altars?: Alignment[];
+  /** 每座祭坛旁的守卫怪物 id；异教祭坛的守卫对玩家敌对。 */
+  altarGuards?: string;
   /** 散布地形：把部分地面换成岩浆、水流或虚空，用于元素位面。 */
   scatter?: { tile: 'lava' | 'water' | 'air'; chance: number };
 }
@@ -91,8 +93,9 @@ export const BRANCH_SPECIAL_LEVELS: Record<string, Record<number, SpecialLevel>>
     5: {
       id: 'astral',
       layout: 'bigRoom',
-      monsters: ['DEATH', 'FAMINE', 'PESTILENCE', 'ANGEL', 'ANGEL', 'ARCHON'],
+      monsters: ['DEATH', 'FAMINE', 'PESTILENCE', 'ARCHON'],
       altars: ['lawful', 'neutral', 'chaotic'],
+      altarGuards: 'ANGEL',
     },
   },
 };

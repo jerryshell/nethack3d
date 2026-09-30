@@ -392,6 +392,8 @@ export interface Monster {
   taunted?: boolean;
   /** 宠物的饱食度：900 为饱腹，归零会变野。 */
   hunger?: number;
+  /** 平和生物：数据默认敌对、但因站位/阵营不主动出手（如同阵营神殿的天使）。 */
+  peaceful?: boolean;
 }
 
 export type EquipmentSlot =
@@ -667,6 +669,8 @@ export interface SerializedMonster {
   tt?: 0 | 1;
   /** 宠物饱食度。 */
   hg?: number;
+  /** 平和生物。 */
+  pf?: 0 | 1;
   mv: number;
 }
 

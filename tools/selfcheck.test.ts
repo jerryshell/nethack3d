@@ -3584,6 +3584,12 @@ section('开启仪式与异界', async () => {
     ok(!s.level.down, '星界没有下行楼梯（终局）');
     const altars = [...s.level.features.values()].filter((f) => f.type === 'ALTAR');
     ok(altars.length === 3, `星界有三座祭坛（${altars.length}）`);
+    // 每座神殿两位天使守卫：同阵营的天使平和，异教神殿的天使敌对。
+    const guards = s.level.monsters.filter((m) => !m.dead && m.data.id === 'ANGEL');
+    ok(guards.length >= 6, `三座神殿各有两位天使（${guards.length}）`);
+    const peaceful = guards.filter((g) => g.peaceful === true);
+    ok(peaceful.length === 2, `本阵营神殿的天使平和（${peaceful.length}）`);
+    ok(guards.filter((g) => g.peaceful !== true).length >= 4, '异教神殿的天使敌对');
     ok(
       ['lawful', 'neutral', 'chaotic'].every((a) => altars.some((f) => f.align === a)),
       '三座祭坛分属三个阵营',

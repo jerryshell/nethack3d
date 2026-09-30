@@ -54,6 +54,7 @@ function serializeMonster(m: MonsterState): SerializedMonster {
     ...(m.cancelled ? { cn: 1 as const } : {}),
     ...(m.taunted ? { tt: 1 as const } : {}),
     ...(m.hunger !== undefined ? { hg: m.hunger } : {}),
+    ...(m.peaceful ? { pf: 1 as const } : {}),
     mv: m.mv,
   };
 }
@@ -77,6 +78,7 @@ function deserializeMonster(data: SerializedMonster, rng: Rng): MonsterState | n
   mon.cancelled = !!data.cn;
   mon.taunted = !!data.tt;
   mon.hunger = data.hg ?? 900;
+  mon.peaceful = !!data.pf;
   mon.mv = data.mv ?? 0;
   return mon;
 }

@@ -45,6 +45,8 @@ export class Monster implements MonsterState {
   taunted?: boolean;
   /** 宠物饱食度；只有驯服的宠物会消耗与饥饿。 */
   hunger?: number;
+  /** 平和生物：不主动出手，被攻击后才反击。 */
+  peaceful?: boolean;
 
   constructor(data: MonsterData, x: number, y: number, rng: Rng, { mlev }: { mlev?: number } = {}) {
     this.id = nextId++;
@@ -69,6 +71,7 @@ export class Monster implements MonsterState {
     this.cancelled = false;
     this.taunted = false;
     this.hunger = 900;
+    this.peaceful = false;
   }
 
   get ac(): number {
