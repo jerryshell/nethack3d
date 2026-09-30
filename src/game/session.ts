@@ -997,10 +997,10 @@ export class GameSession {
           this.finishTurn();
           return { result: 'blocked' };
         }
-        this.progressDigWall(nx, ny);
+        const digKey = this.progressDigWall(nx, ny);
         this.refreshFov();
         this.finishTurn();
-        return { result: 'moved' };
+        return { result: 'moved', key: digKey };
       }
       return { result: 'blocked' };
     }
@@ -2265,7 +2265,7 @@ export class GameSession {
    *
    * 目标或方向一变就从头计起，最后一步交给 `digWall` 收尾。
    */
-  private progressDigWall(x: number, y: number): void {
+  private progressDigWall(x: number, y: number): string {
     const turns = this.digTurns();
     if (!this.digging || this.digging.down || this.digging.x !== x || this.digging.y !== y) {
       this.digging = { x, y, down: false, progress: 0 };
@@ -2273,10 +2273,11 @@ export class GameSession {
     this.digging.progress++;
     if (this.digging.progress < turns) {
       this.log('msg.digWallProgress', { n: turns - this.digging.progress });
-      return;
+      return 'msg.digWallProgress';
     }
     this.digging = null;
     this.digWall(x, y);
+    return 'msg.digWall';
   }
 
   /** 能否用镐向下挖：持镐站在普通地面上，且本分支还有下层。 */
@@ -2310,7 +2311,7 @@ export class GameSession {
     if (this.digging.progress < turns) {
       this.log('msg.digDownProgress', { n: turns - this.digging.progress });
       this.finishTurn();
-      return { result: 'used' };
+      return { result: 'used', key: 'msg.digDownProgress' };
     }
     this.digging = null;
     this.level.traps.set(index(x, y), { type: 'HOLE', seen: true });
@@ -2396,7 +2397,12 @@ export class GameSession {
       if (res.refused.length) this.log('use.inventoryFull');
     }
     this.finishTurn();
-    return { result: 'picked', picked: res.picked.length };
+    const goldPicked = res.picked.some((item) => item.gold);
+    return {
+      result: 'picked',
+      picked: res.picked.length,
+      key: goldPicked ? 'msg.gold' : undefined,
+    };
   }
 
   /**

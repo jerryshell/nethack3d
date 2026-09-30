@@ -174,7 +174,7 @@ bun tools/dump-level.ts 42 1 2 5                 # 输出指定种子与层数�
 
 地牢中的门、楼梯与陷阱使用 Kenney 的 Mini Dungeon 模型；玩家与人形怪物使用
 Mini 系列的人物模型（自带 idle/walk/attack/die 等 32 段骨骼动画）。
-音效同样来自 Kenney（打击、脚步、开门、拾取、升级等 25 个）。
+音效同样来自 Kenney（打击、脚步、开门、拾取、升级、挖掘、读书、金币等 25 个，全部接线）。
 全部素材为 CC0，公共领域。
 素材由脚本从素材库同步到 `public/assets/kenney/`，随仓库提交，
 构建与运行不依赖素材库是否存在：

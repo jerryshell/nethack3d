@@ -10,6 +10,7 @@ import type { GameSession } from '../game/session';
 import { t, onLocaleChange, applyI18n } from '../i18n/index';
 import { describeItem } from '../game/items';
 import { itemName, itemSuffix } from './itemName';
+import { playSfx } from '../core/audio';
 import { letterToIndex } from '../game/inventory';
 import { ARTIFACT_INVOKES } from '../game/artifacts';
 import { createLogger, LOG_NS } from '../core/log';
@@ -126,7 +127,10 @@ export function createInventoryPanel({
   const closeBtn = document.createElement('button');
   closeBtn.className = 'btn small';
   closeBtn.dataset.i18n = 'menu.close';
-  closeBtn.addEventListener('click', () => onClose?.());
+  closeBtn.addEventListener('click', () => {
+    playSfx('close', { gain: 0.6 });
+    onClose?.();
+  });
 
   panel.append(title, list, hint, closeBtn);
   el.append(panel);
@@ -197,6 +201,7 @@ export function createInventoryPanel({
         // 浏览模式下点击展开动作菜单，让可用动作一目了然；
         // 键盘仍可沿用字母直接执行默认动作。
         if (mode === 'view') {
+          if (!isExpanded) playSfx('select', { gain: 0.6 });
           expanded = isExpanded ? null : item;
           render();
           return;

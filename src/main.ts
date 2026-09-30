@@ -833,27 +833,37 @@ function startGame(options: StartGameOptions = {}): void {
 
   /** 把动作结果翻译成音效。 */
   function playActionResult(result: ActionResultInfo, hpBefore: number, levelBefore: number): void {
-    switch (result.result) {
-      case 'moved':
-        playFootstep();
-        break;
-      case 'opened':
-        playSfx('door-open', { gain: 0.8 });
-        break;
-      case 'blocked':
-        playSfx('hit-wood', { gain: 0.5, rate: 0.9 });
-        break;
-      case 'picked':
-        playSfx('confirm', { gain: 0.7 });
-        break;
-      case 'used':
-        playSfx('potion', { gain: 0.7 });
-        break;
-      case 'descended':
-        playSfx('descend', { gain: 0.9 });
-        break;
-      default:
-        break;
+    // 挖掘、读书与捡金币有自己的音效，不走通用结果音。
+    const key = result.key ?? '';
+    if (key.startsWith('msg.dig')) {
+      playSfx('mining', { gain: 0.8, rate: 0.95 });
+    } else if (key === 'use.studySpell') {
+      playSfx('book', { gain: 0.8 });
+    } else if (key === 'msg.gold') {
+      playSfx('coins', { gain: 0.8 });
+    } else {
+      switch (result.result) {
+        case 'moved':
+          playFootstep();
+          break;
+        case 'opened':
+          playSfx('door-open', { gain: 0.8 });
+          break;
+        case 'blocked':
+          playSfx('hit-wood', { gain: 0.5, rate: 0.9 });
+          break;
+        case 'picked':
+          playSfx('confirm', { gain: 0.7 });
+          break;
+        case 'used':
+          playSfx('potion', { gain: 0.7 });
+          break;
+        case 'descended':
+          playSfx('descend', { gain: 0.9 });
+          break;
+        default:
+          break;
+      }
     }
     // 受击与升级用状态变化判断，比结果字段更直接。
     if (session.player.hp < hpBefore) playSfx('hit-light', { gain: 0.8 });
