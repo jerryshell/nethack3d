@@ -643,6 +643,7 @@ const messages: MessageCatalog = {
     equipHint: 'Use wield (w) or wear (W) for that.',
     notWeapon: 'That is not a weapon.',
     notWearable: 'You cannot wear that.',
+    alreadyWorn: 'You are already wearing that.',
     pickupNothing: 'There is nothing here to pick up.',
     inventoryFull: 'Your pack is full.',
     drop: 'You drop {item}.',

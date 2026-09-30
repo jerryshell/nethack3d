@@ -1240,6 +1240,35 @@ section('物品与背包', async () => {
       ok(!picked, '灭绝的物种不再生成');
     }
   }
+
+  // 同一件戒指不能同时占两个槽位；移除时清掉全部引用。
+  {
+    const { GameSession } = await import('../src/game/session');
+    const { makeItem } = await import('../src/game/items');
+    const { objById } = await import('../src/data/index');
+    const { wearItem, removeFromInventory } = await import('../src/game/inventory');
+    const s = new GameSession({ seed: 9292 });
+    const ring = makeItem(objById.get('RIN_GAIN_CONSTITUTION') as ObjectData, s.rng);
+    s.player.inventory.push(ring);
+    ok(wearItem(s.player, ring).ok, '首次戴戒指成功');
+    const again = wearItem(s.player, ring);
+    ok(!again.ok && again.reason === 'item.alreadyWorn', '同一件戒指不能重复戴');
+    const slots = Object.entries(s.player.equipment).filter(([, it]) => it === ring);
+    ok(slots.length === 1, `戒指只占一个槽位（${slots.length}）`);
+    s.useItem(ring, 'wear');
+    ok(
+      s.messages.some((m) => m.key === 'use.alreadyWorn'),
+      '重复戴给出已戴提示',
+    );
+    // 防御性回归：即使两个槽位指向同一件物品，移除也要清干净。
+    s.player.equipment.ringLeft = ring;
+    s.player.equipment.ringRight = ring;
+    removeFromInventory(s.player, ring);
+    ok(
+      !s.player.equipment.ringLeft && !s.player.equipment.ringRight,
+      '移除物品会清掉全部装备槽引用',
+    );
+  }
 });
 
 section('尸体与进食', async () => {

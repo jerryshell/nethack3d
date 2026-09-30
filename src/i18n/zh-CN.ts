@@ -636,6 +636,7 @@ const messages: MessageCatalog = {
     equipHint: '使用 w（持握）或 W（穿戴）。',
     notWeapon: '那不是武器。',
     notWearable: '无法穿戴它。',
+    alreadyWorn: '已经戴在身上了。',
     pickupNothing: '这里没有可以捡起的东西。',
     inventoryFull: '背包满了。',
     drop: '放下了{item}。',

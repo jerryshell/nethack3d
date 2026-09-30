@@ -64,6 +64,8 @@ export function wearItem(
   item: ItemInstance,
 ): { ok: boolean; slot?: EquipmentSlot; reason?: string } {
   const proto = item.proto;
+  // 同一件物品不能重复戴到两个槽位，否则会留下悬空的装备槽。
+  if (equippedSlot(player, item)) return { ok: false, reason: 'item.alreadyWorn' };
   if (proto.cls === 'armor') {
     const slot = WEARABLE_SLOT(proto) ?? 'suit';
     player.equipment[slot] = item;
@@ -89,13 +91,13 @@ export function removeItem(
   player: Player,
   item: ItemInstance,
 ): { ok: boolean; slot?: EquipmentSlot; reason?: string } {
+  let first: EquipmentSlot | undefined;
   for (const [slot, equipped] of Object.entries(player.equipment)) {
-    if (equipped === item) {
-      delete player.equipment[slot as EquipmentSlot];
-      return { ok: true, slot: slot as EquipmentSlot };
-    }
+    if (equipped !== item) continue;
+    if (!first) first = slot as EquipmentSlot;
+    delete player.equipment[slot as EquipmentSlot];
   }
-  return { ok: false, reason: 'item.notWorn' };
+  return first ? { ok: true, slot: first } : { ok: false, reason: 'item.notWorn' };
 }
 
 export function equippedSlot(player: Player, item: ItemInstance): EquipmentSlot | null {

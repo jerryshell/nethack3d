@@ -444,6 +444,10 @@ const invocation: Scenario = {
       const session = newSession(seed);
       checker.attachDump(() => `${describeState(session)}\n\n${renderMap(session)}`);
       const call = repro('invocation', seed);
+      // 仪式会惊醒圣所的全部恶魔，给测试角色足够的生命值，
+      // 避免被贴脸的恶魔当场打死而中断终局流程。
+      session.player.maxHp = 300;
+      session.player.hp = 300;
       const hasItem = (id: string): boolean =>
         session.player.inventory.some((i) => i.proto.id === id);
       const pickUp = (id: string, buc: 'cursed' | 'uncursed' = 'uncursed') => {
@@ -552,8 +556,7 @@ const invocation: Scenario = {
       checker.absorb('星界状态自洽', checkInvariants(session), call);
 
       // 带着护身符：献错祭坛会受罚，献给自己阵营的祭坛则登神。
-      session.player.maxHp = 300;
-      session.player.hp = 300;
+      session.player.hp = session.player.maxHp;
       pickUp('AMULET_OF_YENDOR');
       const wrong = altars.find(([, f]) => f.align && f.align !== session.player.align);
       if (wrong) {

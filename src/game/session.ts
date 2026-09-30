@@ -2275,7 +2275,7 @@ export class GameSession {
         const res = wearItem(this.player, item);
         outcome = res.ok
           ? { key: 'use.wear', vars: { item: describeItem(item) } }
-          : { key: 'use.notWearable' };
+          : { key: res.reason === 'item.alreadyWorn' ? 'use.alreadyWorn' : 'use.notWearable' };
         break;
       }
       case 'remove': {
