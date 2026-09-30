@@ -28,7 +28,21 @@ import { createRng, deriveSeed } from '../core/rng';
 import { createLogger, LOG_NS } from '../core/log';
 import { specialLevelFor } from './special';
 import { branchById, branchByEntrance } from './branches';
-import type { Alignment, FeatureState, Level, Room, Rng } from '../types';
+import { SOKOBAN_LEVELS } from '../data/sokoban.gen';
+import { SOKOBAN_CLASSES, type SokobanVariant } from './sokoban';
+import { makeBoulder, makeItem, randomItemOfClass } from './items';
+import { OBJECTS } from '../data/index';
+import type {
+  Alignment,
+  FeatureState,
+  GroundPile,
+  ItemInstance,
+  Level,
+  ObjectClass,
+  Room,
+  Rng,
+  ShopType,
+} from '../types';
 
 const log = createLogger(LOG_NS.dungeon);
 
@@ -831,9 +845,27 @@ function hasDoor(level: Level, room: Room): boolean {
 }
 
 /**
+ * 商店种类权重，沿用 NetHack 的 shtypes[] 相对比例：
+ * 杂货店最常见，其余的武器、护甲、药水、卷轴、法杖、珠宝、
+ * 食物、工具与书店各占一小部分。
+ */
+const SHOP_TYPE_WEIGHTS: [ShopType, number][] = [
+  ['general', 42],
+  ['armor', 14],
+  ['scroll', 10],
+  ['potion', 10],
+  ['weapon', 5],
+  ['food', 5],
+  ['jewelry', 3],
+  ['wand', 3],
+  ['tool', 3],
+  ['book', 3],
+];
+
+/**
  * 把一间有门、无楼梯的房间标记为商店。
  *
- * 这里只决定房间归属，货物与店主由会话在放置阶段生成，
+ * 这里只决定房间归属与商店种类，货物与店主由会话在放置阶段生成，
  * 避免地牢模块反向依赖物品与怪物模块。首层与底层不放商店：
  * 前者是出生层，后者要留给尤恩多护身符。
  */
@@ -852,7 +884,30 @@ function placeShop(level: Level, rng: Rng, chance = 0.25): void {
   if (!candidates.length) return;
   const room = rng.pick(candidates) as Room;
   room.type = 'shop';
-  log.debug('商店房间已标记', { depth: level.depth, room: room.index });
+  room.shopType =
+    rng.pickWeighted(
+      SHOP_TYPE_WEIGHTS.map(([id, prob]) => ({ id, prob })),
+      'prob',
+    )?.id ?? 'general';
+  log.debug('商店房间已标记', { depth: level.depth, room: room.index, type: room.shopType });
+}
+
+/** 圣所的振动方块：放在一间房间里，用独立随机流定位。 */
+function placeVibratingSquare(level: Level, gameSeed: number): void {
+  const rng = createRng(deriveSeed(gameSeed, 'vibrating-square', level.depth));
+  const spots = freeTiles(
+    level,
+    (t, i) =>
+      t === T.ROOM &&
+      !level.traps.has(i) &&
+      !level.stairs.some((s) => index(s.x, s.y) === i) &&
+      !nearDoor(level, i) &&
+      !inShopRoom(level, i % COLNO, Math.floor(i / COLNO)),
+  );
+  if (!spots.length) return;
+  const i = rng.pick(spots) as number;
+  level.traps.set(i, { type: 'VIBRATING_SQUARE', seen: false });
+  log.debug('振动方块已放置', { depth: level.depth, at: coords(i) });
 }
 
 // ---------------------------------------------------------------------------
@@ -876,7 +931,168 @@ export function generateBranchLevel({
   depth: number;
   levels: number;
 }): Level {
+  // 推箱用原版提取的固定布局，不跑随机房间生成。
+  if (branchById(branch)?.sokoban) return generateSokobanLevel({ gameSeed, depth });
   return generateLevelCore({ gameSeed, depth, branch, levels });
+}
+
+/** 按原版显示名找物品原型：同时接受带类别前缀的名字。 */
+function findProtoByName(name: string) {
+  const exact = OBJECTS.find((o) => o.name === name);
+  if (exact) return exact;
+  const stripped = name.replace(/^(scroll|potion|wand|ring|amulet|spellbook) of /, '');
+  return OBJECTS.find((o) => o.name === stripped);
+}
+
+/**
+ * 生成一层推箱关卡。
+ *
+ * 地图字符、巨石、陷阱、楼梯与门都来自 `dat/soko*.lua`（见 sokoban.gen.ts），
+ * 变体按派生随机流二选一；整层照明并预先可见（原版的 lit + premapped）。
+ */
+function generateSokobanLevel({ gameSeed, depth }: { gameSeed: number; depth: number }): Level {
+  const data = SOKOBAN_LEVELS.find((l) => l.depth === depth);
+  if (!data) throw new Error(`没有推箱第 ${depth} 层的数据`);
+  const rng = createRng(deriveSeed(gameSeed, 'sokoban', depth));
+  const variant = rng.pick(data.variants) as SokobanVariant;
+  const width = Math.max(...variant.map.map((line) => line.length));
+  const height = variant.map.length;
+  const ox = Math.floor((COLNO - width) / 2);
+  const oy = Math.floor((ROWNO - height) / 2);
+  const level: Level = {
+    depth,
+    width: COLNO,
+    height: ROWNO,
+    tiles: new Uint8Array(COLNO * ROWNO),
+    seen: new Uint8Array(COLNO * ROWNO),
+    lit: new Uint8Array(COLNO * ROWNO),
+    rooms: [],
+    doors: new Map(),
+    traps: new Map(),
+    features: new Map(),
+    stairs: [],
+    up: null,
+    down: null,
+    start: null,
+    objects: [],
+    monsters: [],
+    populated: false,
+    visited: false,
+    special: 'sokoban',
+    sokobanVariant: variant.id,
+    branch: 'sokoban',
+  };
+  const at = (x: number, y: number) => index(ox + x, oy + y);
+  const floors: number[] = [];
+  for (let y = 0; y < height; y++) {
+    const line = variant.map[y];
+    for (let x = 0; x < line.length; x++) {
+      const i = at(x, y);
+      const ch = line[x];
+      if (ch === '-') level.tiles[i] = T.HWALL;
+      else if (ch === '|') level.tiles[i] = T.VWALL;
+      else if (ch === '+') {
+        level.tiles[i] = T.DOOR;
+        level.doors.set(i, { closed: true, locked: false, broken: false });
+      } else if (ch === '.') {
+        level.tiles[i] = T.ROOM;
+        level.lit[i] = 1;
+        level.seen[i] = 1;
+        floors.push(i);
+      }
+    }
+  }
+  // 整张地图算一间房，供 FOV、寻路与设施判定使用。
+  level.rooms.push({
+    lx: ox,
+    ly: oy,
+    hx: ox + width - 1,
+    hy: oy + height - 1,
+    index: 0,
+    type: 'room',
+    lit: true,
+  });
+  for (const door of variant.doors) {
+    const i = at(door.x, door.y);
+    level.tiles[i] = T.DOOR;
+    level.doors.set(i, { closed: true, locked: door.state === 'locked', broken: false });
+  }
+  for (const trap of variant.traps) {
+    level.traps.set(at(trap.x, trap.y), { type: trap.id, seen: false });
+  }
+  for (const stair of variant.stairs) {
+    const i = at(stair.x, stair.y);
+    level.tiles[i] = T.STAIRS;
+    const spot = { x: ox + stair.x, y: oy + stair.y };
+    level.stairs.push({ ...spot, dir: stair.dir });
+    if (stair.dir === 'up') level.up = spot;
+    else level.down = spot;
+  }
+  if (variant.branch) {
+    const i = at(variant.branch.x, variant.branch.y);
+    level.tiles[i] = T.STAIRS;
+    level.stairs.push({
+      x: ox + variant.branch.x,
+      y: oy + variant.branch.y,
+      dir: 'branch',
+      branch: 'sokoban',
+    });
+    level.start = { x: ox + variant.branch.x, y: oy + variant.branch.y };
+  } else {
+    level.start = level.up ?? level.down ?? coords(floors[0] ?? 0);
+  }
+  const put = (x: number, y: number, item: ItemInstance): void => {
+    const pile = level.objects.find((p) => p.x === x && p.y === y);
+    if (pile) pile.items.push(item);
+    else level.objects.push({ x, y, items: [item] });
+  };
+  for (const [x, y] of variant.boulders) {
+    level.objects.push({ x: ox + x, y: oy + y, items: [makeBoulder(rng)] });
+  }
+  const randomFloor = (): GroundPile | null => {
+    if (!floors.length) return null;
+    const i = rng.pick(floors) as number;
+    return { x: i % COLNO, y: Math.floor(i / COLNO), items: [] };
+  };
+  for (const spawn of variant.objects) {
+    let item: ItemInstance | null = null;
+    if (spawn.id) {
+      const proto = findProtoByName(spawn.id);
+      if (proto) item = makeItem(proto, rng);
+    } else if (spawn.cls) {
+      const cls = SOKOBAN_CLASSES[spawn.cls];
+      if (cls) item = randomItemOfClass(rng, cls as ObjectClass);
+    }
+    if (!item) continue;
+    if (spawn.buc === 'cursed') item.buc = 'cursed';
+    const spot =
+      spawn.x >= 0 && spawn.y >= 0 ? { x: ox + spawn.x, y: oy + spawn.y } : randomFloor();
+    if (spot) put(spot.x, spot.y, item);
+  }
+  // 顶层奖励：75% 次元袋，25% 反射护身符（原版 percent(75)）。
+  if (variant.prizes?.length && variant.prizeSpots?.length) {
+    const name = rng.chance(0.75) ? variant.prizes[0] : (variant.prizes[1] ?? variant.prizes[0]);
+    const proto = findProtoByName(name);
+    const spot = rng.pick(variant.prizeSpots) as [number, number];
+    if (proto) {
+      const prize = makeItem(proto, rng);
+      prize.buc = 'uncursed';
+      put(ox + spot[0], oy + spot[1], prize);
+    }
+  }
+  log.info(`推箱第 ${depth} 层生成完成：${variant.id}`, {
+    boulders: variant.boulders.length,
+    traps: variant.traps.length,
+  });
+  return level;
+}
+
+/** 任务楼层的特殊标识：首层是总部，中间是搜索层，底层是目标层。 */
+function questLevelSpecial(depth: number, levels: number): string | null {
+  if (depth === 1) return 'quest_home';
+  if (depth >= levels) return 'quest_goal';
+  if (depth === Math.ceil(levels / 2)) return 'quest_locate';
+  return null;
 }
 
 function generateLevelCore({
@@ -920,10 +1136,13 @@ function generateLevelCore({
     branch,
   };
 
-  /** 特殊楼层只存在于主地牢。 */
+  /** 特殊楼层只存在于主地牢；任务分支按层号标记总部、搜索层与目标层。 */
   const special = branch ? null : specialLevelFor(depth);
-  level.special = special?.id ?? null;
-  if (special?.layout === 'bigRoom') {
+  const branchDef = branch ? branchById(branch) : null;
+  level.special = special?.id ?? (branchDef?.quest ? questLevelSpecial(depth, levels) : null);
+  // 任务目标层用一整间大厅，让仇敌与神器更醒目。
+  const questGoal = !!branchDef?.quest && depth >= levels;
+  if (special?.layout === 'bigRoom' || questGoal) {
     carveBigRoom(level);
   } else {
     level.rooms = placeRooms(level, rng);
@@ -953,7 +1172,6 @@ function generateLevelCore({
     ? deriveSeed(gameSeed, 'shop-room', branch, depth)
     : deriveSeed(gameSeed, 'shop-room', depth);
   // 矿镇：市集层必有一间商店。
-  const branchDef = branch ? branchById(branch) : null;
   placeShop(level, createRng(shopSeed), branchDef?.town ? 1 : 0.25);
   placeTraps(level, rng);
   placeFeatures(level, rng, gameSeed);
@@ -964,6 +1182,10 @@ function generateLevelCore({
   }
   if (fountains) {
     placeExtraFeatures(level, rng, fountains, T.FOUNTAIN, 'FOUNTAIN');
+  }
+  // 圣所放一块振动方块：原版用它打开通往异界的传送门。
+  if (level.special === 'sanctum') {
+    placeVibratingSquare(level, gameSeed);
   }
   log.info(
     `${label} 生成完成：房间 ${level.rooms.length}、门 ${level.doors.size}、` +

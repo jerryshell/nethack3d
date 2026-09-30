@@ -21,7 +21,7 @@ import { loadCharacters, lookForPlayer, loadedCharacterCount } from './render/ch
 import { GameSession } from './game/session';
 import { findPath, pathPoints } from './game/path';
 import type { Point, Step } from './game/path';
-import { isWalkable, COLNO } from './core/constants';
+import { isWalkable, COLNO, T } from './core/constants';
 import { index } from './game/dungeon';
 import { FEATURE_ACTIONS } from './game/features';
 import { isContainer } from './game/containers';
@@ -108,7 +108,7 @@ let screen: ScreenId = 'title';
 
 /** 一局游戏所需的运行时对象。 */
 /** 渲染开销快照，供自动化检查与现场排查使用。 */
-export interface RenderStats {
+interface RenderStats {
   /** 每帧绘制调用数。 */
   calls: number;
   triangles: number;
@@ -399,6 +399,7 @@ const DIRECT_VERBS: ReadonlySet<string> = new Set([
   'fire',
   'put',
   'open',
+  'invoke',
 ]);
 
 function startGame(options: StartGameOptions = {}): void {
@@ -588,6 +589,22 @@ function startGame(options: StartGameOptions = {}): void {
       });
     }
 
+    // 站在祭坛上且背包里有尸体时，可以献祭。
+    if (level.tiles[index(player.x, player.y)] === T.ALTAR) {
+      const corpse = player.inventory.find((item) => item.corpse);
+      if (corpse) {
+        actions.push({
+          id: 'offer',
+          label: t('actions.offer'),
+          hint: t('actionHints.offer'),
+          onRun: () => {
+            cancelTravel();
+            afterAction(session.offerCorpse());
+          },
+        });
+      }
+    }
+
     const foe = level.monsters.find(
       (m) =>
         m.mhp > 0 &&
@@ -625,6 +642,30 @@ function startGame(options: StartGameOptions = {}): void {
         onRun: () => {
           cancelTravel();
           afterAction(session.consultOracle());
+        },
+      });
+    }
+
+    // 身边的职业任务领袖：交谈一次即可解锁任务楼梯。
+    const quest = session.character.role.quest;
+    const questLeader = quest
+      ? level.monsters.find(
+          (m) =>
+            !m.dead &&
+            m.data.id === quest.leader &&
+            Math.abs(m.x - player.x) <= 1 &&
+            Math.abs(m.y - player.y) <= 1 &&
+            (m.x !== player.x || m.y !== player.y),
+        )
+      : undefined;
+    if (questLeader) {
+      actions.push({
+        id: 'talk',
+        label: t('actions.talk'),
+        hint: session.questUnlocked ? t('actionHints.talkDone') : t('actionHints.talk'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.talkToLeader());
         },
       });
     }
@@ -793,7 +834,7 @@ function startGame(options: StartGameOptions = {}): void {
     scene.syncEntities(session);
     hud.render(session);
     refreshActions();
-    if (session.pendingWishes > 0) openWishPanel();
+    if (session.pendingWishes > 0 || session.pendingGenocide) openWishPanel();
     playActionResult(result, hpBefore, levelBefore);
     if (session.dead && !deathShown) {
       deathShown = true;
@@ -826,7 +867,15 @@ function startGame(options: StartGameOptions = {}): void {
     if (wishPanel) return;
     playSfx('open', { gain: 0.6 });
     wishPanel = createWishPanel(hud.el, {
+      mode: session.pendingGenocide ? 'genocide' : 'wish',
       onWish: (text) => {
+        if (session.pendingGenocide) {
+          const ok = session.tryGenocide(text);
+          hud.render(session);
+          refreshActions();
+          if (ok) playSfx('confirm', { gain: 0.8 });
+          return ok;
+        }
         const res = session.grantWish(text);
         hud.render(session);
         refreshActions();

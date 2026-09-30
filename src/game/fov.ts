@@ -16,7 +16,7 @@ import { index, inBounds } from './dungeon';
 
 const log = createLogger(LOG_NS.fov);
 
-export const DEFAULT_SIGHT_RADIUS = 12;
+const DEFAULT_SIGHT_RADIUS = 12;
 
 function blocksSight(level: Level, x: number, y: number): boolean {
   const i = index(x, y);
@@ -31,7 +31,7 @@ function blocksSight(level: Level, x: number, y: number): boolean {
 }
 
 /** 包含坐标 (x, y) 的房间，不在房间内时返回 null。 */
-export function roomAt(level: Level, x: number, y: number): Room | null {
+function roomAt(level: Level, x: number, y: number): Room | null {
   for (const r of level.rooms) {
     if (x >= r.lx && x <= r.hx && y >= r.ly && y <= r.hy) return r;
   }
@@ -136,9 +136,4 @@ function castLight(
     }
     if (blocked) break;
   }
-}
-
-/** 便利函数：只关心「当前是否可见」时使用。 */
-export function isVisible(visibleMap: Uint8Array, x: number, y: number): boolean {
-  return visibleMap[index(x, y)] === 1;
 }

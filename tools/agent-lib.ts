@@ -25,8 +25,10 @@ import { sessionAscii } from '../src/game/ascii';
 import { T, isFurniture, isWalkable } from '../src/core/constants';
 import { createRng, deriveSeed } from '../src/core/rng';
 import { roleById, raceById } from '../src/game/roles';
-import { monById } from '../src/data/index';
+import { MONSTERS, monById } from '../src/data/index';
 import { monsterAt } from '../src/game/monsters';
+import { SHOP_TYPES } from '../src/game/items';
+import { INTRINSIC_KINDS } from '../src/game/resist';
 
 // ---------------------------------------------------------------------------
 // 结果类型
@@ -54,7 +56,7 @@ export interface ScenarioResult {
 }
 
 /** 快照比对结果。 */
-export interface GoldenResult {
+interface GoldenResult {
   compared: number;
   mismatched: { key: string; expected: string; actual: string }[];
   written: boolean;
@@ -197,6 +199,8 @@ export function stepToward(
   from: { x: number; y: number },
   to: { x: number; y: number },
   allowLocked = false,
+  /** 需要绕开的格子（例如本层的上行楼梯，避免下楼途中被送回上层）。 */
+  avoid?: ReadonlySet<number>,
 ): [number, number] | null {
   if (from.x === to.x && from.y === to.y) return null;
   const prev = new Int32Array(level.width * level.height).fill(-1);
@@ -221,6 +225,7 @@ export function stepToward(
       if (!inBounds(nx, ny)) continue;
       const next = index(nx, ny);
       if (visited[next]) continue;
+      if (avoid?.has(next)) continue;
       if (!walkableAt(level, nx, ny)) continue;
       if (!allowLocked && lockedDoorAt(level, nx, ny)) continue;
       visited[next] = 1;
@@ -251,8 +256,9 @@ export function stepTowardGoal(
   level: Level,
   from: { x: number; y: number },
   to: { x: number; y: number },
+  avoid?: ReadonlySet<number>,
 ): [number, number] | null {
-  return stepToward(level, from, to, false) ?? stepToward(level, from, to, true);
+  return stepToward(level, from, to, false, avoid) ?? stepToward(level, from, to, true, avoid);
 }
 
 /** 把玩家移动到目标点附近（用于构造测试局面），必要时直接改坐标。 */
@@ -260,6 +266,33 @@ export function teleportPlayer(session: GameSession, x: number, y: number): void
   session.player.x = x;
   session.player.y = y;
   session.refreshFov();
+}
+
+/**
+ * 把玩家放到目标旁边可站立、无怪物的一格，返回朝向目标的步进方向。
+ *
+ * 优先西侧；目标在边界或旁边是墙时依次尝试其它方向，
+ * 避免场景直接把玩家放进墙里。
+ */
+export function standBeside(
+  session: GameSession,
+  target: { x: number; y: number },
+): { dx: number; dy: number } | null {
+  const options: [number, number][] = [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+  ];
+  for (const [dx, dy] of options) {
+    const x = target.x + dx;
+    const y = target.y + dy;
+    if (!walkableAt(session.level, x, y)) continue;
+    if (session.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+    teleportPlayer(session, x, y);
+    return { dx: -dx, dy: -dy };
+  }
+  return null;
 }
 
 /** 把关卡渲染成 ASCII，附带玩家与怪物标记；与状态转储共用实现。 */
@@ -281,7 +314,7 @@ export function seenCount(level: Level): number {
  *
  * 换层后自动重置基线，因此调用方不需要关心楼层切换。
  */
-export interface SeenTracker {
+interface SeenTracker {
   level: Level | null;
   count: number;
 }
@@ -334,6 +367,14 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     problems.push(`阵营记录越界：${player.alignRecord}`);
   }
   if (player.prayerTimeout < 0) problems.push(`祈祷冷却为负：${player.prayerTimeout}`);
+  // 内在抗性必须是已知种类且不重复，否则存档中的错字或重复会静默生效。
+  const intrinsics = player.intrinsics ?? [];
+  for (const kind of intrinsics) {
+    if (!INTRINSIC_KINDS.has(kind)) problems.push(`内在抗性非法：${kind}`);
+  }
+  if (new Set(intrinsics).size !== intrinsics.length) {
+    problems.push(`内在抗性存在重复：${intrinsics.join('/')}`);
+  }
   // 变形形态必须存在于数据里，计时不能为负。
   if (player.form) {
     if (!monById.has(player.form.id)) problems.push(`变形形态不存在：${player.form.id}`);
@@ -342,6 +383,8 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
   // 状态计时不能为负；陷阱会写入睡眠与定身。
   if (player.sleep < 0) problems.push(`睡眠回合为负：${player.sleep}`);
   if (player.held < 0) problems.push(`定身回合为负：${player.held}`);
+  if (player.sick < 0) problems.push(`疾病回合为负：${player.sick}`);
+  if ((player.hasted ?? 0) < 0) problems.push(`加速回合为负：${player.hasted}`);
   // 陷阱必须落在能走到的地面上，否则永远踩不到：这是生成器的错。
   for (const [i] of session.level.traps) {
     if (!isWalkable(session.level.tiles[i])) problems.push(`陷阱位于不可通行的格子：${i}`);
@@ -386,6 +429,9 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     if (mon.mhp > mon.mhpmax)
       problems.push(`怪物 ${mon.data.id} 生命超过上限：${mon.mhp}/${mon.mhpmax}`);
     if (mon.mv < 0) problems.push(`怪物 ${mon.data.id} 行动力为负：${mon.mv}`);
+    if ((mon.hasted ?? 0) < 0 || (mon.slowed ?? 0) < 0) {
+      problems.push(`怪物 ${mon.data.id} 加速/缓速回合为负`);
+    }
   }
 
   // 坐骑必须是驯服宠物，且不能同时出现在地图怪物里。
@@ -402,6 +448,21 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     if (!pile.items.length) problems.push(`地面物品堆为空：(${pile.x}, ${pile.y})`);
     for (const item of pile.items) {
       if (item.quantity < 1) problems.push(`地面物品数量小于 1：${item.proto.id} ${item.quantity}`);
+      if (item.corpse && !monById.has(item.corpse)) {
+        problems.push(`尸体对应的怪物不存在：${item.corpse}`);
+      }
+      if (item.corpse && item.age !== undefined && item.age > session.turn) {
+        problems.push(`尸体的形成回合晚于当前回合：${item.corpse} age=${item.age}`);
+      }
+      if (item.tin && !monById.has(item.tin)) {
+        problems.push(`罐头内容对应的怪物不存在：${item.tin}`);
+      }
+      if (item.age !== undefined && !item.corpse) {
+        problems.push(`非尸体带有形成回合：${item.proto.id}`);
+      }
+      if (item.age !== undefined && !Number.isFinite(item.age)) {
+        problems.push(`尸体的形成回合非法：${item.age}`);
+      }
       checkContents(item, `地面 ${item.proto.id}`, problems);
     }
   }
@@ -422,6 +483,11 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
   // 商店：房间完整可走，不藏陷阱，店主看店。
   const shops = level.rooms.filter((r) => r.type === 'shop');
   if (shops.length > 1) problems.push(`本层有 ${shops.length} 间商店`);
+  for (const s of shops) {
+    if (!s.shopType || !(s.shopType in SHOP_TYPES)) {
+      problems.push(`商店缺少合法种类：${s.shopType ?? '无'}`);
+    }
+  }
   const shop = shopRoom(level);
   if (shop) {
     for (let x = shop.lx; x <= shop.hx; x++) {
@@ -434,7 +500,8 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
       if (inRoom(shop, at.x, at.y)) problems.push(`商店内存在陷阱：(${at.x}, ${at.y})`);
     }
     const keeper = level.monsters.find((m) => !m.dead && m.data.id === 'SHOPKEEPER');
-    if (keeper && !inRoom(shop, keeper.x, keeper.y)) {
+    // 和平的店主守着店；被挑衅变敌对后会追出店外，这时不再要求它在店内。
+    if (keeper && !keeper.angry && !inRoom(shop, keeper.x, keeper.y)) {
       problems.push(`店主不在店内：(${keeper.x}, ${keeper.y})`);
     }
   }
@@ -442,7 +509,8 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
   // 楼梯必须存在且可通行；分支入口层还要有一段分支楼梯。
   if (!level.down && session.depth < session.maxDepth) problems.push('本层缺少下行楼梯');
   if (!level.up && !(session.branch === 'main' && session.depth === 1)) {
-    problems.push('本层缺少上行楼梯');
+    // 推箱顶层只有下行楼梯，回程要从入口层走分支楼梯。
+    if (!(level.branch === 'sokoban' && level.depth === 1)) problems.push('本层缺少上行楼梯');
   }
   if (
     !level.branch &&
@@ -506,7 +574,7 @@ export function checkLevelDeterminism(gameSeed: number, depth: number): string[]
 }
 
 /** 门审计结果。 */
-export interface DoorAudit {
+interface DoorAudit {
   /** ASCII 地图上找到的门数。 */
   doors: number;
   /** 满足「前后是通道、两侧是墙」的门数。 */
@@ -586,7 +654,7 @@ const DIRS: [number, number][] = [
 ];
 
 /** 一次随机行动的描述与执行结果。 */
-export interface RandomActionResult {
+interface RandomActionResult {
   action: string;
   result: string;
   delta: number;
@@ -604,6 +672,12 @@ export function randomAction(session: GameSession, rng: Rng): RandomActionResult
     const before = session.turn;
     const outcome = session.movePlayer(0, 1);
     return { action: 'dead-move', result: outcome.result, delta: session.turn - before };
+  }
+  // 读到灭绝卷轴后在等待输入：随机挑一个物种提交，覆盖该分支。
+  if (session.pendingGenocide) {
+    const target = rng.pick(MONSTERS) as (typeof MONSTERS)[number];
+    const ok = session.tryGenocide(target.name);
+    return { action: `genocide:${target.id}`, result: ok ? 'used' : 'nothing', delta: 0 };
   }
 
   const roll = rng.rn2(100);
@@ -636,6 +710,42 @@ export function randomAction(session: GameSession, rng: Rng): RandomActionResult
       const outcome = session.useItem(item);
       return {
         action: `use:${item.proto.id}`,
+        result: outcome.result,
+        delta: session.turn - before,
+      };
+    }
+  }
+  // 魔杖与神器启动：让模糊测试也覆盖这些效果分支。
+  if (roll < 36 && session.player.inventory.length) {
+    const wand = session.player.inventory.find(
+      (i) => i.proto.cls === 'wand' && (i.charges ?? 0) > 0,
+    );
+    if (wand) {
+      const outcome = session.useItem(wand, 'zap');
+      return {
+        action: `zap:${wand.proto.id}`,
+        result: outcome.result,
+        delta: session.turn - before,
+      };
+    }
+  }
+  if (roll < 40 && session.player.inventory.length) {
+    const artifact = session.player.inventory.find((i) => i.artifact);
+    if (artifact) {
+      const outcome = session.useItem(artifact, 'invoke');
+      return {
+        action: `invoke:${artifact.proto.id}`,
+        result: outcome.result,
+        delta: session.turn - before,
+      };
+    }
+  }
+  if (roll < 44 && session.player.inventory.length) {
+    const throwable = session.player.inventory.find((i) => i.proto.cls !== 'coin');
+    if (throwable) {
+      const outcome = session.useItem(throwable, 'throw');
+      return {
+        action: `throw:${throwable.proto.id}`,
         result: outcome.result,
         delta: session.turn - before,
       };

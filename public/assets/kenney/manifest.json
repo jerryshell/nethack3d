@@ -4,34 +4,6 @@
   "license": "CC0-1.0",
   "source": "https://kenney.nl",
   "files": {
-    "floor.glb": {
-      "bytes": 1796,
-      "sha256": "e45e31b7b77370a9"
-    },
-    "floor-detail.glb": {
-      "bytes": 11924,
-      "sha256": "409aab1270ed18fe"
-    },
-    "dirt.glb": {
-      "bytes": 2816,
-      "sha256": "dbdfaf6700dc11a6"
-    },
-    "wall.glb": {
-      "bytes": 18148,
-      "sha256": "ed9fc37375fc85fa"
-    },
-    "wall-half.glb": {
-      "bytes": 15824,
-      "sha256": "ff9e19de116ed72c"
-    },
-    "wall-opening.glb": {
-      "bytes": 19220,
-      "sha256": "d040af59a774769c"
-    },
-    "column.glb": {
-      "bytes": 11268,
-      "sha256": "6155d05cde0e7268"
-    },
     "stairs.glb": {
       "bytes": 11556,
       "sha256": "eb317d8f5368e129"
@@ -43,22 +15,6 @@
     "trap.glb": {
       "bytes": 42944,
       "sha256": "7d2f0b0d06d1df19"
-    },
-    "barrel.glb": {
-      "bytes": 14096,
-      "sha256": "ca735e8eb8f9170b"
-    },
-    "chest.glb": {
-      "bytes": 34048,
-      "sha256": "64cc6c44786a0833"
-    },
-    "pot.glb": {
-      "bytes": 26516,
-      "sha256": "bf432a42383ec506"
-    },
-    "rocks.glb": {
-      "bytes": 18452,
-      "sha256": "ee14136f047ef55f"
     },
     "Textures/colormap.png": {
       "bytes": 10838,

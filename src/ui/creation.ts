@@ -24,7 +24,7 @@ import { itemName } from './itemName';
 const ATTR_KEYS: (keyof Attributes)[] = ['str', 'int', 'wis', 'dex', 'con', 'cha'];
 
 /** 创建界面的回调。`onStart` 收到可直接传给 GameSession 的角色配置。 */
-export interface CreationScreenOptions {
+interface CreationScreenOptions {
   onStart: (options: { seed: number; character: CharacterChoice; attributes: Attributes }) => void;
   onBack?: () => void;
 }

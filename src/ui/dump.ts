@@ -59,13 +59,20 @@ export function buildDump(session: GameSession): string {
   );
   lines.push(`gold: ${s.gold}  hunger: ${p.hunger}  luck: ${p.luck}`);
   lines.push(`align: ${p.align} record=${p.alignRecord ?? 0} prayer=${p.prayerTimeout ?? 0}`);
+  lines.push(
+    `quest: unlocked=${session.questUnlocked ? 1 : 0} complete=${session.questComplete ? 1 : 0}`,
+  );
   lines.push(`form: ${p.form ? `${p.form.id}(${p.form.turns})` : '-'}`);
+  lines.push(`intrinsics: ${p.intrinsics.length ? p.intrinsics.join(' ') : '-'}`);
   const skills = Object.entries(p.skillLevels ?? {}).filter(([, lv]) => lv > 0);
   lines.push(`skills: ${skills.length ? skills.map(([k, lv]) => `${k}=${lv}`).join(' ') : '-'}`);
   lines.push(
     `effects: blind=${p.blind ?? 0} confused=${p.confused ?? 0} invisible=${p.invisible ?? 0} ` +
       `sleep=${p.sleep ?? 0} held=${p.held ?? 0} stun=${p.stun ?? 0} ` +
-      `petrifying=${p.petrifying ?? 0} seeInvisible=${p.seeInvisible ? 1 : 0}`,
+      `petrifying=${p.petrifying ?? 0} sick=${p.sick ?? 0} seeInvisible=${p.seeInvisible ? 1 : 0} ` +
+      `telepathy=${session.hasTelepathy() ? 1 : 0} teleportitis=${p.teleportitis ? 1 : 0} ` +
+      `senseMonsters=${p.senseMonsters ?? 0} senseObjects=${p.senseObjects ?? 0} ` +
+      `senseGold=${p.senseGold ?? 0} senseFood=${p.senseFood ?? 0} hasted=${p.hasted ?? 0}`,
   );
 
   lines.push('');
@@ -101,7 +108,8 @@ export function buildDump(session: GameSession): string {
     lines.push(
       `    - ${monsterName(mon.data.id)} (${mon.data.id}) at ${mon.x},${mon.y} ` +
         `hp ${mon.mhp}/${mon.mhpmax} mv ${mon.mv} asleep=${mon.asleep ? 1 : 0} ` +
-        `fleeing=${mon.fleeing ? 1 : 0} dead=${mon.dead ? 1 : 0}`,
+        `fleeing=${mon.fleeing ? 1 : 0} hasted=${mon.hasted ?? 0} slowed=${mon.slowed ?? 0} ` +
+        `dead=${mon.dead ? 1 : 0}`,
     );
   }
   lines.push(`  piles (${level.objects.length}):`);

@@ -4,12 +4,12 @@
  * 每种陷阱归到少数几种「效果类型」，会话层按类型执行，
  * 因此新增陷阱类型只是往表里加一行。
  *
- * 少数陷阱在本作里没有对应机制（雕像、振动方块），表里标为 `flavor`，
- * 只给出提示，边界记录在 docs/COGNITION.md。
+ * 振动方块有专属提示但还没有「开启传送门」的机制，
+ * 边界记录在 docs/COGNITION.md。
  */
 
 /** 效果类型。 */
-export type TrapKind =
+type TrapKind =
   | 'damage'
   | 'hold'
   | 'sleep'
@@ -21,9 +21,11 @@ export type TrapKind =
   | 'hole'
   | 'magic'
   | 'polymorph'
+  /** 雕像活过来：生成一只敌对怪物。 */
+  | 'statue'
   | 'flavor';
 
-export interface TrapEffect {
+interface TrapEffect {
   kind: TrapKind;
   /** 伤害骰子：`[个数, 面数]`。 */
   dice?: [number, number];
@@ -34,7 +36,7 @@ export interface TrapEffect {
 }
 
 /** 陷阱类型到效果的定义。 */
-export const TRAP_EFFECTS: Record<string, TrapEffect> = {
+const TRAP_EFFECTS: Record<string, TrapEffect> = {
   ARROW_TRAP: { kind: 'damage', dice: [1, 6], message: 'msg.trapDamage' },
   DART_TRAP: { kind: 'damage', dice: [1, 4], message: 'msg.trapDamage' },
   ROCKTRAP: { kind: 'damage', dice: [1, 8], message: 'msg.trapDamage' },
@@ -54,8 +56,8 @@ export const TRAP_EFFECTS: Record<string, TrapEffect> = {
   ANTI_MAGIC: { kind: 'drainPw', message: 'msg.trapDrainPw' },
   MAGIC_TRAP: { kind: 'magic', message: 'msg.trapMagic' },
   POLY_TRAP: { kind: 'polymorph', message: 'msg.trapPolymorph' },
-  STATUE_TRAP: { kind: 'flavor', message: 'msg.trapFlavor' },
-  VIBRATING_SQUARE: { kind: 'flavor', message: 'msg.trapFlavor' },
+  STATUE_TRAP: { kind: 'statue', message: 'msg.trapStatue' },
+  VIBRATING_SQUARE: { kind: 'flavor', message: 'msg.trapVibrating' },
 };
 
 /** 未登记的陷阱类型按无事发生处理，避免新数据导致异常。 */
@@ -68,7 +70,7 @@ export function trapEffect(type: string): TrapEffect {
  *
  * 界面（光标提示）与会话（消息）共用，避免两处各维护一份。
  */
-export const TRAP_NAME_KEYS: Record<string, string> = {
+const TRAP_NAME_KEYS: Record<string, string> = {
   ARROW_TRAP: 'arrow',
   DART_TRAP: 'dart',
   ROCKTRAP: 'fallingRock',

@@ -34,7 +34,7 @@
       }
     },
     {
-      "files": ["tools/**/*.mjs", "tools/**/*.ts"],
+      "files": ["tools/**/*.ts"],
       "rules": {
         "no-shadow": "off",
         "no-unused-vars": "off"

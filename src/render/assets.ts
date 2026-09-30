@@ -17,24 +17,9 @@ import { createLogger, LOG_NS } from '../core/log';
 const BASE = 'assets/kenney/';
 
 /** 同步到仓库的模型名，与 `tools/sync-assets.ts` 的清单保持一致。 */
-export const MODEL_NAMES = [
-  'floor',
-  'floor-detail',
-  'dirt',
-  'wall',
-  'wall-half',
-  'wall-opening',
-  'column',
-  'stairs',
-  'gate',
-  'trap',
-  'barrel',
-  'chest',
-  'pot',
-  'rocks',
-] as const;
+const MODEL_NAMES = ['stairs', 'gate', 'trap'] as const;
 
-export type ModelName = (typeof MODEL_NAMES)[number];
+type ModelName = (typeof MODEL_NAMES)[number];
 
 const log = createLogger(LOG_NS.render);
 

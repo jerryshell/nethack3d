@@ -5,7 +5,7 @@ import * as THREE from 'three';
  */
 import type { ViewRenderer } from './view';
 
-export interface TitleBackdrop {
+interface TitleBackdrop {
   readonly visible: boolean;
   attach(): void;
   detach(): void;

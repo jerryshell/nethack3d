@@ -35,7 +35,7 @@ function slotFor(item: ItemInstance, equip: string): EquipmentSlot {
 }
 
 /** 创建玩家的参数。 */
-export interface PlayerOptions {
+interface PlayerOptions {
   role: RoleData;
   race: RaceData;
   align: Alignment;
@@ -90,6 +90,10 @@ export class Player implements PlayerState {
   stun: number;
   /** 石化剩余回合；归零即死亡。 */
   petrifying: number;
+  /** 加速剩余回合；大于 0 时跳过怪物行动。 */
+  hasted: number;
+  /** 疾病剩余回合；大于 0 时停止自然回复并周期性掉血。 */
+  sick: number;
   /** 阵营记录与祈祷冷却。 */
   alignRecord: number;
   prayerTimeout: number;
@@ -100,6 +104,19 @@ export class Player implements PlayerState {
   skillLevels: Record<string, number>;
   seeInvisible: boolean;
   knownSpells: string[];
+  /** 吃尸体得到的内在抗性（不依赖装备，永久保留）。 */
+  intrinsics: string[];
+  /** 心灵感应：感知附近怪物的位置。 */
+  telepathy: boolean;
+  /** 怪物探测剩余回合。 */
+  senseMonsters: number;
+  /** 物品探测剩余回合。 */
+  senseObjects: number;
+  /** 金币探测与食物探测剩余回合。 */
+  senseGold: number;
+  senseFood: number;
+  /** 传送症：每回合有小概率随机传送。 */
+  teleportitis: boolean;
 
   constructor({
     role,
@@ -150,6 +167,8 @@ export class Player implements PlayerState {
     this.held = 0;
     this.stun = 0;
     this.petrifying = 0;
+    this.hasted = 0;
+    this.sick = 0;
     this.alignRecord = 0;
     this.prayerTimeout = 0;
     this.form = null;
@@ -157,6 +176,13 @@ export class Player implements PlayerState {
     this.skillLevels = {};
     this.seeInvisible = false;
     this.knownSpells = [];
+    this.intrinsics = [];
+    this.telepathy = false;
+    this.senseMonsters = 0;
+    this.senseObjects = 0;
+    this.senseGold = 0;
+    this.senseFood = 0;
+    this.teleportitis = false;
   }
 
   /** 当前变形形态的原型；未变形或数据缺失时为空。 */
@@ -170,7 +196,12 @@ export class Player implements PlayerState {
     if (form) return form.ac - this.acBonus;
     let bonus = this.acBonus;
     for (const item of Object.values(this.equipment)) {
-      if (item && item.proto.cls === 'armor') bonus += item.proto.ac ?? 0;
+      if (!item) continue;
+      if (item.proto.cls === 'armor') bonus += item.proto.ac ?? 0;
+      // 保护戒指与守护护身符按 spec 提供 AC，对应原版的 spe 加成。
+      if (item.proto.power === 'PROTECTION') {
+        bonus += (item.proto.spec ?? 1) + Math.max(0, item.enchant);
+      }
     }
     return 10 - bonus;
   }
@@ -209,8 +240,14 @@ export class Player implements PlayerState {
   }
 
   /** 力量带来的伤害加值。 */
+  /** 力量带来的伤害加值；力量戒指额外 +1。 */
   get damageBonus(): number {
-    return dbon(this.str);
+    const strRing = Object.values(this.equipment).some(
+      (item) => item?.proto.id === 'RIN_GAIN_STRENGTH',
+    )
+      ? 1
+      : 0;
+    return dbon(this.str + strRing);
   }
 
   /** 获得经验，可能连续升级；每次升级调用一次 `onLevelUp`。 */

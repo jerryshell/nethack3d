@@ -1023,16 +1023,3 @@ export const APPEARANCES_ZH: Record<string, string> = {
   paperback: '平装',
   papyrus: '纸莎草',
 };
-
-export function appearanceZh(word: string): string | undefined {
-  return APPEARANCES_ZH[word];
-}
-
-/** 职业/种族的中文名查找。 */
-export function roleNameZh(id: string): string | undefined {
-  return ROLES_ZH[id];
-}
-
-export function raceNameZh(id: string): string | undefined {
-  return RACES_ZH[id];
-}

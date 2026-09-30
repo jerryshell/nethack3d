@@ -11,6 +11,7 @@ import { t, onLocaleChange, applyI18n } from '../i18n/index';
 import { describeItem } from '../game/items';
 import { itemName, itemSuffix } from './itemName';
 import { letterToIndex } from '../game/inventory';
+import { ARTIFACT_INVOKES } from '../game/artifacts';
 import { createLogger, LOG_NS } from '../core/log';
 import { containerHasRoom, isContainer } from '../game/containers';
 
@@ -30,6 +31,7 @@ const VERB_TITLE = {
   fire: 'verb.fire',
   put: 'verb.put',
   open: 'verb.open',
+  invoke: 'verb.invoke',
   view: 'verb.view',
 };
 
@@ -52,7 +54,7 @@ const VERB_KEY_HINTS: Record<string, string> = {
 };
 
 /** 某件物品可用的动作，与原版提示一致。 */
-export function verbsFor(item: ItemInstance, session?: GameSession): string[] {
+function verbsFor(item: ItemInstance, session?: GameSession): string[] {
   const cls = item.proto.cls;
   const verbs: string[] = [];
   // 容器只能打开；普通物品在背包里有空容器时可以放进去。
@@ -77,12 +79,17 @@ export function verbsFor(item: ItemInstance, session?: GameSession): string[] {
   if (cls === 'spellbook') verbs.push(item.known ? 'cast' : 'read');
   if (cls === 'food') verbs.push('eat');
   if (cls === 'wand') verbs.push('zap');
-  if (cls === 'tool') verbs.push('apply');
+  if (cls === 'tool') {
+    // 可启动的神器只给「启动」，避免多一个无效果的「使用」。
+    if (!(item.artifact && ARTIFACT_INVOKES.has(item.artifact))) verbs.push('apply');
+  }
+  // 能启动的神器额外给出启动动作。
+  if (item.artifact && ARTIFACT_INVOKES.has(item.artifact)) verbs.push('invoke');
   return verbs;
 }
 
 /** 背包面板的回调。 */
-export interface InventoryPanelOptions {
+interface InventoryPanelOptions {
   session: GameSession;
   onClose?: () => void;
   /** verb 为 null 表示按物品类别的默认操作。 */

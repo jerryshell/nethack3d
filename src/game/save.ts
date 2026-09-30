@@ -26,14 +26,15 @@ import { Monster } from './monsters';
 import { monById } from '../data/index';
 import { deserializeItem, serializeItem } from './itemcodec';
 import { roleById, raceById } from './roles';
+import { INTRINSIC_KINDS } from './resist';
 
 const log = createLogger(LOG_NS.save);
 
-export const SAVE_KEY = 'nethack3d.save.v1';
+const SAVE_KEY = 'nethack3d.save.v1';
 
 export { deserializeItem, serializeItem };
 
-export function serializeMonster(m: MonsterState): SerializedMonster {
+function serializeMonster(m: MonsterState): SerializedMonster {
   return {
     t: m.data.id,
     x: m.x,
@@ -46,12 +47,14 @@ export function serializeMonster(m: MonsterState): SerializedMonster {
     angry: m.angry ? 1 : 0,
     tame: m.tame ? 1 : 0,
     tameness: m.tameness ?? 0,
+    ha: m.hasted ?? 0,
+    sl: m.slowed ?? 0,
     mv: m.mv,
   };
 }
 
 /** 反序列化一只怪物；原型缺失时返回 null。 */
-export function deserializeMonster(data: SerializedMonster, rng: Rng): MonsterState | null {
+function deserializeMonster(data: SerializedMonster, rng: Rng): MonsterState | null {
   const proto = monById.get(data.t);
   if (!proto) return null;
   const mon = new Monster(proto, data.x, data.y, rng, { mlev: data.lv });
@@ -62,6 +65,8 @@ export function deserializeMonster(data: SerializedMonster, rng: Rng): MonsterSt
   mon.angry = !!data.angry;
   mon.tame = !!data.tame;
   mon.tameness = data.tameness ?? 0;
+  mon.hasted = data.ha ?? 0;
+  mon.slowed = data.sl ?? 0;
   mon.mv = data.mv ?? 0;
   return mon;
 }
@@ -111,6 +116,10 @@ export function serializeSession(session: GameSession): SaveData {
       align: p.align,
       gender: p.gender,
     },
+    ...(session.questUnlocked ? { questUnlocked: 1 as const } : {}),
+    ...(session.questComplete ? { questComplete: 1 as const } : {}),
+    ...(session.wizardHasAmulet ? { wizardHasAmulet: 1 as const } : {}),
+    ...(session.genocides.size ? { genocides: [...session.genocides] } : {}),
     attributes: {
       str: p.str,
       int: p.int,
@@ -139,6 +148,8 @@ export function serializeSession(session: GameSession): SaveData {
       held: p.held ?? 0,
       stun: p.stun ?? 0,
       petrifying: p.petrifying ?? 0,
+      hasted: p.hasted ?? 0,
+      sick: p.sick ?? 0,
       alignRecord: p.alignRecord ?? 0,
       prayerTimeout: p.prayerTimeout ?? 0,
       form: p.form ? { id: p.form.id, turns: p.form.turns } : null,
@@ -146,6 +157,13 @@ export function serializeSession(session: GameSession): SaveData {
       skillLevels: { ...p.skillLevels },
       seeInvisible: p.seeInvisible ?? false,
       knownSpells: p.knownSpells ?? [],
+      intrinsics: [...(p.intrinsics ?? [])],
+      telepathy: p.telepathy ? 1 : 0,
+      senseMonsters: p.senseMonsters ?? 0,
+      senseObjects: p.senseObjects ?? 0,
+      senseGold: p.senseGold ?? 0,
+      senseFood: p.senseFood ?? 0,
+      teleportitis: p.teleportitis ? 1 : 0,
       inventory: p.inventory.map(serializeItem),
       equipment: Object.fromEntries(
         Object.entries(p.equipment).map(([slot, item]) => [slot, p.inventory.indexOf(item)]),
@@ -232,6 +250,8 @@ export function restoreSession(data: SaveData): GameSession {
   player.held = p.held ?? 0;
   player.stun = p.stun ?? 0;
   player.petrifying = p.petrifying ?? 0;
+  player.hasted = p.hasted ?? 0;
+  player.sick = p.sick ?? 0;
   player.alignRecord = p.alignRecord ?? 0;
   player.prayerTimeout = p.prayerTimeout ?? 0;
   player.form = p.form ? { id: p.form.id, turns: p.form.turns } : null;
@@ -239,6 +259,13 @@ export function restoreSession(data: SaveData): GameSession {
   player.skillLevels = { ...p.skillLevels };
   player.seeInvisible = p.seeInvisible ?? false;
   player.knownSpells = p.knownSpells ?? [];
+  player.intrinsics = (p.intrinsics ?? []).filter((kind) => INTRINSIC_KINDS.has(kind));
+  player.telepathy = !!p.telepathy;
+  player.senseMonsters = p.senseMonsters ?? 0;
+  player.senseObjects = p.senseObjects ?? 0;
+  player.senseGold = p.senseGold ?? 0;
+  player.senseFood = p.senseFood ?? 0;
+  player.teleportitis = !!p.teleportitis;
 
   const items = (p.inventory ?? []).map(deserializeItem).filter((i): i is ItemInstance => !!i);
   player.inventory = items;
@@ -301,6 +328,10 @@ export function restoreSession(data: SaveData): GameSession {
   session.turn = data.turn ?? 0;
   session.kills = data.kills ?? 0;
   session.dead = !!data.dead;
+  session.questUnlocked = !!data.questUnlocked;
+  session.questComplete = !!data.questComplete;
+  session.wizardHasAmulet = !!data.wizardHasAmulet;
+  session.genocides = new Set((data.genocides ?? []).filter((id) => monById.has(id)));
   session.messages = (data.messages ?? []).map((m: GameMessage) => Object.assign({}, m));
   session.level =
     session.branch === 'main'

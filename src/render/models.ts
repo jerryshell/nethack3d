@@ -33,23 +33,19 @@ function sphere(r: number, material: THREE.Material, x = 0, y = 0, z = 0): THREE
 }
 
 /**
- * 脚下的圆形伪阴影：不参与光照，只有一层半透明黑。
+ * 让一棵子树参与实时阴影。投射与接收分开控制：地面只接收，
+ * 人物与怪物两者都要，避免自身出现自阴影暗斑。
  */
-export function createBlobShadow(radius = 0.3): THREE.Mesh {
-  const mesh = new THREE.Mesh(
-    new THREE.CircleGeometry(radius, 20),
-    new THREE.MeshBasicMaterial({
-      color: 0x000000,
-      transparent: true,
-      opacity: 0.3,
-      depthWrite: false,
-    }),
-  );
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = 0.02;
-  mesh.name = 'blob-shadow';
-  mesh.renderOrder = 1;
-  return mesh;
+export function enableShadows(
+  root: THREE.Object3D,
+  { cast = true, receive = true }: { cast?: boolean; receive?: boolean } = {},
+): void {
+  root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) {
+      o.castShadow = cast;
+      o.receiveShadow = receive;
+    }
+  });
 }
 
 /**
@@ -384,6 +380,14 @@ export function createItemModel(obj: ObjectData, appearance: { color?: number } 
     }
     case 'gem':
     case 'rock': {
+      if (obj.id === 'BOULDER') {
+        // 巨石：推箱关卡里的标志物，比其他矿石大一圈。
+        const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), mat(0x8d8d8d));
+        rock.position.y = 0.24;
+        rock.rotation.set(0.4, 0.7, 0.2);
+        g.add(rock);
+        break;
+      }
       const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.13), m);
       gem.position.y = 0.13;
       g.add(gem);
@@ -420,4 +424,4 @@ function objectColor(obj: ObjectData, appearance: { color?: number }): number {
   return 0xaaaaaa;
 }
 
-export { MONSTER_COLORS, classifyGlyph };
+export { classifyGlyph };

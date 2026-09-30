@@ -9,7 +9,7 @@
  * `objectName()` 查询，缺失时回退英文。
  */
 
-import type { MonsterData, ObjectClass, ObjectData } from '../types';
+import type { MonsterData, ObjectData } from '../types';
 import type { Rng } from '../types';
 import { MONSTERS } from './monsters.gen';
 import { OBJECTS } from './objects.gen';
@@ -21,27 +21,6 @@ export const objById = new Map<string, ObjectData>(OBJECTS.map((o) => [o.id, o])
 
 /** 真实物品，排除只用于补齐外观池的占位条目。 */
 export const REAL_OBJECTS: ObjectData[] = OBJECTS.filter((o) => !o.dummy);
-
-export const OBJECT_CLASSES: ObjectClass[] = [
-  'weapon',
-  'armor',
-  'food',
-  'potion',
-  'scroll',
-  'spellbook',
-  'wand',
-  'ring',
-  'amulet',
-  'tool',
-  'gem',
-  'rock',
-  'coin',
-];
-
-/** 某个类别中可随机生成的物品（prob > 0）。 */
-export function generatableObjects(cls: ObjectClass): ObjectData[] {
-  return REAL_OBJECTS.filter((o) => o.cls === cls && o.prob > 0);
-}
 
 /** 可在普通关卡随机生成的怪物。 */
 export const GENERATABLE_MONSTERS: MonsterData[] = MONSTERS.filter(
@@ -112,10 +91,4 @@ export function monsterName(m: string | MonsterData): string {
 export function objectName(o: string | ObjectData): string {
   if (typeof o === 'string') return nameOverrides.objects.get(o) ?? objById.get(o)?.name ?? o;
   return nameOverrides.objects.get(o.id) ?? o.name ?? o.id;
-}
-
-/** 武器对小型或大型目标的伤害骰。 */
-export function weaponDamage(obj: ObjectData | null | undefined, large = false): string | null {
-  if (!obj || obj.cls !== 'weapon') return null;
-  return (large ? obj.dmgLarge : obj.dmg) ?? null;
 }

@@ -11,7 +11,7 @@ import { shopRoom } from '../game/dungeon';
 import { COLNO, ROWNO, T, isDoor, isWall } from '../core/constants';
 import { PALETTE, tileColor } from '../render/palette';
 
-export interface MinimapHandle {
+interface MinimapHandle {
   el: HTMLElement;
   update(session: GameSession): void;
   /** 设置要叠加的旅行路径；传空数组清空。 */
@@ -119,6 +119,24 @@ export function createMinimap(): MinimapHandle {
         if (session.visible[mon.y * COLNO + mon.x] !== 1) continue;
         ctx.fillStyle = css(PALETTE.altarGlow);
         ctx.fillRect(mon.x, mon.y, 1, 1);
+      }
+    }
+    // 物品探测：在已探索区域标出地面物品堆。
+    if (
+      session.player.senseObjects > 0 ||
+      session.player.senseGold > 0 ||
+      session.player.senseFood > 0
+    ) {
+      for (const pile of level.objects) {
+        const i = pile.y * COLNO + pile.x;
+        if (level.seen[i] !== 1) continue;
+        const hasGold = pile.items.some((item) => item.gold);
+        const hasFood = pile.items.some((item) => item.proto.cls === 'food');
+        if (session.player.senseObjects > 0) ctx.fillStyle = '#7fe8ff';
+        else if (session.player.senseGold > 0 && hasGold) ctx.fillStyle = '#ffd479';
+        else if (session.player.senseFood > 0 && hasFood) ctx.fillStyle = '#9fe07a';
+        else continue;
+        ctx.fillRect(pile.x, pile.y, 1, 1);
       }
     }
     ctx.fillStyle = '#ffffff';

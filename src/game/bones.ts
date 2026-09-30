@@ -13,9 +13,9 @@ import type { GameSession } from './session';
 
 const log = createLogger(LOG_NS.save);
 
-export const BONES_KEY = 'nethack3d.bones.v1';
+const BONES_KEY = 'nethack3d.bones.v1';
 
-export interface Bones {
+interface Bones {
   /** 死亡所在层数。 */
   depth: number;
   /** 死亡角色，供调试与文案使用。 */

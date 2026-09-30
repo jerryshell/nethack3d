@@ -17,7 +17,7 @@
  * 所有日志同时写入环形缓冲区，便于崩溃后回溯最近的关键路径。
  */
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 /** 一条日志记录。`seq` 为自增序号，便于排序与去重。 */
 export interface LogEntry {
@@ -30,7 +30,7 @@ export interface LogEntry {
 }
 
 /** 对外暴露的日志器接口。 */
-export interface Logger {
+interface Logger {
   debug(message: string, data?: unknown): void;
   info(message: string, data?: unknown): void;
   warn(message: string, data?: unknown): void;
@@ -68,7 +68,7 @@ export function parseDebugSpec(spec: string | null | undefined): void {
 }
 
 /** 打开指定命名空间（支持前缀匹配，`'*'` 为全部）。 */
-export function enableDebug(...namespaces: string[]): void {
+function enableDebug(...namespaces: string[]): void {
   for (const ns of namespaces) debugNamespaces.add(ns.trim().toLowerCase());
 }
 

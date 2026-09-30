@@ -20,7 +20,7 @@ const log = createLogger(LOG_NS.render);
 const BASE = 'assets/kenney/characters/';
 
 /** 可选模型；键名同时用于按族群稳定分配。 */
-export const CHARACTER_KEYS = ['human', 'orc', 'knight', 'rogue'] as const;
+const CHARACTER_KEYS = ['human', 'orc', 'knight', 'rogue'] as const;
 export type CharacterKey = (typeof CHARACTER_KEYS)[number];
 
 interface LoadedCharacter {
@@ -31,13 +31,6 @@ interface LoadedCharacter {
 }
 
 const loaded = new Map<CharacterKey, LoadedCharacter>();
-let ready = false;
-
-/** 角色素材是否已就绪。 */
-export function charactersReady(): boolean {
-  return ready;
-}
-
 /** 已加载的模型数量，写入渲染指标。 */
 export function loadedCharacterCount(): number {
   return loaded.size;
@@ -69,12 +62,10 @@ export async function loadCharacters(): Promise<boolean> {
       value.map.magFilter = THREE.NearestFilter;
       loaded.set(key, value);
     }
-    ready = true;
     log.info('人物素材已加载', { models: loaded.size });
     return true;
   } catch (error) {
     loaded.clear();
-    ready = false;
     log.warn('人物素材加载失败，回退到程序化模型', { error: String(error) });
     return false;
   }

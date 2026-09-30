@@ -10,6 +10,7 @@
 
 import type { GameSession } from '../game/session';
 import { MAX_DEPTH } from '../game/session';
+import { luckArtifactBonus } from '../game/combat';
 import { t, applyI18n, onLocaleChange, setLocale, nextLocale, LOCALES } from '../i18n/index';
 import { formatMessage } from './message';
 import { createMinimap } from './minimap';
@@ -29,7 +30,7 @@ export interface HudAction {
 }
 
 /** HUD 的可选回调。 */
-export interface HudOptions {
+interface HudOptions {
   onExit?: () => void;
 }
 
@@ -171,8 +172,49 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     return cell;
   }
 
+  /** 疾病提醒：患病期间常驻，治疗或自愈后消失。 */
+  function sickCell(session: GameSession): HTMLElement | null {
+    if (session.player.sick <= 0) return null;
+    const cell = document.createElement('div');
+    cell.className = 'hud-stat hud-warn';
+    cell.textContent = t('hud.sick');
+    return cell;
+  }
+
+  /** 状态小标签：失明、混乱、隐形、沉睡、被缠、眩晕与石化。 */
+  function effectsCell(session: GameSession): HTMLElement | null {
+    const p = session.player;
+    const all: [number, string, boolean][] = [
+      [p.blind, 'hud.effectBlind', false],
+      [p.confused, 'hud.effectConfused', false],
+      [p.sleep, 'hud.effectSleep', false],
+      [p.held, 'hud.effectHeld', false],
+      [p.stun, 'hud.effectStun', false],
+      [p.hasted, 'hud.effectHasted', false],
+      [p.senseMonsters, 'hud.effectSenseMonsters', false],
+      [p.petrifying, 'hud.effectPetrifying', true],
+    ];
+    if (session.hasTelepathy()) all.push([1, 'hud.effectTelepathy', false]);
+    if (session.hasInvisibility()) all.push([1, 'hud.effectInvisible', false]);
+    if (session.player.senseObjects > 0) all.push([1, 'hud.effectSenseObjects', false]);
+    if (session.player.senseGold > 0) all.push([1, 'hud.effectSenseGold', false]);
+    if (session.player.senseFood > 0) all.push([1, 'hud.effectSenseFood', false]);
+    const active = all.filter(([turns]) => turns > 0);
+    if (!active.length) return null;
+    const cell = document.createElement('div');
+    cell.className = 'hud-effects';
+    for (const [, key, danger] of active) {
+      const chip = document.createElement('span');
+      chip.className = danger ? 'hud-chip danger' : 'hud-chip';
+      chip.textContent = t(key);
+      cell.append(chip);
+    }
+    return cell;
+  }
+
   function renderStats(session: GameSession): void {
     const s = session.status;
+    const luck = session.player.luck + luckArtifactBonus(session.player);
     stats.replaceChildren();
     stats.append(
       statCell('hud.depth', 'hud.depthLabel', { depth: s.depth }),
@@ -181,6 +223,7 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
       statCell('hud.power', 'hud.powerLabel', { pw: s.pw, max: s.maxPw }),
       statCell('hud.armorClass', 'hud.armorClassLabel', { ac: s.ac }),
       statCell('hud.gold', 'hud.goldLabel', { gold: s.gold }),
+      statCell('hud.luck', 'hud.luckLabel', { luck: `${luck >= 0 ? '+' : ''}${luck}` }),
       statCell('hud.align', 'hud.alignLabel', {
         align: alignDisplayName(session.player.align),
         record: `${session.player.alignRecord >= 0 ? '+' : ''}${session.player.alignRecord}`,
@@ -190,6 +233,10 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     );
     const hunger = hungerCell(session);
     if (hunger) stats.append(hunger);
+    const sick = sickCell(session);
+    if (sick) stats.append(sick);
+    const effects = effectsCell(session);
+    if (effects) stats.append(effects);
   }
 
   function renderObjective(session: GameSession): void {
@@ -199,6 +246,20 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
       return;
     }
     if (session.branch !== 'main') {
+      // 任务分支的目标随进度变化：先见领袖，再找神器，最后复命。
+      if (session.branch === 'quest') {
+        const roleId = session.player.role.id;
+        let key = 'hud.questBrief';
+        if (session.questComplete) key = 'hud.questDone';
+        else if (session.carryingQuestArtifact()) key = 'hud.questReturn';
+        else if (session.questUnlocked) key = 'hud.questSeek';
+        objective.textContent = t(key, {
+          goal: t(`quest.${roleId}.goal`),
+          home: t(`quest.${roleId}.home`),
+        });
+        objective.dataset.state = session.questComplete ? 'done' : 'active';
+        return;
+      }
       objective.textContent = t('hud.branchGoal', {
         branch: t(`branch.${session.branch}`),
         depth: session.depth,
@@ -207,11 +268,13 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
       objective.dataset.state = 'active';
       return;
     }
-    objective.textContent = session.carryingAmulet
-      ? t('hud.goalEscape')
-      : session.depth < MAX_DEPTH
-        ? t('hud.goalStairs', { depth: session.depth + 1, total: MAX_DEPTH })
-        : t('hud.goalAmulet', { depth: MAX_DEPTH });
+    objective.textContent = session.wizardHasAmulet
+      ? t('hud.goalRecover')
+      : session.carryingAmulet
+        ? t('hud.goalEscape')
+        : session.depth < MAX_DEPTH
+          ? t('hud.goalStairs', { depth: session.depth + 1, total: MAX_DEPTH })
+          : t('hud.goalAmulet', { depth: MAX_DEPTH });
     objective.dataset.state = 'active';
   }
 

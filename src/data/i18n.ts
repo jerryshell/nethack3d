@@ -21,7 +21,7 @@ let currentRoleMap: NameMap | null = null;
 let currentRaceMap: NameMap | null = null;
 let currentAppearanceMap: NameMap | null = null;
 
-export function applyDataTranslations(locale: LocaleId): void {
+function applyDataTranslations(locale: LocaleId): void {
   if (locale === 'zh-CN') {
     setNameOverrides({ monsters: MONSTERS_ZH, objects: { ...OBJECTS_ZH, ...SPELLS_ZH } });
     currentRoleMap = ROLES_ZH;

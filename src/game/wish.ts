@@ -14,7 +14,7 @@ import { OBJECTS_ZH } from '../data/i18n.zh';
 import { NEVER_SPAWN } from './items';
 
 /** 许愿结果。 */
-export type WishMatch =
+type WishMatch =
   | { kind: 'item'; proto: ObjectData; quantity: number }
   | { kind: 'gold'; amount: number }
   | { kind: 'none'; query: string };
@@ -34,7 +34,7 @@ const CLASS_PREFIX: Partial<Record<ObjectClass, string>> = {
 };
 
 /** 物品的英文全名，例如「potion of healing」。 */
-export function wishFullName(proto: ObjectData): string {
+function wishFullName(proto: ObjectData): string {
   const prefix = CLASS_PREFIX[proto.cls];
   return prefix ? `${prefix} ${proto.name}` : proto.name;
 }

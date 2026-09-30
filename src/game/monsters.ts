@@ -31,6 +31,10 @@ export class Monster implements MonsterState {
   tame: boolean;
   /** 驯服度：喂食提升。 */
   tameness: number;
+  /** 加速剩余回合：速度翻倍。 */
+  hasted: number;
+  /** 缓速剩余回合：速度减半（最低 1）。 */
+  slowed: number;
 
   constructor(data: MonsterData, x: number, y: number, rng: Rng, { mlev }: { mlev?: number } = {}) {
     this.id = nextId++;
@@ -48,6 +52,8 @@ export class Monster implements MonsterState {
     this.angry = false;
     this.tame = false;
     this.tameness = 0;
+    this.hasted = 0;
+    this.slowed = 0;
   }
 
   get ac(): number {
@@ -64,19 +70,26 @@ export class Monster implements MonsterState {
   }
 }
 
+/** 地狱专属怪物开始出现的深度；对应原版穿过要塞后的深层。 */
+const HELL_DEPTH = 25;
+
 /**
  * 依据深度与玩家等级挑选怪物，使用 NetHack 的难度窗口（include/monst.h）：
  *
  * - 下界 `min = depth / 6`
  * - 上界 `max = (depth + heroLevel) / 2`
  *
- * 难度落在区间内、可随机生成、非唯一、非地狱专属的怪物才会入选。
+ * 难度落在区间内、可随机生成、非唯一、非地狱专属的怪物才会入选；
+ * 第 25 层起的深层放开 `G_HELL`，让地狱犬、巫妖与涕魔等恶魔登场。
  */
 export function pickMonsterType(
   rng: Rng,
   depth: number,
   heroLevel = 1,
   theme?: 'undead' | 'mines' | 'demon',
+  symbols?: string[],
+  /** 已被灭绝的物种，不再进入生成池。 */
+  exclude?: ReadonlySet<string>,
 ): MonsterData | null {
   const minDiff = Math.floor(depth / 6);
   const maxDiff = Math.floor((depth + heroLevel) / 2);
@@ -87,25 +100,32 @@ export function pickMonsterType(
     // 矿坑：侏儒与矮人为主。
     return m.id.includes('GNOME') || m.id.includes('DWARF');
   };
+  const matchesSymbols = (m: MonsterData): boolean => !symbols?.length || symbols.includes(m.sym);
   const collect = (
     lo: number,
     hi: number,
     useTheme: boolean,
+    useSymbols: boolean,
   ): { m: MonsterData; weight: number }[] => {
     const pool: { m: MonsterData; weight: number }[] = [];
     for (const m of GENERATABLE_MONSTERS) {
-      if (m.genFlags.includes('G_UNIQ') || m.genFlags.includes('G_HELL')) continue;
+      if (m.genFlags.includes('G_UNIQ')) continue;
+      if (exclude?.has(m.id)) continue;
+      if (m.genFlags.includes('G_HELL') && depth < HELL_DEPTH) continue;
       if (m.diff < lo || m.diff > hi) continue;
       if (useTheme && !matchesTheme(m)) continue;
+      if (useSymbols && !matchesSymbols(m)) continue;
       pool.push({ m, weight: Math.max(1, m.freq) });
     }
     return pool;
   };
   // 优先取主题池，再依次退回普通池与放宽的难度窗口。
-  let pool = collect(minDiff, maxDiff, true);
-  if (!pool.length) pool = collect(minDiff, maxDiff, false);
-  if (!pool.length) pool = collect(0, maxDiff + 1, true);
-  if (!pool.length) pool = collect(0, maxDiff + 1, false);
+  let pool = collect(minDiff, maxDiff, true, true);
+  if (!pool.length) pool = collect(minDiff, maxDiff, false, true);
+  if (!pool.length) pool = collect(0, maxDiff + 1, true, true);
+  if (!pool.length) pool = collect(0, maxDiff + 1, false, true);
+  if (!pool.length) pool = collect(minDiff, maxDiff, true, false);
+  if (!pool.length) pool = collect(minDiff, maxDiff, false, false);
   return rng.pickWeighted(pool, 'weight')?.m ?? null;
 }
 
@@ -118,11 +138,17 @@ export function spawnMonsters(
     heroLevel = 1,
     count,
     theme,
+    symbols,
+    exclude,
   }: {
     player?: Player;
     heroLevel?: number;
     count?: number;
     theme?: 'undead' | 'mines' | 'demon';
+    /** 只生成这些 S_* 类别的怪物（任务层）。 */
+    symbols?: string[];
+    /** 已被灭绝的物种。 */
+    exclude?: ReadonlySet<string>;
   } = {},
 ): Monster[] {
   const depth = level.depth;
@@ -144,7 +170,7 @@ export function spawnMonsters(
     const spot = spots.pop() as { x: number; y: number };
     const i2 = index(spot.x, spot.y);
     if (occupied.has(i2)) continue;
-    const data = pickMonsterType(rng, depth, heroLevel, theme);
+    const data = pickMonsterType(rng, depth, heroLevel, theme, symbols, exclude);
     if (!data) continue;
     occupied.add(i2);
     level.monsters.push(new Monster(data, spot.x, spot.y, rng));
@@ -165,7 +191,7 @@ export function spawnMonsters(
       const spot = index(x, y);
       if (occupied.has(spot)) continue;
       if (player && player.x === x && player.y === y) continue;
-      const data = pickMonsterType(rng, depth, heroLevel, theme);
+      const data = pickMonsterType(rng, depth, heroLevel, theme, symbols, exclude);
       if (data) {
         occupied.add(spot);
         level.monsters.push(new Monster(data, x, y, rng));
@@ -176,17 +202,18 @@ export function spawnMonsters(
   return level.monsters;
 }
 
+/** 本回合的行动力累积速度：加速翻倍、缓速减半（最低 1）。 */
+export function monsterSpeed(mon: Monster): number {
+  let speed = mon.data.speed;
+  if (mon.hasted > 0) speed *= 2;
+  if (mon.slowed > 0) speed = Math.max(1, Math.floor(speed / 2));
+  return speed;
+}
+
 /** 查询指定坐标上存活的怪物。 */
 export function monsterAt(level: Level, x: number, y: number): Monster | null {
   for (const m of level.monsters) {
     if (!m.dead && m.x === x && m.y === y) return m;
-  }
-  return null;
-}
-
-export function monsterAtTile(level: Level, i: number): Monster | null {
-  for (const m of level.monsters) {
-    if (!m.dead && index(m.x, m.y) === i) return m;
   }
   return null;
 }

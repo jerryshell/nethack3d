@@ -84,25 +84,9 @@ export function tileNoise(x: number, y: number): number {
 export const REMEMBERED_TINT = new THREE.Color(0x323d52);
 export const REMEMBERED_SCALE = 0.42;
 
-/** 共享材质工厂，保证地形设施表现一致。 */
-export function litMaterial(
-  color: number,
-  opts: THREE.MeshLambertMaterialParameters = {},
-): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({ color, ...opts });
+/** 取出网格的 Lambert 材质；Group 或材质数组返回 null。 */
+export function lambertOf(o: THREE.Object3D): THREE.MeshLambertMaterial | null {
+  const material = (o as THREE.Mesh).material;
+  if (!material || Array.isArray(material)) return null;
+  return material as THREE.MeshLambertMaterial;
 }
-
-export const MATERIALS = {
-  floor: new THREE.MeshLambertMaterial({ color: 0xffffff }),
-  wall: new THREE.MeshLambertMaterial({ color: 0xffffff }),
-  wood: new THREE.MeshLambertMaterial({ color: PALETTE.doorWood }),
-  metal: new THREE.MeshLambertMaterial({ color: PALETTE.doorMetal }),
-  stone: new THREE.MeshLambertMaterial({ color: PALETTE.fountainStone }),
-  gold: new THREE.MeshLambertMaterial({ color: PALETTE.stairsDown, emissive: 0x2a1f00 }),
-  trap: new THREE.MeshLambertMaterial({ color: PALETTE.trap }),
-  water: new THREE.MeshLambertMaterial({
-    color: PALETTE.fountainWater,
-    transparent: true,
-    opacity: 0.85,
-  }),
-};

@@ -15,7 +15,7 @@ import { alignDisplayName } from '../data/i18n';
 import { describeItem } from '../game/items';
 import { itemName } from './itemName';
 
-export interface TileInfo {
+interface TileInfo {
   /** 主要说明，例如怪物名或地形名。 */
   title: string;
   /** 点击后的结果说明。 */

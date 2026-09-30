@@ -21,6 +21,9 @@ export function serializeItem(item: ItemInstance): SerializedItem {
     g: item.gold ? 1 : 0,
     u: item.unpaid ? 1 : 0,
     ar: item.artifact,
+    cp: item.corpse,
+    ag: item.age,
+    tn: item.tin,
     n: item.contents?.length ? item.contents.map(serializeItem) : undefined,
   };
 }
@@ -41,6 +44,9 @@ export function deserializeItem(data: SerializedItem): ItemInstance | null {
     gold: !!data.g,
     unpaid: !!data.u,
     artifact: data.ar,
+    corpse: data.cp,
+    age: data.ag,
+    tin: data.tn,
     contents: data.n?.map(deserializeItem).filter((i): i is ItemInstance => i !== null),
   };
 }

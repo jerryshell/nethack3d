@@ -3,7 +3,7 @@ import type { GameSession } from '../game/session';
 import type { Level } from '../types';
 import type { ViewRenderer } from './view';
 import { DungeonMesh, tileToWorld } from './dungeonMesh';
-import { createPlayerModel, createBlobShadow } from './models';
+import { createPlayerModel, enableShadows } from './models';
 import { createCharacter } from './characters';
 import type { CharacterHandle, CharacterKey } from './characters';
 import { CameraRig } from './cameraRig';
@@ -25,6 +25,8 @@ export class GameScene {
   ambient: THREE.AmbientLight;
   hemi: THREE.HemisphereLight;
   moon: THREE.DirectionalLight;
+  /** 月光阴影相机的跟随目标。 */
+  moonTarget: THREE.Object3D;
   torch: THREE.PointLight;
   playerGroup: THREE.Group;
   playerModel: THREE.Group;
@@ -56,17 +58,32 @@ export class GameScene {
     // 地牢照明：冷色环境光 + 玩家身上的暖色火把。
     this.ambient = new THREE.AmbientLight(0x46516e, 1.15);
     this.hemi = new THREE.HemisphereLight(0xaec4ff, 0x322a20, 0.6);
-    this.moon = new THREE.DirectionalLight(0xc8d8ff, 0.65);
+    // 月光是唯一投射实时阴影的光源：点光源做阴影要渲六面，开销太大。
+    // 阴影相机跟着玩家走，范围缩到 ±14 格以换取分辨率。
+    this.moon = new THREE.DirectionalLight(0xc8d8ff, 0.75);
     this.moon.position.set(-14, 24, -10);
-    this.root.add(this.ambient, this.hemi, this.moon);
+    this.moon.castShadow = true;
+    const shadowSize = this.renderer.lowQuality ? 1024 : 2048;
+    this.moon.shadow.mapSize.set(shadowSize, shadowSize);
+    this.moon.shadow.camera.left = -14;
+    this.moon.shadow.camera.right = 14;
+    this.moon.shadow.camera.top = 14;
+    this.moon.shadow.camera.bottom = -14;
+    this.moon.shadow.camera.near = 4;
+    this.moon.shadow.camera.far = 64;
+    this.moon.shadow.bias = -0.0006;
+    this.moon.shadow.normalBias = 0.035;
+    this.moonTarget = new THREE.Object3D();
+    this.moon.target = this.moonTarget;
+    this.root.add(this.ambient, this.hemi, this.moon, this.moonTarget);
 
     this.torch = new THREE.PointLight(0xffb066, 2.1, 17, 1.75);
     this.torch.position.set(0, 1.15, 0);
 
     this.playerGroup = new THREE.Group();
     this.playerModel = createPlayerModel();
+    enableShadows(this.playerModel);
     this.playerGroup.add(this.playerModel, this.torch);
-    this.playerGroup.add(createBlobShadow(0.36));
     this.root.add(this.playerGroup);
 
     this.entities = new EntityLayer();
@@ -141,6 +158,7 @@ export class GameScene {
     this.playerCharacter?.dispose();
     this.playerCharacter = character;
     character.root.name = 'player-character';
+    enableShadows(character.root);
     this.playerGroup.add(character.root);
     character.play('idle');
     log.info('玩家模型已切换', { key: look.key });
@@ -263,6 +281,10 @@ export class GameScene {
     // 火把闪烁。
     const flicker = 1 + Math.sin(this.time * 9.1) * 0.05 + Math.sin(this.time * 23.7 + 1.3) * 0.035;
     this.torch.intensity = 2.1 * flicker;
+    // 月光跟随玩家：光源位置与目标一起平移，阴影相机范围始终覆盖身边。
+    const player = this.playerGroup.position;
+    this.moonTarget.position.set(player.x, 0, player.z);
+    this.moon.position.set(player.x - 12, 26, player.z - 10);
     if (this.playerCharacter) {
       // 人物模型自带动作，不再做整体的上下起伏。
       this.playerWalkTimer = Math.max(0, this.playerWalkTimer - dt);

@@ -344,6 +344,30 @@ body {
   align-self: center;
 }
 
+/* 状态效果标签：短促的色块，危险状态用红色。 */
+.hud-effects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-self: center;
+}
+
+.hud-chip {
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(60, 74, 110, 0.6);
+  border: 1px solid rgba(140, 170, 220, 0.4);
+  color: #dfe8ff;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.hud-chip.danger {
+  background: rgba(140, 30, 30, 0.7);
+  border-color: rgba(255, 120, 120, 0.7);
+  color: #ffd9d5;
+}
+
 .hud-actions {
   display: flex;
   gap: 0.4rem;

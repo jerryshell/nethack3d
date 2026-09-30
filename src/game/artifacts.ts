@@ -1,12 +1,13 @@
 /**
  * 职业神器。
  *
- * 沿用原版的职业任务神器设定，但本作还没有任务楼层：神器作为圣所
- * （第 29 层）的必得奖励出现，用基础物品原型 + 附魔加值表示。
- * 非武器类神器目前只是具名珍品，没有额外能力。
+ * 沿用原版的职业任务神器设定：神器放在职业任务线最终层的仇敌脚下，
+ * 用基础物品原型 + 附魔加值表示。武器类附魔计入命中与伤害；
+ * 非武器神器按 `artilist.h` 的 CARY/DFNS 规则提供被动抗性，
+ * 医神之杖在手时回复加倍。任务总部与目标地名取自 role.c，中文译名在 i18n 里。
  */
 
-export interface ArtifactDef {
+interface ArtifactDef {
   /** 文案键后缀：artifact.<id>。 */
   id: string;
   role: string;
@@ -76,3 +77,20 @@ export const ARTIFACTS: Record<string, ArtifactDef> = {
 export function artifactForRole(roleId: string): ArtifactDef | null {
   return Object.values(ARTIFACTS).find((artifact) => artifact.role === roleId) ?? null;
 }
+
+/**
+ * 可以启动的神器。
+ *
+ * 对应 artilist.h 的 invoke 字段：探知之球揭示地图，命运之球层级传送，
+ * 蒂安娜长弓造箭，圣洁法冠回法力，医神之杖治疗。
+ */
+export const ARTIFACT_INVOKES: ReadonlySet<string> = new Set([
+  'orb_of_detection',
+  'orb_of_fate',
+  'longbow_of_diana',
+  'mitre_of_holiness',
+  'staff_of_aesculapius',
+  'master_key_of_thievery',
+  'platinum_yendorian_express_card',
+  'eyes_of_the_overworld',
+]);

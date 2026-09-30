@@ -3,22 +3,23 @@ import type { DoorState, Level } from '../types';
 import { createLogger, LOG_NS } from '../core/log';
 import { COLNO, ROWNO, T, isWall, isLiquid } from '../core/constants';
 import { doorBlocksEastWest, index } from '../game/dungeon';
-import { PALETTE, tileColor, tileNoise, REMEMBERED_TINT, REMEMBERED_SCALE } from './palette';
+import {
+  PALETTE,
+  tileColor,
+  tileNoise,
+  lambertOf,
+  REMEMBERED_TINT,
+  REMEMBERED_SCALE,
+} from './palette';
 import { modelGeometry, modelMaterial } from './assets';
+import { enableShadows } from './models';
 
 const log = createLogger(LOG_NS.render);
 
-export const WALL_HEIGHT = 1.15;
-export const FLOOR_THICKNESS = 0.14;
+const WALL_HEIGHT = 1.15;
+const FLOOR_THICKNESS = 0.14;
 
 /** 瓦片中心转世界坐标，关卡以原点为中心。 */
-/** 取出网格的 Lambert 材质；Group 或材质数组返回 null。 */
-function lambertOf(o: THREE.Object3D): THREE.MeshLambertMaterial | null {
-  const material = (o as THREE.Mesh).material;
-  if (!material || Array.isArray(material)) return null;
-  return material as THREE.MeshLambertMaterial;
-}
-
 export function tileToWorld(x: number, y: number): { x: number; z: number } {
   return { x: x - (COLNO - 1) / 2, z: y - (ROWNO - 1) / 2 };
 }
@@ -470,6 +471,7 @@ export class DungeonMesh extends THREE.Group {
       floors,
     );
     floorKind.mesh.position.y = -FLOOR_THICKNESS / 2;
+    floorKind.mesh.receiveShadow = true;
     this.add(floorKind.mesh);
     this.kinds.push(floorKind);
 
@@ -479,6 +481,8 @@ export class DungeonMesh extends THREE.Group {
       walls,
     );
     wallKind.mesh.position.y = WALL_HEIGHT / 2;
+    wallKind.mesh.castShadow = true;
+    wallKind.mesh.receiveShadow = true;
     this.add(wallKind.mesh);
     this.kinds.push(wallKind);
 
@@ -487,6 +491,7 @@ export class DungeonMesh extends THREE.Group {
         opacity: 0.85,
       });
       liquidKind.mesh.position.y = -0.05;
+      liquidKind.mesh.receiveShadow = true;
       this.add(liquidKind.mesh);
       this.kinds.push(liquidKind);
     }
@@ -499,6 +504,8 @@ export class DungeonMesh extends THREE.Group {
       group.userData.tile = i;
       group.userData.kind = kind;
       isolateMaterials(group);
+      // 设施投射并接收阴影，让门扇、楼梯与祭坛在地面上留下真实影子。
+      enableShadows(group);
       this.add(group);
       this.features.push(group);
     };

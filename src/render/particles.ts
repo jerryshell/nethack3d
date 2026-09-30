@@ -20,7 +20,7 @@ interface Particle {
   color: THREE.Color;
 }
 
-export interface BurstOptions {
+interface BurstOptions {
   count?: number;
   speed?: number;
   size?: number;

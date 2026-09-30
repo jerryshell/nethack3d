@@ -4,21 +4,21 @@
  * 与陷阱表同构：每种设施的效果归到少数几种类型，会话层按类型执行，
  * 因此新增效果只是往表里加一行。权重之和不必凑整，抽取按相对权重。
  *
- * 祭坛留到祈祷与阵营记录落地后再启用，目前只作为陈设，
- * 边界记录在 docs/COGNITION.md。
+ * 祭坛不在这张表里：献祭需要背包里的尸体，由会话的 `offerCorpse()`
+ * 与界面动作单独处理；祈祷仍是全局动作。
  */
 
 import type { Rng } from '../types';
 import { T } from '../core/constants';
 
 /** 设施种类。 */
-export type FeatureKind = 'fountain' | 'sink' | 'grave' | 'throne';
+type FeatureKind = 'fountain' | 'sink' | 'grave' | 'throne';
 
 /** 玩家可以对设施做的动作。 */
 export type FeatureAction = 'drink' | 'kick' | 'dig' | 'sit';
 
 /** 效果类型。 */
-export type FeatureEffectKind =
+type FeatureEffectKind =
   | 'nothing'
   | 'heal'
   | 'refresh'
@@ -108,7 +108,7 @@ export function rollFeatureEffect(rng: Rng, kind: FeatureKind): FeatureEffect {
 }
 
 /** 玩家站上设施时界面提供的动作。 */
-export interface FeatureActionDef {
+interface FeatureActionDef {
   id: string;
   action: FeatureAction;
   kind: FeatureKind;

@@ -5,13 +5,14 @@
 
 import type { ItemDescription, ItemInstance } from '../types';
 import { t } from '../i18n/index';
-import { objectName } from '../data/index';
+import { monsterName, objectName } from '../data/index';
 import { appearanceName } from '../data/i18n';
 
 function resolveItemVars(vars: Record<string, unknown>): Record<string, string | number> {
   const out: Record<string, string | number> = {};
   for (const [key, value] of Object.entries(vars ?? {})) {
     if (key === 'name') out.name = objectName(value as string);
+    else if (key === 'mon') out.mon = monsterName(value as string);
     else if (key === 'artifact') out.name = t(`artifact.${value}`);
     else if (key === 'apprId') out.appr = appearanceName(value as string);
     else out[key] = String(value);

@@ -8,7 +8,7 @@
 import type { ItemInstance } from '../types';
 
 /** 容器 id 到容纳件数。 */
-export const CONTAINER_CAPACITY: Record<string, number> = {
+const CONTAINER_CAPACITY: Record<string, number> = {
   LARGE_BOX: 20,
   CHEST: 20,
   ICE_BOX: 8,

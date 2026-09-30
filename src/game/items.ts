@@ -18,6 +18,7 @@ import type {
   ObjectClass,
   ObjectData,
   Rng,
+  ShopType,
 } from '../types';
 import { createLogger, LOG_NS } from '../core/log';
 import { MKOBJ_PROBS } from '../core/constants';
@@ -35,15 +36,7 @@ export function nextItemId() {
 }
 
 /** 类别名在鉴定前置为不可见的物品类别。 */
-export const UNKNOWN_CLASSES = new Set([
-  'potion',
-  'scroll',
-  'wand',
-  'ring',
-  'amulet',
-  'spellbook',
-  'gem',
-]);
+const UNKNOWN_CLASSES = new Set(['potion', 'scroll', 'wand', 'ring', 'amulet', 'spellbook', 'gem']);
 
 /** 可随机出现的物品：生成概率大于 0，且不是占位条目或唯一任务物品。 */
 const SPAWNABLE = REAL_OBJECTS.filter((o) => o.prob > 0 && o.cls !== 'coin');
@@ -97,6 +90,27 @@ export function randomItem(
   if (!proto) return null;
   const appearance = appearanceMap?.get(proto.id) ?? proto.appr ?? null;
   return makeItem(proto, rng, { appearance });
+}
+
+/** 随机抽一件指定类别的物品；特殊关卡的固定摆放用它。 */
+export function randomItemOfClass(
+  rng: Rng,
+  cls: ObjectClass,
+  appearanceMap?: Map<string, string>,
+): ItemInstance | null {
+  const proto = pickObjectType(rng, cls);
+  if (!proto) return null;
+  const appearance = appearanceMap?.get(proto.id) ?? proto.appr ?? null;
+  return makeItem(proto, rng, { appearance });
+}
+
+/** 造一块巨石；推箱关卡与矿坑用，原版里不可携带。 */
+export function makeBoulder(rng: Rng): ItemInstance {
+  const proto = objById.get('BOULDER') as ObjectData;
+  const item = makeItem(proto, rng);
+  item.known = true;
+  item.buc = 'uncursed';
+  return item;
 }
 
 /** 一堆金币。 */
@@ -174,6 +188,51 @@ const SHOP_CLASS_PROBS: [ObjectClass, number][] = [
   ['gem', 4],
 ];
 
+/** 商店种类与其进货类别权重；原型取自 NetHack 的 shtypes[]。 */
+export const SHOP_TYPES: Record<ShopType, [ObjectClass, number][]> = {
+  general: SHOP_CLASS_PROBS,
+  armor: [
+    ['armor', 90],
+    ['weapon', 10],
+  ],
+  scroll: [
+    ['scroll', 90],
+    ['spellbook', 10],
+  ],
+  potion: [
+    ['potion', 90],
+    ['food', 10],
+  ],
+  weapon: [
+    ['weapon', 90],
+    ['armor', 10],
+  ],
+  food: [
+    ['food', 90],
+    ['potion', 10],
+  ],
+  jewelry: [
+    ['ring', 85],
+    ['gem', 10],
+    ['amulet', 5],
+  ],
+  wand: [
+    ['wand', 90],
+    ['ring', 5],
+    ['amulet', 5],
+  ],
+  tool: [['tool', 100]],
+  book: [
+    ['spellbook', 90],
+    ['scroll', 10],
+  ],
+};
+
+/** 某类商店的库存表；未知种类回退到杂货店。 */
+function shopClassProbs(shopType: ShopType | undefined): [ObjectClass, number][] {
+  return SHOP_TYPES[shopType ?? 'general'] ?? SHOP_CLASS_PROBS;
+}
+
 /**
  * 商店售价：基础价加利润，利润随魅力变化（魅力越高越低）。
  * 默认魅力 10 时就是基础价加三分之一。
@@ -193,9 +252,10 @@ export function randomShopItem(
   rng: Rng,
   depth: number,
   appearanceMap?: Map<string, string>,
+  shopType: ShopType = 'general',
 ): ItemInstance | null {
   const cls = rng.pickWeighted(
-    SHOP_CLASS_PROBS.map(([id, prob]) => ({ id, prob })),
+    shopClassProbs(shopType).map(([id, prob]) => ({ id, prob })),
     'prob',
   )?.id;
   if (!cls) return null;
@@ -239,7 +299,7 @@ export function stockShop(
   let placed = 0;
   for (const spot of spots) {
     if (placed >= target) break;
-    const item = randomShopItem(rng, depth, appearanceMap);
+    const item = randomShopItem(rng, depth, appearanceMap, room.shopType);
     if (!item) continue;
     item.unpaid = true;
     const existing = level.objects.find((o) => o.x === spot.x && o.y === spot.y);
@@ -262,16 +322,6 @@ export function createAppearanceMap(rng: Rng): Map<string, string> {
   return map;
 }
 
-/** 把某类物品标记为已鉴定。 */
-export function identifyItem(item: ItemInstance): ItemInstance {
-  item.known = true;
-  return item;
-}
-
-export function identifiedName(item: ItemInstance): string {
-  return item.proto.name;
-}
-
 /**
  * 生成可翻译的物品描述：{ qty, key, vars }。
  *
@@ -283,6 +333,10 @@ export function describeItem(item: ItemInstance): ItemDescription {
   const cls = proto.cls;
   if (item.gold || cls === 'coin') {
     return { qty: item.quantity, key: 'item.gold', vars: { n: item.quantity } };
+  }
+  // 尸体有专属名字，与基础原型无关。
+  if (item.corpse) {
+    return { qty: item.quantity, key: 'item.corpse', vars: { mon: item.corpse } };
   }
   // 职业神器有专属名字，与基础原型无关。
   if (item.artifact) {
@@ -308,9 +362,4 @@ export function describeItem(item: ItemInstance): ItemDescription {
     key: `item.unknown.${cls}`,
     vars: { apprId: appr, apprText: appr },
   };
-}
-
-/** 类别的短标签键，供界面显示。 */
-export function classLabelKey(proto: ObjectData): string {
-  return `item.class.${proto.cls}`;
 }

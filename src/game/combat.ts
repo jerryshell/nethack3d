@@ -24,6 +24,16 @@ export function acValue(ac: number, rng: Rng): number {
   return ac >= 0 ? ac : -rng.rnd(-ac);
 }
 
+/**
+ * 属性/命中/伤害戒指的装备加值。
+ *
+ * 这一类戒指在数据里的 power 为空，因此按原型 id 识别：
+ * 力量戒指在命中与伤害里各 +1，命中/伤害戒指各加对应数值。
+ */
+export function equipmentRingBonus(player: Player, id: string): number {
+  return Object.values(player.equipment).some((item) => item?.proto.id === id) ? 1 : 0;
+}
+
 /** abon()：力量与敏捷带来的命中加值，含低等级补偿。 */
 export function abon({ str, dex, level }: Attacker): number {
   let sbon;
@@ -52,8 +62,24 @@ export function dbon(str: number): number {
 }
 
 /** NetHack 的幸运修正，用于命中判定。 */
-export function luckBonus(luck: number): number {
+function luckBonus(luck: number): number {
   return Math.sign(luck) * Math.floor((Math.abs(luck) + 2) / 3);
+}
+
+/** 携带幸运神器与幸运石带来的额外幸运：村正与命运之球（artilist.h 的 SPFX_LUCK）。 */
+export function luckArtifactBonus(player: Player): number {
+  let bonus = 0;
+  for (const item of player.inventory) {
+    if (item.artifact === 'tsurugi_of_muramasa' || item.artifact === 'orb_of_fate') {
+      bonus = Math.max(bonus, 2);
+    }
+    // 幸运石：诅咒 -1，普通 +1，祝福 +3；只计第一颗。
+    if (item.id === 'LUCKSTONE') {
+      const stone = item.buc === 'cursed' ? -1 : item.buc === 'blessed' ? 3 : 1;
+      return bonus + stone;
+    }
+  }
+  return bonus;
 }
 
 /** 武器熟练度带来的命中加值：每两级 +1。 */
@@ -75,10 +101,15 @@ export function heroHits(
 ): { hit: boolean; roll: number } {
   const tmp =
     1 +
-    abon(player) +
+    abon({
+      str: player.str + equipmentRingBonus(player, 'RIN_GAIN_STRENGTH'),
+      dex: player.dex,
+      level: player.level,
+    }) +
     target.ac +
     (player.hitInc ?? 0) +
-    luckBonus(player.luck ?? 0) +
+    equipmentRingBonus(player, 'RIN_INCREASE_ACCURACY') +
+    luckBonus((player.luck ?? 0) + luckArtifactBonus(player)) +
     player.level +
     bonus +
     (target.asleep ? 2 : 0) +

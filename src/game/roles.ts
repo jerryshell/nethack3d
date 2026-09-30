@@ -85,7 +85,7 @@ export function randomCharacter(rng: Rng): CharacterChoice {
  * 简化的初始装备表，按职业 ID 索引。每项为「物品 ID + 装备方式」，
  * 装备方式取 wield、wear、offhand 或 null。
  */
-export const STARTING_KITS: Record<string, [string, EquipIntent][]> = {
+const STARTING_KITS: Record<string, [string, EquipIntent][]> = {
   ARCHEOLOGIST: [
     ['BULLWHIP', 'wield'],
     ['LEATHER_JACKET', 'wear'],

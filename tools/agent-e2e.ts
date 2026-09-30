@@ -389,7 +389,7 @@ async function main(): Promise<void> {
     const ember = (emberProbe.value ?? {}) as { count?: number };
     record(
       '粒子系统可绘制',
-      (pfx.count ?? 0) > 0 && (ember.count ?? 0) > 0,
+      (pfx.count ?? 0) > 0 && (ember.count ?? 0) < (pfx.count ?? 0),
       `喷发=${pfx.count} 一秒后=${ember.count}`,
     );
 
@@ -420,6 +420,29 @@ async function main(): Promise<void> {
       String(idData.seed ?? '').includes(String(idData.expectedSeed)) &&
         String(idData.depth ?? '').includes(String(idData.expectedDepth)),
       `种子 ${idData.seed}（应为 ${idData.expectedSeed}）· 层数 ${idData.depth}（应为 ${idData.expectedDepth}）`,
+    );
+
+    // 5b4. 状态效果标签：设置失明与石化后 HUD 出现对应词条。
+    const effects = evaluate(
+      session,
+      `(() => {
+        const g = window.__nethack3d;
+        g.session.player.blind = 5;
+        g.session.player.petrifying = 3;
+        g.hud.render(g.session);
+        const chips = [...document.querySelectorAll('.hud-chip')].map((c) => c.textContent.trim());
+        const danger = document.querySelectorAll('.hud-chip.danger').length;
+        g.session.player.blind = 0;
+        g.session.player.petrifying = 0;
+        g.hud.render(g.session);
+        return JSON.stringify({ chips, danger });
+      })()`,
+    );
+    const effectData = (effects.value ?? {}) as { chips?: string[]; danger?: number };
+    record(
+      '状态效果标签可用',
+      (effectData.chips?.length ?? 0) >= 2 && (effectData.danger ?? 0) >= 1,
+      `标签=${(effectData.chips ?? []).join('/')} 危险=${effectData.danger ?? 0}`,
     );
 
     // 5b3. 转储按钮：弹出可复制的状态文本，含种子、地图与存档载荷
@@ -464,7 +487,7 @@ async function main(): Promise<void> {
         const canvas = document.querySelector('canvas');
         const rect = canvas.getBoundingClientRect();
         const x = Math.round(rect.left + rect.width / 2);
-        const y = Math.round(rect.top + rect.height * 0.62);
+        const y = Math.round(rect.top + rect.height * 0.45);
         const el = document.elementFromPoint(x, y);
         return JSON.stringify({ x, y, top: el ? el.className || el.tagName : '' });
       })()`,
@@ -501,6 +524,9 @@ async function main(): Promise<void> {
             const angle = (a / 16) * Math.PI * 2;
             const x = Math.round(cx + Math.cos(angle) * rect.width * r);
             const y = Math.round(cy + Math.sin(angle) * rect.height * r);
+            // 跳过被操作按钮等元素覆盖的位置，保证真实鼠标事件能落到画布。
+            const top = document.elementFromPoint(x, y);
+            if (!top || top.tagName !== 'CANVAS') continue;
             window.dispatchEvent(
               new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }),
             );
@@ -735,33 +761,40 @@ async function main(): Promise<void> {
       `模型 ${perfData?.models ?? 0} 个，贴图 ${perfData?.textures ?? 0} 张`,
     );
 
-    // 脚下伪阴影：玩家与每只怪物都有。
+    // 实时阴影：渲染器启用阴影贴图，月光投射，地面接收。
     const shadowProbe = evaluate(
       session,
       `(() => {
         const scene = window.__nethack3d.scene;
-        let views = 0;
-        let withShadow = 0;
-        scene.entities.views.forEach((v) => {
-          views++;
-          if (v.group.getObjectByName('blob-shadow')) withShadow++;
+        const renderer = scene.renderer.renderer;
+        let casters = 0;
+        let receivers = 0;
+        scene.root.traverse((o) => {
+          if (!o.isMesh) return;
+          if (o.castShadow) casters++;
+          if (o.receiveShadow) receivers++;
         });
         return JSON.stringify({
-          views,
-          withShadow,
-          player: !!scene.playerGroup.getObjectByName('blob-shadow'),
+          mapEnabled: renderer.shadowMap.enabled === true,
+          moonCast: scene.moon.castShadow === true,
+          casters,
+          receivers,
         });
       })()`,
     );
     const shadows = (shadowProbe.value ?? {}) as {
-      views?: number;
-      withShadow?: number;
-      player?: boolean;
+      mapEnabled?: boolean;
+      moonCast?: boolean;
+      casters?: number;
+      receivers?: number;
     };
     record(
-      '脚下有阴影',
-      shadows.player === true && (shadows.views ?? 0) === (shadows.withShadow ?? 0),
-      `玩家=${shadows.player} 怪物视图=${shadows.withShadow}/${shadows.views}`,
+      '实时阴影已启用',
+      shadows.mapEnabled === true &&
+        shadows.moonCast === true &&
+        (shadows.casters ?? 0) >= 5 &&
+        (shadows.receivers ?? 0) >= 5,
+      `贴图=${shadows.mapEnabled} 月光=${shadows.moonCast} 投射=${shadows.casters} 接收=${shadows.receivers}`,
     );
 
     // 7. 截图
@@ -786,6 +819,9 @@ async function main(): Promise<void> {
       ? ['打开截图确认画面，查看页面控制台的错误日志，修复后重跑 bun tools/agent-e2e.ts']
       : [
           '浏览器路径正常，可运行 bun run verify:full 完成整体校验',
+          ...(options.keepServer
+            ? [`开发服务器仍在 http://localhost:${options.port}/ ，跑 --preview 前先停止它`]
+            : []),
           ...(options.keepBrowser
             ? ['浏览器会话已保留，收尾时执行 agent-browser --session nh3d-e2e close']
             : []),

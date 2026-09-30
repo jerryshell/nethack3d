@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "extract": "bun tools/extract-nh-data.ts && bun tools/extract-nh-roles.ts",
+    "extract": "bun tools/extract-nh-data.ts && bun tools/extract-nh-roles.ts && bun tools/extract-nh-sokoban.ts",
     "assets:sync": "bun tools/sync-assets.ts",
     "assets:check": "bun tools/sync-assets.ts --check",
     "test": "bun test",

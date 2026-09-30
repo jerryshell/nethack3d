@@ -31,25 +31,10 @@ const MANIFEST_PATH = path.join(TARGET_DIR, 'manifest.json');
 /**
  * 选定的模型。
  *
- * 只取当前用得到的部分：地面与墙体是画面主体，其余为地形设施与容器。
- * 模型体积都很小（1 到 40KB），整包同步没有意义。
+ * 只同步实际渲染用到的设施：门、楼梯与陷阱。墙体、地面与道具走程序化
+ * 几何体（见 docs/DESIGN.md），人物模型另有清单，整包同步没有意义。
  */
-const MODELS = [
-  'floor',
-  'floor-detail',
-  'dirt',
-  'wall',
-  'wall-half',
-  'wall-opening',
-  'column',
-  'stairs',
-  'gate',
-  'trap',
-  'barrel',
-  'chest',
-  'pot',
-  'rocks',
-];
+const MODELS = ['stairs', 'gate', 'trap'];
 
 /** 共用贴图集，所有模型通过 UV 引用它。 */
 const TEXTURE = 'Textures/colormap.png';

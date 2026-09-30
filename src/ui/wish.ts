@@ -11,35 +11,38 @@ export interface WishPanelHandle {
   destroy(): void;
 }
 
-export interface WishPanelOptions {
+interface WishPanelOptions {
   /** 提交一次愿望；返回 true 表示愿望已兑现，面板应当关闭。 */
   onWish: (text: string) => boolean;
   /** 面板关闭时的回调（取消、兑现或销毁）。 */
   onClose: () => void;
+  /** 输入模式：许愿或灭绝；只影响标题与提示文案。 */
+  mode?: 'wish' | 'genocide';
 }
 
 /** 在给定容器里创建许愿面板。 */
 export function createWishPanel(
   mount: HTMLElement,
-  { onWish, onClose }: WishPanelOptions,
+  { onWish, onClose, mode = 'wish' }: WishPanelOptions,
 ): WishPanelHandle {
+  const prefix = mode === 'genocide' ? 'genocide' : 'wish';
   const mask = document.createElement('div');
   mask.className = 'mask wish-mask';
   const dialog = document.createElement('div');
   dialog.className = 'dialog wish';
 
   const title = document.createElement('h2');
-  title.dataset.i18n = 'wish.title';
+  title.dataset.i18n = `${prefix}.title`;
   const hint = document.createElement('p');
   hint.className = 'muted wish-hint';
-  hint.dataset.i18n = 'wish.hint';
+  hint.dataset.i18n = `${prefix}.hint`;
 
   const input = document.createElement('input');
   input.className = 'wish-input';
   input.type = 'text';
   input.autocomplete = 'off';
   input.spellcheck = false;
-  input.placeholder = t('wish.placeholder');
+  input.placeholder = t(`${prefix}.placeholder`);
 
   const bar = document.createElement('div');
   bar.className = 'dump-actions';

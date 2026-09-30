@@ -9,17 +9,9 @@
 import type { ObjectData, Player, Rng } from '../types';
 
 /** 法术的效果类型，由法术书的类别推导。 */
-export type SpellKind =
-  | 'attack'
-  | 'heal'
-  | 'divine'
-  | 'detect'
-  | 'enchant'
-  | 'escape'
-  | 'matter'
-  | 'none';
+type SpellKind = 'attack' | 'heal' | 'divine' | 'detect' | 'enchant' | 'escape' | 'matter' | 'none';
 
-export interface SpellProfile {
+interface SpellProfile {
   kind: SpellKind;
   /** 消耗的法力：等于法术等级，最低 1。 */
   cost: number;
@@ -78,22 +70,6 @@ export function castFailChance(player: Player, level: number, skillLevel = 0): n
   const roleBonus = CASTER_ROLES.has(player.role.id) ? 0.15 : 0;
   return Math.max(0, Math.min(0.85, base - skill - roleBonus - skillLevel * 0.03));
 }
-
-/** 施法结果。 */
-export type CastOutcome =
-  | { result: 'unknown' }
-  | { result: 'no-mana'; need: number }
-  | { result: 'failed' }
-  | {
-      result: 'cast';
-      kind: SpellKind;
-      /** 伤害或治疗量。 */
-      amount?: number;
-      /** 影响到的怪物 id。 */
-      monsterId?: number;
-      /** 占卜等效果是否生效。 */
-      applied?: boolean;
-    };
 
 /** 掷出伤害或治疗量。 */
 export function rollSpellAmount(rng: Rng, profile: SpellProfile): number {

@@ -12,6 +12,7 @@ import type {
   CharacterChoice,
   CombatFeedback,
   GameMessage,
+  GroundPile,
   ItemInstance,
   Level,
   MessageVars,
@@ -25,7 +26,15 @@ import type { UseOutcome } from './inventory';
 import { trapEffect, trapNameKey } from './traps';
 import { castFailChance, rollSpellAmount, spellProfile } from './spells';
 import { createLogger, LOG_NS } from '../core/log';
-import { generateLevel, generateBranchLevel, index, inRoom, shopRoom } from './dungeon';
+import {
+  generateLevel,
+  generateBranchLevel,
+  coords,
+  index,
+  inRoom,
+  inShopRoom,
+  shopRoom,
+} from './dungeon';
 import { computeFov } from './fov';
 import { createRng, deriveSeed } from '../core/rng';
 import { T, COLNO, MAX_DEPTH, isWalkable, isDoor } from '../core/constants';
@@ -39,13 +48,15 @@ import {
   monsterDamage,
   skillDamageBonus,
   skillHitBonus,
+  equipmentRingBonus,
   xpForLevel,
 } from './combat';
 import type { ResistKind } from './resist';
-import { monsterMagicResists, playerResists } from './resist';
+import { monsterMagicResists, playerResists, halfDamageKinds } from './resist';
 import {
   spawnMonsters,
   monsterAt,
+  monsterSpeed,
   placeShopkeeper,
   pickMonsterType,
   Monster as MonsterEntity,
@@ -73,12 +84,14 @@ import { clearBones, loadBones } from './bones';
 import { deserializeItem } from './itemcodec';
 import { containerCapacity, containerHasRoom, isContainer } from './containers';
 import { artifactForRole } from './artifacts';
-import { objById, monById } from '../data/index';
+import { objById, monById, MONSTERS, monsterName } from '../data/index';
+import { SOKOBAN_LEVELS } from '../data/sokoban.gen';
 import {
   applyItem,
   addToInventory,
   autoPickupGold,
   drop as dropItem,
+  invokeArtifact,
   pickup as pickupItems,
   removeFromInventory,
   removeItem,
@@ -94,7 +107,7 @@ const log = createLogger(LOG_NS.session);
 export { MAX_DEPTH };
 
 /** 创建会话的参数。 */
-export interface SessionOptions {
+interface SessionOptions {
   seed?: number;
   depth?: number;
   character?: CharacterChoice | null;
@@ -116,7 +129,7 @@ const DIR8 = [
 
 /** 神谕咨询的价格与提示条数。 */
 const ORACLE_COST = 20;
-const ORACLE_TIPS = 12;
+const ORACLE_TIPS = 20;
 
 /** 武器熟练度上限与每级所需使用次数。 */
 const SKILL_MAX = 7;
@@ -167,6 +180,17 @@ export class GameSession {
   /** 正在骑乘的宠物；不在关卡怪物列表里。 */
   ride: Monster | null = null;
   level: Level;
+
+  /** 职业任务的楼梯是否已获领袖许可。 */
+  questUnlocked = false;
+  /** 是否已带着职业神器向领袖复命。 */
+  questComplete = false;
+  /** 尤恩多巫师是否抢走了护身符。 */
+  wizardHasAmulet = false;
+  /** 已被灭绝的物种，不再生成。 */
+  genocides = new Set<string>();
+  /** 玩家读完灭绝卷轴后等待输入物种名。 */
+  pendingGenocide = false;
 
   /** 最近一次战斗反馈，供界面播放受击动画。 */
   lastCombat: CombatFeedback | null = null;
@@ -269,21 +293,34 @@ export class GameSession {
     const label = level.branch ? `${level.branch} 第 ${level.depth} 层` : `第 ${level.depth} 层`;
     const done = log.time(`${label} 放置生物与物品`);
     const special = specialLevelById(level.special);
+    // 推箱层只放固定怪物，不随机刷怪与物品。
+    if (level.branch === 'sokoban') {
+      this.placeSokobanMonsters(level);
+      done({
+        monsters: level.monsters.length,
+        piles: level.objects.length,
+        special: level.special,
+      });
+      return;
+    }
     const branchTheme = branchById(level.branch)?.monsterTheme;
     const theme = special?.monsterTheme ?? branchTheme;
+    const quest = level.branch === 'quest' ? this.character.role.quest : null;
     // 分支的怪物难度跟着层数走：主题怪物的难度普遍高于同层主地牢。
-    const themeBoost = branchTheme ? level.depth + 2 : 0;
+    const themeBoost = branchTheme || quest ? level.depth + 2 : 0;
     spawnMonsters(level, this.rng, {
       player: this.player,
       heroLevel: this.player.level + themeBoost,
       theme,
+      symbols: quest?.enemies,
+      exclude: this.genocides,
       count:
         special?.layout === 'bigRoom' ? Math.min(20, 8 + Math.floor(level.depth / 2)) : undefined,
     });
     spawnObjects(level, this.rng, level.depth, this.appearances);
     this.placeSpecialContent(level, special);
     this.placeBones(level);
-    this.placeQuestArtifact(level);
+    this.placeQuestContent(level);
     if (!level.branch && level.depth >= MAX_DEPTH) this.placeAmulet(level);
     if (level.branch && level.depth >= branchMaxDepth(level.branch)) {
       this.placeBranchReward(level);
@@ -303,23 +340,246 @@ export class GameSession {
     });
   }
 
-  /** 圣所放置本职业的神器，作为后期必得奖励。 */
-  private placeQuestArtifact(level: Level): void {
-    if (level.special !== 'sanctum') return;
+  /** 推箱层的固定怪物：原版顶层有两只伪装成巨石的巨型拟形怪。 */
+  private placeSokobanMonsters(level: Level): void {
+    const variant = SOKOBAN_LEVELS.find((l) => l.depth === level.depth)?.variants.find(
+      (v) => v.id === level.sokobanVariant,
+    );
+    for (const spawn of variant?.monsters ?? []) {
+      // 提取的是原版显示名（giant mimic），换成原型 id。
+      const id = spawn.id.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+      const data = monById.get(id);
+      if (!data) continue;
+      // 在固定地图的地面格上挑一个空位。
+      const candidates: { x: number; y: number }[] = [];
+      for (let i = 0; i < level.tiles.length; i++) {
+        if (level.tiles[i] !== T.ROOM) continue;
+        const x = i % COLNO;
+        const y = Math.floor(i / COLNO);
+        if (monsterAt(level, x, y)) continue;
+        candidates.push({ x, y });
+      }
+      if (!candidates.length) continue;
+      const spot = candidates[this.rng.rn2(candidates.length)];
+      level.monsters.push(new MonsterEntity(data, spot.x, spot.y, this.rng));
+    }
+  }
+
+  /** 职业任务线：总部放领袖与护卫，目标层放仇敌与职业神器。 */
+  private placeQuestContent(level: Level): void {
+    if (level.branch !== 'quest') return;
+    const quest = this.character.role.quest;
+    if (!quest) return;
+    const goalDepth = branchMaxDepth('quest');
+    if (level.depth >= goalDepth) {
+      this.placeQuestGoal(level, quest);
+      return;
+    }
+    // 搜索层：额外护卫与一小堆金币，让中段也有内容。
+    if (level.depth === Math.ceil(goalDepth / 2)) {
+      const guardProto = quest.guardian ? monById.get(quest.guardian) : null;
+      if (guardProto) {
+        const count = 2 + this.rng.rn2(3);
+        for (let n = 0; n < count; n++) {
+          const spot = this.farSpot(level, 4);
+          if (!spot) break;
+          const guard = new MonsterEntity(guardProto, spot.x, spot.y, this.rng);
+          guard.asleep = false;
+          level.monsters.push(guard);
+        }
+      }
+      const loot = this.floorSpot(level);
+      if (loot) {
+        const gold = makeGold(this.rng, level.depth, 80 + this.rng.rn2(120));
+        const pile = level.objects.find((p) => p.x === loot.x && p.y === loot.y);
+        if (pile) pile.items.push(gold);
+        else level.objects.push({ x: loot.x, y: loot.y, items: [gold] });
+      }
+      log.info('任务搜索层已布置', { role: this.player.role.id, depth: level.depth });
+      return;
+    }
+    if (level.depth !== 1) return;
+    // 领袖与护卫守在入口楼梯附近，玩家一进任务总部就能看到。
+    const base = level.up ?? level.start ?? { x: level.width >> 1, y: level.height >> 1 };
+    const leaderProto = monById.get(quest.leader);
+    if (leaderProto) {
+      const spot = this.spotNear(level, base, 3, 7);
+      if (spot) {
+        const leader = new MonsterEntity(leaderProto, spot.x, spot.y, this.rng);
+        leader.asleep = false;
+        level.monsters.push(leader);
+      }
+    }
+    const guardProto = quest.guardian ? monById.get(quest.guardian) : null;
+    if (guardProto) {
+      const count = 2 + this.rng.rn2(3);
+      for (let n = 0; n < count; n++) {
+        const spot = this.spotNear(level, base, 2, 9);
+        if (!spot) break;
+        const guard = new MonsterEntity(guardProto, spot.x, spot.y, this.rng);
+        guard.asleep = false;
+        level.monsters.push(guard);
+      }
+    }
+    log.info('任务总部已布置', { role: this.player.role.id, depth: level.depth });
+  }
+
+  /** 任务目标层：唤醒仇敌，并把本职业神器放在它脚下。 */
+  private placeQuestGoal(level: Level, quest: { nemesis: string }): void {
+    const nemesisProto = monById.get(quest.nemesis);
+    const spot = this.questGoalSpot(level);
+    if (!nemesisProto || !spot) return;
+    const nemesis = new MonsterEntity(nemesisProto, spot.x, spot.y, this.rng);
+    nemesis.asleep = false;
+    level.monsters.push(nemesis);
+
     const def = artifactForRole(this.player.role.id);
     if (!def) return;
     const proto = objById.get(def.proto);
     if (!proto) return;
-    const spot = this.floorSpot(level);
-    if (!spot) return;
     const item = makeItem(proto, this.rng);
     item.artifact = def.id;
     item.enchant = def.enchant;
     item.known = true;
+    // 神器与一小堆金币垫在仇敌脚下，击败它就能拿走。
+    const gold = makeGold(this.rng, level.depth, 200 + this.rng.rn2(300));
     const pile = level.objects.find((p) => p.x === spot.x && p.y === spot.y);
-    if (pile) pile.items.push(item);
-    else level.objects.push({ x: spot.x, y: spot.y, items: [item] });
-    log.info('职业神器已放置', { artifact: def.id, depth: level.depth });
+    if (pile) pile.items.push(gold, item);
+    else level.objects.push({ x: spot.x, y: spot.y, items: [gold, item] });
+    log.info('任务神器已放置', { artifact: def.id, nemesis: quest.nemesis, at: spot });
+  }
+
+  /** 任务目标层的落点：不进商店，尽量远离入口楼梯。 */
+  private questGoalSpot(level: Level): { x: number; y: number } | null {
+    const far: { x: number; y: number }[] = [];
+    const near: { x: number; y: number }[] = [];
+    for (let x = 1; x < level.width - 1; x++) {
+      for (let y = 1; y < level.height - 1; y++) {
+        const t = level.tiles[index(x, y)];
+        if (t !== T.ROOM && t !== T.CORR) continue;
+        if (inShopRoom(level, x, y)) continue;
+        if (x === this.player.x && y === this.player.y) continue;
+        if (monsterAt(level, x, y)) continue;
+        const spot = { x, y };
+        if (Math.abs(x - this.player.x) + Math.abs(y - this.player.y) >= 8) far.push(spot);
+        else near.push(spot);
+      }
+    }
+    const pool = far.length ? far : near;
+    return pool.length ? (this.rng.pick(pool) as { x: number; y: number }) : null;
+  }
+
+  /** 在 `from` 周围 [min, max] 格内找一块空地面。 */
+  private spotNear(
+    level: Level,
+    from: { x: number; y: number },
+    min: number,
+    max: number,
+  ): { x: number; y: number } | null {
+    const spots: { x: number; y: number }[] = [];
+    for (let x = 1; x < level.width - 1; x++) {
+      for (let y = 1; y < level.height - 1; y++) {
+        const t = level.tiles[index(x, y)];
+        if (t !== T.ROOM && t !== T.CORR) continue;
+        const d = Math.max(Math.abs(x - from.x), Math.abs(y - from.y));
+        if (d < min || d > max) continue;
+        if (x === this.player.x && y === this.player.y) continue;
+        if (monsterAt(level, x, y)) continue;
+        if (inShopRoom(level, x, y)) continue;
+        if (level.objects.some((p) => p.x === x && p.y === y)) continue;
+        spots.push({ x, y });
+      }
+    }
+    return spots.length ? (this.rng.pick(spots) as { x: number; y: number }) : null;
+  }
+
+  /** 背包里是否带着本职业的神器。 */
+  carryingQuestArtifact(): boolean {
+    const def = artifactForRole(this.player.role.id);
+    if (!def) return false;
+    return this.player.inventory.some((item) => item.artifact === def.id);
+  }
+
+  /**
+   * 当前是否具备心灵感应：吃尸体的内在能力、ESP 护身符或心灵感应头盔。
+   * 装备提供的感应随穿戴状态变化，不写入存档。
+   */
+  hasTelepathy(): boolean {
+    if (this.player.telepathy) return true;
+    if (this.player.equipment.amulet?.proto.power === 'TELEPAT') return true;
+    return this.player.equipment.helm?.proto.id === 'HELM_OF_TELEPATHY';
+  }
+
+  /** 装备中是否有指定 power 的物品（戒指、护身符等）。 */
+  hasEquipmentPower(power: string): boolean {
+    return Object.values(this.player.equipment).some((item) => item?.proto.power === power);
+  }
+
+  /** 当前是否隐形：药水/陷阱的计时或隐形戒指。 */
+  hasInvisibility(): boolean {
+    return this.player.invisible > 0 || this.hasEquipmentPower('INVIS');
+  }
+
+  /**
+   * 与身边的职业任务领袖交谈。
+   *
+   * 第一次交谈获得下行许可；带着神器回来复命则标记任务完成。
+   */
+  talkToLeader(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    const quest = this.character.role.quest;
+    const leader = quest
+      ? this.level.monsters.find(
+          (m) =>
+            !m.dead &&
+            m.data.id === quest.leader &&
+            Math.abs(m.x - this.player.x) <= 1 &&
+            Math.abs(m.y - this.player.y) <= 1 &&
+            (m.x !== this.player.x || m.y !== this.player.y),
+        )
+      : undefined;
+    if (!quest || !leader) {
+      this.log('msg.questNoLeader');
+      return { result: 'nothing' };
+    }
+    if (leader.angry) {
+      this.log('msg.questLeaderAngry', { mon: quest.leader });
+      return { result: 'nothing' };
+    }
+    if (this.carryingQuestArtifact()) {
+      if (!this.questComplete) {
+        this.questComplete = true;
+        // 首次复命给幸运与阵营奖励；重复交谈不再叠加。
+        this.player.luck = Math.min(10, this.player.luck + 1);
+        this.adjustAlign(5);
+        this.log('msg.questThanks', {
+          mon: quest.leader,
+          artifact: this.questArtifactName(),
+          roleId: this.player.role.id,
+        });
+        log.info('职业任务完成', { role: this.player.role.id });
+      } else {
+        this.log('msg.questAlreadyDone', {
+          mon: quest.leader,
+          artifact: this.questArtifactName(),
+          roleId: this.player.role.id,
+        });
+      }
+      return { result: 'nothing' };
+    }
+    if (!this.questUnlocked) {
+      this.questUnlocked = true;
+      this.log('msg.questBriefing', { mon: quest.leader, roleId: this.player.role.id });
+      log.info('任务楼梯已解锁', { role: this.player.role.id });
+    } else {
+      this.log('msg.questKeepGoing', { mon: quest.leader, roleId: this.player.role.id });
+    }
+    return { result: 'nothing' };
+  }
+
+  /** 本职业神器的 id，供任务对白引用；没有时为空串。 */
+  private questArtifactName(): string {
+    return artifactForRole(this.player.role.id)?.id ?? '';
   }
 
   /** 分支底层的额外宝藏与守关怪物。 */
@@ -340,6 +600,16 @@ export class GameSession {
         const item = randomItem(this.rng, level.depth, this.appearances);
         if (item) items.push(item);
       }
+      // 矿坑底层的幸运石（原版 minend 的固定宝物，这里不给诅咒）。
+      if (loot.luckstone) {
+        const proto = objById.get('LUCKSTONE');
+        if (proto) {
+          const stone = makeItem(proto, this.rng);
+          stone.buc = 'uncursed';
+          stone.known = true;
+          items.push(stone);
+        }
+      }
       if (pile) pile.items.push(...items);
       else level.objects.push({ x: spot.x, y: spot.y, items });
     }
@@ -353,7 +623,25 @@ export class GameSession {
         level.monsters.push(boss);
       }
     }
-    log.info('分支底层已布置', { branch: level.branch, depth: level.depth, boss: def?.boss });
+    // 额外守军：围着宝藏摆放，不挡楼梯。
+    if (def?.guards?.length) {
+      const center = spot ?? this.farSpot(level, 6) ?? { x: this.player.x, y: this.player.y };
+      for (const id of def.guards) {
+        const data = monById.get(id);
+        if (!data) continue;
+        const guardSpot = this.spotNear(level, center, 1, 6);
+        if (!guardSpot) continue;
+        const guard = new MonsterEntity(data, guardSpot.x, guardSpot.y, this.rng);
+        guard.asleep = false;
+        level.monsters.push(guard);
+      }
+    }
+    log.info('分支底层已布置', {
+      branch: level.branch,
+      depth: level.depth,
+      boss: def?.boss,
+      guards: def?.guards?.length ?? 0,
+    });
   }
 
   /** 放置特殊楼层要求的怪物与物品。 */
@@ -421,6 +709,7 @@ export class GameSession {
         if (!isWalkable(level.tiles[index(x, y)])) continue;
         if (monsterAt(level, x, y)) continue;
         if (x === this.player.x && y === this.player.y) continue;
+        if (inShopRoom(level, x, y)) continue;
         if (Math.abs(x - this.player.x) + Math.abs(y - this.player.y) < minDistance) continue;
         spots.push({ x, y });
       }
@@ -436,6 +725,7 @@ export class GameSession {
         const t = level.tiles[index(x, y)];
         if (t !== T.ROOM && t !== T.CORR) continue;
         if (x === this.player.x && y === this.player.y) continue;
+        if (inShopRoom(level, x, y)) continue;
         spots.push({ x, y });
       }
     }
@@ -569,12 +859,48 @@ export class GameSession {
           door.closed = false;
           this.log('msg.doorOpens');
         }
+        // 门开后视野立刻改变，不能等下一次移动才重算。
+        this.refreshFov();
         this.finishTurn();
         return { result: 'opened' };
       }
     }
 
     if (!isWalkable(t)) return { result: 'blocked' };
+
+    // 巨石：推得动就推到身后一格，推不动就原地不动（不消耗回合）。
+    const boulder = this.boulderAt(nx, ny);
+    if (boulder) {
+      const bx = nx + dx;
+      const by = ny + dy;
+      if (
+        isWalkable(this.tileAt(bx, by)) &&
+        !isDoor(this.tileAt(bx, by)) &&
+        !this.boulderAt(bx, by) &&
+        !monsterAt(this.level, bx, by)
+      ) {
+        // 巨石滚进洞里会连同洞一起消失（原版 dokick/单推规则）。
+        const destIndex = index(bx, by);
+        if (this.level.traps.get(destIndex)?.type === 'HOLE') {
+          this.level.traps.delete(destIndex);
+          boulder.items = boulder.items.filter((i) => i.id !== 'BOULDER');
+          if (!boulder.items.length) {
+            this.level.objects.splice(this.level.objects.indexOf(boulder), 1);
+          }
+          this.log('msg.boulderHole');
+        } else {
+          boulder.x = bx;
+          boulder.y = by;
+        }
+        this.player.x = nx;
+        this.player.y = ny;
+        this.refreshFov();
+        this.finishTurn();
+        return { result: this.dead ? 'dead' : 'moved' };
+      }
+      this.log('msg.boulderStuck');
+      return { result: 'blocked' };
+    }
 
     const shop = shopRoom(this.level);
     const enteredShop =
@@ -584,7 +910,7 @@ export class GameSession {
       this.shopkeeperAlive();
     this.player.x = nx;
     this.player.y = ny;
-    if (enteredShop) this.log('msg.shopWelcome');
+    if (enteredShop) this.log('msg.shopWelcome', { shop: shop?.shopType ?? 'general' });
 
     const gold = autoPickupGold(this.player, this.level);
     if (gold > 0) this.log('msg.gold', { n: gold });
@@ -617,10 +943,28 @@ export class GameSession {
       }
     }
 
+    // 任务楼梯要等领袖下令才能下行。
+    if (
+      special === 'descend' &&
+      this.branch === 'quest' &&
+      this.depth === 1 &&
+      !this.questUnlocked
+    ) {
+      this.log('msg.questLocked');
+      return { result: 'blocked' };
+    }
     if (special === 'branch') {
       const stair = this.level.stairs.find((s) => s.x === nx && s.y === ny);
       this.turn++;
-      this.changeDepth(1, 'down', stair?.branch ?? 'main');
+      if (this.branch === 'main') {
+        // 从主地牢进分支：推箱从底层进，其余分支从第一层进。
+        const def = branchById(stair?.branch ?? 'main');
+        this.changeDepth(def?.entryDepth ?? 1, 'down', stair?.branch ?? 'main');
+      } else {
+        // 分支里的「回主地牢」楼梯。
+        const def = branchById(this.branch);
+        this.changeDepth(def?.entranceDepth ?? 1, 'up', 'main');
+      }
       this.monsterTurns();
       return { result: this.dead ? 'dead' : 'descended' };
     }
@@ -891,6 +1235,12 @@ export class GameSession {
   /** 玩家动作结束后依次执行怪物阶段与结算。 */
   finishTurn(): void {
     this.turn++;
+    // 加速：省掉这次怪物行动，多给玩家一次行动。
+    if (this.player.hasted > 0) {
+      this.player.hasted--;
+      this.upkeep();
+      return;
+    }
     this.monsterTurns();
     this.upkeep();
   }
@@ -1022,6 +1372,27 @@ export class GameSession {
         }
         break;
       }
+      // 雕像陷阱：雕像活过来，在旁边的空地上生成一只敌对怪物。
+      case 'statue': {
+        this.log(effect.message, { trap: trapName });
+        const data = pickMonsterType(this.rng, this.depth + 2, this.player.level);
+        if (data) {
+          const at = coords(tile);
+          const spots = [
+            [at.x + 1, at.y],
+            [at.x - 1, at.y],
+            [at.x, at.y + 1],
+            [at.x, at.y - 1],
+          ].filter(([x, y]) => isWalkable(this.tileAt(x, y)) && !monsterAt(this.level, x, y));
+          const spot = spots.length ? (this.rng.pick(spots) as [number, number]) : null;
+          if (spot) {
+            const mon = new MonsterEntity(data, spot[0], spot[1], this.rng);
+            mon.asleep = false;
+            this.level.monsters.push(mon);
+          }
+        }
+        break;
+      }
       default: {
         this.log(effect.message, { trap: trapName });
         break;
@@ -1030,12 +1401,17 @@ export class GameSession {
     return moved;
   }
 
-  /** 随机挑一个可站立的地面格，用于传送类效果。 */
+  /** 随机挑一个可站立且没有生物的地面格，用于传送类效果。 */
   randomFloorTile(): { x: number; y: number } | null {
     const candidates: number[] = [];
     for (let i = 0; i < this.level.tiles.length; i++) {
       const t = this.level.tiles[i];
-      if (t === T.ROOM || t === T.CORR) candidates.push(i);
+      if (t !== T.ROOM && t !== T.CORR) continue;
+      const x = i % COLNO;
+      const y = Math.floor(i / COLNO);
+      if (x === this.player.x && y === this.player.y) continue;
+      if (monsterAt(this.level, x, y)) continue;
+      candidates.push(i);
     }
     if (!candidates.length) return null;
     const pick = candidates[this.rng.rn2(candidates.length)];
@@ -1045,8 +1421,28 @@ export class GameSession {
   upkeep(): void {
     if (this.dead) return;
     const p = this.player;
-    // 与 NetHack 一致的缓慢回复。
-    if (this.turn % 20 === 0 && p.hp < p.maxHp) p.hp++;
+    // 与 NetHack 一致的缓慢回复；患病时停止回复，并且周期性掉血。
+    // 医神之杖在手或戴回复戒指时回复加倍。
+    const regenRate =
+      p.weapon?.artifact === 'staff_of_aesculapius' || this.hasEquipmentPower('REGENERATION')
+        ? 10
+        : 20;
+    if (p.sick === 0) {
+      if (this.turn % regenRate === 0 && p.hp < p.maxHp) p.hp++;
+    } else {
+      p.sick--;
+      if (this.turn % 5 === 0) {
+        p.takeDamage(1);
+        if (p.dead) {
+          this.dead = true;
+          this.log('msg.sickDies');
+          log.warn('玩家病死', { turn: this.turn, depth: this.depth });
+          return;
+        }
+        this.log('msg.sickPulse');
+      }
+      if (p.sick === 0) this.log('msg.sickRecovered');
+    }
     if (this.turn % 15 === 0 && p.pw < p.maxPw) p.pw++;
 
     // 计时状态递减。
@@ -1068,11 +1464,36 @@ export class GameSession {
       if (p.invisible === 0) this.log('msg.invisibilityEnds');
     }
     if (p.stun > 0) p.stun--;
+    if (p.senseMonsters > 0) p.senseMonsters--;
+    if (p.senseObjects > 0) p.senseObjects--;
+    if (p.senseGold > 0) p.senseGold--;
+    if (p.senseFood > 0) p.senseFood--;
+    // 搜索戒指：每 10 回合显露身边 2 格内的陷阱。
+    if (this.hasEquipmentPower('SEARCHING') && this.turn % 10 === 0) {
+      for (const [i, trap] of this.level.traps) {
+        const at = coords(i);
+        if (Math.max(Math.abs(at.x - p.x), Math.abs(at.y - p.y)) <= 2) trap.seen = true;
+      }
+    }
     if (p.form) {
       p.form.turns--;
       if (p.form.turns <= 0) {
         p.form = null;
         this.log('msg.polyEnd');
+      }
+    } else if (this.hasEquipmentPower('POLYMORPH') && this.rng.rn2(20) === 0) {
+      // 变形戒指：佩戴且未变形时，偶尔变成随机怪物形态。
+      const res = this.polymorph();
+      if (res.changed) this.log('msg.polyRing', { mon: res.monId ?? '' });
+    }
+    // 传送症或传送戒指：偶尔不受控地随机传走。
+    if ((p.teleportitis || this.hasEquipmentPower('TELEPORT')) && this.rng.rn2(85) === 0) {
+      const spot = this.randomFloorTile();
+      if (spot) {
+        p.x = spot.x;
+        p.y = spot.y;
+        this.refreshFov();
+        this.log('msg.teleportitis');
       }
     }
     if (p.prayerTimeout > 0) p.prayerTimeout--;
@@ -1101,7 +1522,11 @@ export class GameSession {
     }
 
     // 饱食度：900 为饱腹；150、40、0 三个阈值沿用 NetHack。
-    p.hunger--;
+    // 缓慢消化戒指隔回合消耗，饥饿戒指加倍消耗。
+    if (this.hasEquipmentPower('HUNGER')) p.hunger -= 2;
+    else if (this.hasEquipmentPower('SLOW_DIGESTION')) {
+      if (this.turn % 2 === 0) p.hunger--;
+    } else p.hunger--;
     if (p.hunger <= 0 && this.turn % 20 === 0) {
       this.log('use.fainting');
       p.takeDamage(1);
@@ -1135,11 +1560,25 @@ export class GameSession {
     }
     // 武器附魔参与命中与伤害；变形时用形态天然武器，不算手持附魔。
     const enchant = player.form ? 0 : (player.weapon?.enchant ?? 0);
+    // 祝福武器对亡者与恶魔更有效：命中 +2、伤害 +1d4（weapon.c）。
+    const hatesBlessings =
+      !player.form &&
+      player.weapon?.buc === 'blessed' &&
+      (mon.data.flags.includes('M2_UNDEAD') || mon.data.flags.includes('M2_DEMON'));
+    // 银制武器克制狼人、吸血鬼、恶魔、小恶魔与幽影：伤害 +1d20。
+    const hatesSilver =
+      !player.form &&
+      player.weapon?.proto.material === 'SILVER' &&
+      (mon.data.flags.includes('M2_WERE') ||
+        mon.data.sym === 'S_VAMPIRE' ||
+        mon.data.flags.includes('M2_DEMON') ||
+        (mon.data.sym === 'S_IMP' && mon.data.id !== 'TENGU') ||
+        mon.data.id === 'SHADE');
     const { hit } = heroHits(
       player,
       mon,
       this.rng,
-      skillHitBonus(this.weaponSkillLevel()) + enchant,
+      skillHitBonus(this.weaponSkillLevel()) + enchant + (hatesBlessings ? 2 : 0),
     );
     // 变形后徒手使用天然武器，手持的锋刃不再参与战斗。
     const weaponId = player.form ? null : (player.weapon?.id ?? null);
@@ -1155,7 +1594,10 @@ export class GameSession {
       this.rng.rollDamage(spec) +
       player.damageBonus +
       skillDamageBonus(this.weaponSkillLevel()) +
+      equipmentRingBonus(player, 'RIN_INCREASE_DAMAGE') +
       (player.form ? 0 : (player.weapon?.enchant ?? 0));
+    if (hatesBlessings) dmg += this.rng.rnd(4);
+    if (hatesSilver) dmg += this.rng.rnd(20);
     dmg = Math.max(1, dmg);
     // 骑乘冲锋：追加坐骑天然攻击的伤害。
     let mountDmg = 0;
@@ -1275,6 +1717,41 @@ export class GameSession {
       if (pile) pile.items.push(gold);
       else this.level.objects.push({ x: mon.x, y: mon.y, items: [gold] });
     }
+    // 巫师死亡时抢走的护身符会掉回原地。
+    if (this.wizardHasAmulet && mon.data.id === 'WIZARD_OF_YENDOR') {
+      this.wizardHasAmulet = false;
+      const proto = objById.get('AMULET_OF_YENDOR');
+      if (proto) {
+        const item = makeItem(proto, this.rng);
+        item.known = true;
+        const pile = pileAt(this.level, mon.x, mon.y);
+        if (pile) pile.items.push(item);
+        else this.level.objects.push({ x: mon.x, y: mon.y, items: [item] });
+        this.log('msg.amuletRecovered');
+      }
+    }
+    this.maybeDropCorpse(mon);
+  }
+
+  /**
+   * 会留尸体的怪物死亡时按概率留下尸体。
+   *
+   * 尸体记下怪物原型 id：营养与可赋予的内在抗性都在进食时从怪物数据推导。
+   */
+  private maybeDropCorpse(mon: Monster): void {
+    const data = mon.data;
+    if (data.genFlags.includes('G_NOCORPSE')) return;
+    // 原版大部分怪物约一半概率留尸，这里沿用一半。
+    if (!this.rng.chance(0.5)) return;
+    const proto = objById.get('CORPSE');
+    if (!proto) return;
+    const item = makeItem(proto, this.rng);
+    item.corpse = data.id;
+    item.known = true;
+    item.age = this.turn;
+    const pile = pileAt(this.level, mon.x, mon.y);
+    if (pile) pile.items.push(item);
+    else this.level.objects.push({ x: mon.x, y: mon.y, items: [item] });
   }
 
   /** 视野范围内最近的怪物，用于需要选目标的法术。 */
@@ -1440,10 +1917,23 @@ export class GameSession {
   // -------------------------------------------------------------------------
 
   /** 拾取玩家所在格的全部物品，店里的货要先结账。 */
+  /** 指定格子上的巨石堆；没有则返回 null。 */
+  private boulderAt(x: number, y: number): GroundPile | null {
+    const pile = this.level.objects.find((p) => p.x === x && p.y === y);
+    if (!pile) return null;
+    return pile.items.some((i) => i.id === 'BOULDER') ? pile : null;
+  }
+
   pickupAction(): ActionResultInfo {
     if (this.dead) return { result: 'dead' };
     const res = pickupItems(this.player, this.level, {
-      canTake: (item) => this.payForItem(item),
+      canTake: (item) => {
+        if (item.id === 'BOULDER') {
+          this.log('msg.boulderTooHeavy');
+          return false;
+        }
+        return this.payForItem(item);
+      },
     });
     if (!res.ok) {
       // 被价格拦下时已经给过提示，不再补一句「什么也没捡到」。
@@ -1569,13 +2059,19 @@ export class GameSession {
         return this.putInContainer(item);
       case 'open':
         return this.openContainer(item);
+      case 'invoke': {
+        outcome = invokeArtifact(this, item);
+        if (outcome.identified) item.known = true;
+        outcome = { key: outcome.key, vars: { ...outcome.vars, item: describeItem(item) } };
+        break;
+      }
       default: {
         outcome = applyItem(this, item);
         if (outcome.identified) item.known = true;
         const vars = { ...outcome.vars, item: describeItem(item) };
-        outcome = { key: outcome.key, vars };
+        outcome = { key: outcome.key, vars, keep: outcome.keep };
         // 消耗品在使用后扣除，效果自身声明不移除的除外。
-        if (['potion', 'scroll', 'food'].includes(item.proto.cls)) {
+        if (['potion', 'scroll', 'food'].includes(item.proto.cls) && !outcome.keep) {
           this.consumeItem(item);
         }
       }
@@ -1674,6 +2170,8 @@ export class GameSession {
         player.pw = player.maxPw;
         this.healAfflictions();
         this.adjustAlign(1);
+        const uncursed = this.uncurseEquipment();
+        if (uncursed > 0) this.log('msg.prayerUncursed', { n: uncursed });
         this.log('msg.prayerBlessed', vars);
         break;
       }
@@ -1708,8 +2206,99 @@ export class GameSession {
       }
     }
     player.prayerTimeout = outcome === 'angry' ? 500 + this.rng.rn2(300) : 300 + this.rng.rn2(300);
+    // 祭坛上的水随神意转化，对应 pray.c 的 water_prayer()。
+    if (altar) this.waterPrayer(outcome === 'blessed');
     this.finishTurn();
     return { result: 'used' };
+  }
+
+  /**
+   * 把祭坛上的水变成圣水或诅咒之水。
+   *
+   * 与 pray.c 的 water_prayer() 一致：放在祭坛地面的 POT_WATER 会随祈祷结果
+   * 翻转 BUC；水不带在身上也能转化，因此流程是“放下水 → 祈祷 → 捡回”。
+   */
+  private waterPrayer(bless: boolean): void {
+    const pile = pileAt(this.level, this.player.x, this.player.y);
+    if (!pile) return;
+    let changed = 0;
+    for (const item of pile.items) {
+      if (item.proto.id !== 'POT_WATER') continue;
+      if (bless && item.buc !== 'blessed') {
+        item.buc = 'blessed';
+        item.known = true;
+        changed++;
+      } else if (!bless && item.buc !== 'cursed') {
+        item.buc = 'cursed';
+        item.known = true;
+        changed++;
+      }
+    }
+    if (changed > 0) this.log(bless ? 'msg.waterBlessed' : 'msg.waterCursed', { n: changed });
+  }
+
+  /** 祭坛献祭：用尸体换取神恩或触怒异教神祇。 */
+  offerCorpse(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    if (this.tileAt(this.player.x, this.player.y) !== T.ALTAR) {
+      this.log('msg.sacrificeNotAltar');
+      return { result: 'nothing' };
+    }
+    const altar = this.level.features.get(index(this.player.x, this.player.y));
+    if (!altar || altar.type !== 'ALTAR') {
+      this.log('msg.sacrificeNotAltar');
+      return { result: 'nothing' };
+    }
+    const corpse = this.player.inventory.find((item) => item.corpse);
+    if (!corpse) {
+      this.log('msg.sacrificeNoCorpse');
+      return { result: 'nothing' };
+    }
+    const monsterId = corpse.corpse as string;
+    removeFromInventory(this.player, corpse);
+
+    // 无主祭坛（摩洛克）只吞祭品，不给回报。
+    if (!altar.align) {
+      this.log('msg.sacrificeMoloch', { mon: monsterId });
+      this.finishTurn();
+      return { result: 'used' };
+    }
+    const monLevel = monById.get(monsterId)?.lvl ?? 0;
+    if (altar.align === this.player.align) {
+      // 太弱的祭品不顶用，对应原版按怪物难度判定的门槛。
+      if (monLevel + 3 < this.player.level) {
+        this.log('msg.sacrificeWeak', { mon: monsterId });
+      } else {
+        this.player.luck = Math.min(10, this.player.luck + 1);
+        this.adjustAlign(3);
+        this.log('msg.sacrificeAccepted', { mon: monsterId, align: altar.align });
+      }
+      this.finishTurn();
+      return { result: 'used' };
+    }
+    // 异阵营祭坛：有概率被本神收服，否则触怒对方。
+    if (this.rng.chance(0.35)) {
+      altar.align = this.player.align;
+      this.adjustAlign(1);
+      this.log('msg.sacrificeConverted', { mon: monsterId, align: this.player.align });
+    } else {
+      this.adjustAlign(-3);
+      this.log('msg.sacrificeAngered', { mon: monsterId, align: altar.align });
+    }
+    this.finishTurn();
+    return { result: 'used' };
+  }
+
+  /** 祝福祈祷解除装备上的诅咒，返回解除的件数。 */
+  private uncurseEquipment(): number {
+    let count = 0;
+    for (const item of Object.values(this.player.equipment)) {
+      if (item && item.buc === 'cursed') {
+        item.buc = 'uncursed';
+        count++;
+      }
+    }
+    return count;
   }
 
   /** 祈祷清除的异常状态：失明、混乱、眩晕、定身与石化。 */
@@ -1720,6 +2309,7 @@ export class GameSession {
     p.stun = 0;
     p.held = 0;
     p.petrifying = 0;
+    p.sick = 0;
   }
 
   /** 调整阵营记录，限制在 NetHack 的 [-128, 127] 区间。 */
@@ -1792,6 +2382,51 @@ export class GameSession {
     return { ok: false, key: 'msg.wishNoSuch' };
   }
 
+  /** 读完灭绝卷轴后进入等待输入状态。 */
+  openGenocide(): void {
+    this.pendingGenocide = true;
+  }
+
+  /**
+   * 灭绝一个怪物物种：接受英文名、中文名或原型 id。
+   *
+   * 成功后清掉本局已生成的全部同种怪物，并在后续生成中排除。
+   */
+  tryGenocide(text: string): boolean {
+    const raw = String(text ?? '').trim();
+    const norm = (s: string): string =>
+      s
+        .toLowerCase()
+        .replace(/[_\s]+/g, ' ')
+        .trim();
+    const needle = norm(raw);
+    const target = needle
+      ? MONSTERS.find(
+          (m) => norm(m.id) === needle || norm(m.name) === needle || monsterName(m.id) === raw,
+        )
+      : undefined;
+    if (!target) {
+      this.log('msg.genocideNoMatch', { text: raw });
+      return false;
+    }
+    if (this.genocides.has(target.id)) {
+      this.log('msg.genocideAlready', { mon: target.id });
+      this.pendingGenocide = false;
+      return true;
+    }
+    this.genocides.add(target.id);
+    let removed = 0;
+    for (const level of [...this.levels.values(), ...this.branchCache.values()]) {
+      const before = level.monsters.length;
+      level.monsters = level.monsters.filter((m) => m.data.id !== target.id);
+      removed += before - level.monsters.length;
+    }
+    this.pendingGenocide = false;
+    this.log('msg.genocideOk', { mon: target.id, n: removed });
+    log.info('物种被灭绝', { monster: target.id, removed });
+    return true;
+  }
+
   /**
    * 神谕咨询：付一笔金币，换一条关于本作的提示。
    *
@@ -1861,7 +2496,7 @@ export class GameSession {
     }
     if (!spots.length) return false;
     const spot = this.rng.pick(spots) as { x: number; y: number };
-    const item = randomShopItem(this.rng, this.level.depth, this.appearances);
+    const item = randomShopItem(this.rng, this.level.depth, this.appearances, room.shopType);
     if (!item) return false;
     item.unpaid = true;
     this.level.objects.push({ x: spot.x, y: spot.y, items: [item] });
@@ -1988,7 +2623,10 @@ export class GameSession {
     log.debug('怪物行动阶段开始', { monsters: this.level.monsters.length, turn: this.turn });
     for (const mon of this.level.monsters) {
       if (mon.dead || this.dead) continue;
-      mon.mv += mon.data.speed;
+      // 加速翻倍、缓速减半；两者都有效时先加倍再减半。
+      mon.mv += monsterSpeed(mon);
+      if (mon.hasted > 0) mon.hasted--;
+      if (mon.slowed > 0) mon.slowed--;
       let guard = 0;
       while (mon.mv >= 12 && guard++ < 4 && !this.dead) {
         mon.mv -= 12;
@@ -2011,8 +2649,31 @@ export class GameSession {
     const dist = Math.max(Math.abs(mon.x - player.x), Math.abs(mon.y - player.y));
     const wasAsleep = mon.asleep;
 
+    // 尤恩多巫师近身时可能抢走护身符并传送逃离。
+    if (
+      mon.data.id === 'WIZARD_OF_YENDOR' &&
+      !this.wizardHasAmulet &&
+      dist <= 1 &&
+      this.carryingAmulet &&
+      this.rng.chance(0.25)
+    ) {
+      const amulet = player.inventory.find((item) => item.proto.id === 'AMULET_OF_YENDOR');
+      if (amulet) {
+        removeFromInventory(player, amulet);
+        this.wizardHasAmulet = true;
+        const spot = this.randomFloorTile();
+        if (spot) {
+          mon.x = spot.x;
+          mon.y = spot.y;
+        }
+        this.log('msg.wizardSteals');
+        return;
+      }
+    }
+
     if (mon.asleep) {
-      if (dist <= 8 && this.monsterSees(mon) && this.rng.chance(0.4)) {
+      const wakeChance = this.hasEquipmentPower('STEALTH') ? 0.15 : 0.4;
+      if (dist <= 8 && this.monsterSees(mon) && this.rng.chance(wakeChance)) {
         mon.asleep = false;
       } else {
         return;
@@ -2085,7 +2746,7 @@ export class GameSession {
 
   monsterSees(mon: Monster): boolean {
     const player = this.player;
-    if (player.invisible > 0) return false;
+    if (this.hasInvisibility()) return false;
     const dist = Math.max(Math.abs(mon.x - player.x), Math.abs(mon.y - player.y));
     if (dist > 12) return false;
     const fov = computeFov(this.level, mon.x, mon.y, 12, { remember: false });
@@ -2115,6 +2776,14 @@ export class GameSession {
     }
     if (!options.length) return;
     options.sort((a, b) => (direction >= 0 ? a.d - b.d : b.d - a.d));
+    // 追击时优先走最短路：贪心在拐角处容易卡住，最短路只在能绕开时插队。
+    if (direction > 0) {
+      const step = this.monsterStepToward(mon);
+      if (step) {
+        const idx = options.findIndex((o) => o.dx === step[0] && o.dy === step[1]);
+        if (idx > 0) options.unshift(...options.splice(idx, 1));
+      }
+    }
     const choice = (
       direction === 0 ? this.rng.pick(options) : options[0]
     ) as (typeof options)[number];
@@ -2132,6 +2801,55 @@ export class GameSession {
     }
     mon.x = choice.x;
     mon.y = choice.y;
+  }
+
+  /**
+   * 怪物追击用的最短路。
+   *
+   * 只在贪心走法绕不过墙时作为下一步的参考：关闭的门可通行（怪物会推门），
+   * 其它生物视为阻挡。限制访问格数，避免玩家不可达时退化为全图扫描。
+   */
+  private monsterStepToward(mon: Monster): [number, number] | null {
+    const { width, height, tiles } = this.level;
+    const start = index(mon.x, mon.y);
+    const goal = index(this.player.x, this.player.y);
+    const prev = new Int32Array(width * height).fill(-1);
+    const queue: number[] = [start];
+    prev[start] = start;
+    const dirs: [number, number][] = [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ];
+    let found = false;
+    for (let head = 0; head < queue.length && head < 2000; head++) {
+      const cur = queue[head];
+      if (cur === goal) {
+        found = true;
+        break;
+      }
+      const cx = cur % width;
+      const cy = (cur / width) | 0;
+      for (const [dx, dy] of dirs) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const ni = index(nx, ny);
+        if (prev[ni] !== -1) continue;
+        if (ni !== goal && !isWalkable(tiles[ni])) continue;
+        if (ni !== goal && monsterAt(this.level, nx, ny)) continue;
+        prev[ni] = cur;
+        queue.push(ni);
+      }
+    }
+    if (!found) return null;
+    let cursor = goal;
+    while (prev[cursor] !== start) {
+      cursor = prev[cursor];
+      if (cursor === -1) return null;
+    }
+    return [(cursor % width) - mon.x, ((cursor / width) | 0) - mon.y];
   }
 
   /**
@@ -2172,6 +2890,7 @@ export class GameSession {
   ): void {
     const player = this.player;
     const monId = mon.data.id;
+    const half = halfDamageKinds(player);
     const roll = (): number => {
       // 0 颗骰子在数据里表示「按 1 颗算」：被动攻击与哌视的 [0,N] 靠这条解释。
       const [n, sides] = dice;
@@ -2179,9 +2898,14 @@ export class GameSession {
       return n > 0 ? this.rng.dice(n, sides) : this.rng.rn1(1, sides);
     };
     const damage = (dmg: number, key: string): void => {
-      const died = player.takeDamage(dmg);
-      this.log(key, { mon: monId, dmg });
-      this.lastCombat = { monsterId: mon.id, hit: true, byPlayer: false, damage: dmg };
+      let final = dmg;
+      if (ad === 'AD_PHYS' && half.physical) final = Math.ceil(dmg / 2);
+      else if ((ad === 'AD_MAGM' || ad === 'AD_SPEL' || ad === 'AD_CLRC') && half.spell) {
+        final = Math.ceil(dmg / 2);
+      }
+      const died = player.takeDamage(final);
+      this.log(key, { mon: monId, dmg: final });
+      this.lastCombat = { monsterId: mon.id, hit: true, byPlayer: false, damage: final };
       if (died) {
         this.dead = true;
         log.warn('玩家死亡', { turn: this.turn, depth: this.depth, killer: monId });
@@ -2280,6 +3004,11 @@ export class GameSession {
       case 'AD_DRIN':
       case 'AD_DRDX':
       case 'AD_DRCO': {
+        // 毅力戒指（FIXED_ABIL）防止属性吸取。
+        if (this.hasEquipmentPower('FIXED_ABIL')) {
+          this.log('msg.drainResisted', { mon: monId });
+          return;
+        }
         if (ad === 'AD_DRIN') player.int = Math.max(3, player.int - 1);
         else if (ad === 'AD_DRDX') player.dex = Math.max(3, player.dex - 1);
         else player.con = Math.max(3, player.con - 1);
@@ -2289,10 +3018,14 @@ export class GameSession {
       case 'AD_DCAY':
       case 'AD_RUST':
       case 'AD_CORR': {
+        // 先腐蚀所穿护甲，没有可腐蚀的护甲时转向手中武器。
         const suit = player.equipment.suit;
         if (suit && suit.enchant > -5) {
           suit.enchant--;
           this.log('msg.rustAttack', { mon: monId, obj: suit.proto.id });
+        } else if (player.weapon && player.weapon.enchant > -5) {
+          player.weapon.enchant--;
+          this.log('msg.rustAttack', { mon: monId, obj: player.weapon.proto.id });
         } else {
           this.log('msg.monNoEffect', { mon: monId });
         }
@@ -2357,7 +3090,7 @@ export class GameSession {
         return;
       }
       case 'AD_CNCL': {
-        const hadMagic = player.seeInvisible || player.invisible > 0;
+        const hadMagic = player.seeInvisible || this.hasInvisibility();
         player.seeInvisible = false;
         player.invisible = 0;
         this.log(hadMagic ? 'msg.monCancels' : 'msg.monNoEffect', { mon: monId });
@@ -2376,6 +3109,10 @@ export class GameSession {
         return;
       }
       case 'AD_STON': {
+        if (resists.has('stone')) {
+          this.log('msg.resistStone', { mon: monId });
+          return;
+        }
         player.petrifying = Math.max(player.petrifying, 4 + this.rng.rn2(3));
         this.log('msg.petrifying', { mon: monId });
         return;
@@ -2453,8 +3190,20 @@ export class GameSession {
   }
 
   /** 得手的贼立刻脱离接触：传送到本层别处。 */
+  /** 偷窃后逃走：传送到本层一块没有其他生物的空地。 */
   private fleeMonster(mon: Monster): void {
-    const spot = this.randomFloorTile();
+    const spots: { x: number; y: number }[] = [];
+    for (let i = 0; i < this.level.tiles.length; i++) {
+      const t = this.level.tiles[i];
+      if (t !== T.ROOM && t !== T.CORR) continue;
+      const x = i % COLNO;
+      const y = Math.floor(i / COLNO);
+      if (x === this.player.x && y === this.player.y) continue;
+      // monsterAt 也会排掉它自己，避免传送到原地。
+      if (monsterAt(this.level, x, y)) continue;
+      spots.push({ x, y });
+    }
+    const spot = spots.length ? (this.rng.pick(spots) as { x: number; y: number }) : null;
     if (spot) {
       mon.x = spot.x;
       mon.y = spot.y;
@@ -2560,6 +3309,11 @@ export class GameSession {
     const from = this.level;
     const target = branch === 'main' ? this.getLevel(depth) : this.getBranchLevel(branch, depth);
     let arrival = direction === 'down' ? target.up : target.down;
+    // 从主地牢下到分支时，落在分支入口楼梯上（推箱的入口在底层）。
+    if (direction === 'down' && branch !== 'main' && fromBranch === 'main') {
+      const entrance = target.stairs.find((s) => s.dir === 'branch' && s.branch === branch);
+      if (entrance) arrival = { x: entrance.x, y: entrance.y };
+    }
     // 从分支回到主地牢时，落在入口楼梯上，而不是普通下行楼梯。
     if (direction === 'up' && branch === 'main' && fromBranch !== 'main') {
       const exit = target.stairs.find((s) => s.dir === 'branch' && s.branch === fromBranch);
@@ -2571,8 +3325,21 @@ export class GameSession {
     this.level = target;
     this.player.x = arrival.x;
     this.player.y = arrival.y;
+    // 楼梯口可能站着怪物：先把它挪到相邻空地，避免与玩家重叠。
+    const occupant = monsterAt(target, arrival.x, arrival.y);
+    if (occupant) this.fleeMonster(occupant);
     this.ensureLevelPopulation(target);
     this.followPets(from, target);
+    // 挑衅戒指：一进场就把整层怪物吵醒。
+    if (this.hasEquipmentPower('AGGRAVATE_MONSTER')) {
+      let woke = 0;
+      for (const mon of target.monsters) {
+        if (mon.dead || !mon.asleep) continue;
+        mon.asleep = false;
+        woke++;
+      }
+      if (woke > 0) this.log('msg.aggravate', { n: woke });
+    }
     this.log(direction === 'down' ? 'msg.descend' : 'msg.ascend', { depth });
     if (target.branch) this.log('msg.branchEnter', { branch: target.branch });
     if (target.special) this.log('msg.specialLevel', { special: target.special });

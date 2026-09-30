@@ -29,6 +29,14 @@ export const REFERENCE_FILES = [
   'include/defsym.h',
   'include/color.h',
   'src/role.c',
+  'dat/soko1-1.lua',
+  'dat/soko1-2.lua',
+  'dat/soko2-1.lua',
+  'dat/soko2-2.lua',
+  'dat/soko3-1.lua',
+  'dat/soko3-2.lua',
+  'dat/soko4-1.lua',
+  'dat/soko4-2.lua',
 ];
 
 /** 参考仓库当前状态。 */
@@ -49,7 +57,7 @@ export interface ReferenceState {
 }
 
 /** 写入文件的记录。 */
-export interface RecordedReference extends ReferenceState {
+interface RecordedReference extends ReferenceState {
   version: 1;
   recordedAt: string;
   /** 记录时生成数据的条数，便于与参考计数交叉验证。 */
@@ -57,7 +65,7 @@ export interface RecordedReference extends ReferenceState {
 }
 
 /** 漂移比对结果。 */
-export interface ReferenceDrift {
+interface ReferenceDrift {
   upToDate: boolean;
   commitChanged: boolean;
   changedFiles: string[];
@@ -101,7 +109,7 @@ function git(root: string, args: string[]): string | null {
  * 成本接近零。这一点很关键：在本项目的运行环境里，一个进程内首次调用
  * git 需要约 10 秒（冷启动），后续调用约 0.1 秒，因此高频路径必须避免子进程。
  */
-export function readHead(root: string): { commit: string; branch: string | null } {
+function readHead(root: string): { commit: string; branch: string | null } {
   const gitDir = (() => {
     const dotGit = path.join(root, '.git');
     try {
@@ -139,11 +147,6 @@ export function readHead(root: string): { commit: string; branch: string | null 
   }
 }
 
-/** 只取提交号。 */
-export function readHeadCommit(root: string): string {
-  return readHead(root).commit;
-}
-
 /** 计算文件散列；文件不存在时返回 null。 */
 export function hashFile(filePath: string): string | null {
   try {
@@ -162,7 +165,7 @@ export function hashFile(filePath: string): string | null {
  * 与提取脚本使用同一套约定：怪物的 `MON(` 条目、物品的类宏条目。
  * 计数只用于漂移提示，正式数据仍以提取脚本的输出为准。
  */
-export function countReferenceEntries(root: string): { monsters: number; objects: number } {
+function countReferenceEntries(root: string): { monsters: number; objects: number } {
   const read = (rel: string): string => {
     try {
       return fs.readFileSync(path.join(root, rel), 'utf8');

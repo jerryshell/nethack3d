@@ -55,6 +55,18 @@ export const ROLES: RoleData[] = [
       "spec": "SPE_MAGIC_MAPPING",
       "bonus": -4
     },
+    "quest": {
+      "leader": "LORD_CARNARVON",
+      "guardian": "STUDENT",
+      "nemesis": "MINION_OF_HUHETOTL",
+      "enemies": [
+        "S_SNAKE",
+        "S_MUMMY"
+      ],
+      "home": "the College of Archeology",
+      "goal": "the Tomb of the Toltec Kings",
+      "prefix": "Arc"
+    },
     "allowMask": 12398,
     "aligns": [
       "lawful",
@@ -119,6 +131,18 @@ export const ROLES: RoleData[] = [
       "spec": "SPE_HASTE_SELF",
       "bonus": -4
     },
+    "quest": {
+      "leader": "PELIAS",
+      "guardian": "CHIEFTAIN",
+      "nemesis": "THOTH_AMON",
+      "enemies": [
+        "S_OGRE",
+        "S_TROLL"
+      ],
+      "home": "the Camp of the Duali Tribe",
+      "goal": "the Duali Oasis",
+      "prefix": "Bar"
+    },
     "allowMask": 12427,
     "aligns": [
       "neutral",
@@ -181,6 +205,18 @@ export const ROLES: RoleData[] = [
       "stat": "int",
       "spec": "SPE_DIG",
       "bonus": -4
+    },
+    "quest": {
+      "leader": "SHAMAN_KARNOV",
+      "guardian": "NEANDERTHAL",
+      "nemesis": "CHROMATIC_DRAGON",
+      "enemies": [
+        "S_HUMANOID",
+        "S_GIANT"
+      ],
+      "home": "the Caves of the Ancestors",
+      "goal": "the Dragon's Lair",
+      "prefix": "Cav"
     },
     "allowMask": 12398,
     "aligns": [
@@ -246,6 +282,18 @@ export const ROLES: RoleData[] = [
       "spec": "SPE_CURE_SICKNESS",
       "bonus": -4
     },
+    "quest": {
+      "leader": "HIPPOCRATES",
+      "guardian": "ATTENDANT",
+      "nemesis": "CYCLOPS",
+      "enemies": [
+        "S_RODENT",
+        "S_YETI"
+      ],
+      "home": "the Temple of Epidaurus",
+      "goal": "the Temple of Coeus",
+      "prefix": "Hea"
+    },
     "allowMask": 12362,
     "aligns": [
       "neutral"
@@ -308,6 +356,18 @@ export const ROLES: RoleData[] = [
       "spec": "SPE_TURN_UNDEAD",
       "bonus": -4
     },
+    "quest": {
+      "leader": "KING_ARTHUR",
+      "guardian": "PAGE",
+      "nemesis": "IXOTH",
+      "enemies": [
+        "S_IMP",
+        "S_JELLY"
+      ],
+      "home": "Camelot Castle",
+      "goal": "the Isle of Glass",
+      "prefix": "Kni"
+    },
     "allowMask": 12300,
     "aligns": [
       "lawful"
@@ -368,6 +428,18 @@ export const ROLES: RoleData[] = [
       "stat": "wis",
       "spec": "SPE_RESTORE_ABILITY",
       "bonus": -4
+    },
+    "quest": {
+      "leader": "GRAND_MASTER",
+      "guardian": "ABBOT",
+      "nemesis": "MASTER_KAEN",
+      "enemies": [
+        "S_ELEMENTAL",
+        "S_XORN"
+      ],
+      "home": "the Monastery of Chan-Sune",
+      "goal": "the Monastery of the Earth-Lord",
+      "prefix": "Mon"
     },
     "allowMask": 12303,
     "aligns": [
@@ -431,6 +503,18 @@ export const ROLES: RoleData[] = [
       "stat": "wis",
       "spec": "SPE_REMOVE_CURSE",
       "bonus": -4
+    },
+    "quest": {
+      "leader": "ARCH_PRIEST",
+      "guardian": "ACOLYTE",
+      "nemesis": "NALZOK",
+      "enemies": [
+        "S_ZOMBIE",
+        "S_WRAITH"
+      ],
+      "home": "the Great Temple",
+      "goal": "the Temple of Nalzok",
+      "prefix": "Pri"
     },
     "allowMask": 12319,
     "aligns": [
@@ -496,6 +580,18 @@ export const ROLES: RoleData[] = [
       "spec": "SPE_DETECT_TREASURE",
       "bonus": -4
     },
+    "quest": {
+      "leader": "MASTER_OF_THIEVES",
+      "guardian": "THUG",
+      "nemesis": "MASTER_ASSASSIN",
+      "enemies": [
+        "S_NYMPH",
+        "S_NAGA"
+      ],
+      "home": "the Thieves' Guild Hall",
+      "goal": "the Assassins' Guild Hall",
+      "prefix": "Rog"
+    },
     "allowMask": 12425,
     "aligns": [
       "chaotic"
@@ -557,6 +653,18 @@ export const ROLES: RoleData[] = [
       "stat": "int",
       "spec": "SPE_INVISIBILITY",
       "bonus": -4
+    },
+    "quest": {
+      "leader": "ORION",
+      "guardian": "HUNTER",
+      "nemesis": "SCORPIUS",
+      "enemies": [
+        "S_CENTAUR",
+        "S_SPIDER"
+      ],
+      "home": "Orion's camp",
+      "goal": "the cave of the wumpus",
+      "prefix": "Ran"
     },
     "allowMask": 12507,
     "aligns": [
@@ -623,6 +731,18 @@ export const ROLES: RoleData[] = [
       "spec": "SPE_CLAIRVOYANCE",
       "bonus": -4
     },
+    "quest": {
+      "leader": "LORD_SATO",
+      "guardian": "ROSHI",
+      "nemesis": "ASHIKAGA_TAKAUJI",
+      "enemies": [
+        "S_DOG",
+        "S_ELEMENTAL"
+      ],
+      "home": "the Castle of the Taro Clan",
+      "goal": "the Shogun's Castle",
+      "prefix": "Sam"
+    },
     "allowMask": 12300,
     "aligns": [
       "lawful"
@@ -683,6 +803,18 @@ export const ROLES: RoleData[] = [
       "stat": "int",
       "spec": "SPE_CHARM_MONSTER",
       "bonus": -4
+    },
+    "quest": {
+      "leader": "TWOFLOWER",
+      "guardian": "GUIDE",
+      "nemesis": "MASTER_OF_THIEVES",
+      "enemies": [
+        "S_SPIDER",
+        "S_CENTAUR"
+      ],
+      "home": "Ankh-Morpork",
+      "goal": "the Thieves' Guild Hall",
+      "prefix": "Tou"
     },
     "allowMask": 12298,
     "aligns": [
@@ -745,6 +877,18 @@ export const ROLES: RoleData[] = [
       "spec": "SPE_CONE_OF_COLD",
       "bonus": -4
     },
+    "quest": {
+      "leader": "NORN",
+      "guardian": "WARRIOR",
+      "nemesis": "LORD_SURTUR",
+      "enemies": [
+        "S_ANT",
+        "S_GIANT"
+      ],
+      "home": "the Shrine of Destiny",
+      "goal": "the cave of Surtur",
+      "prefix": "Val"
+    },
     "allowMask": 8238,
     "aligns": [
       "lawful",
@@ -806,6 +950,18 @@ export const ROLES: RoleData[] = [
       "stat": "int",
       "spec": "SPE_MAGIC_MISSILE",
       "bonus": -4
+    },
+    "quest": {
+      "leader": "NEFERET_THE_GREEN",
+      "guardian": "APPRENTICE",
+      "nemesis": "DARK_ONE",
+      "enemies": [
+        "S_BAT",
+        "S_WRAITH"
+      ],
+      "home": "the Lonely Tower",
+      "goal": "the Tower of Darkness",
+      "prefix": "Wiz"
     },
     "allowMask": 12507,
     "aligns": [

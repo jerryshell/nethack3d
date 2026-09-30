@@ -14,10 +14,7 @@ import zhCN from './zh-CN';
 export type LocaleId = 'en' | 'zh-CN';
 
 /** 语言包节点：字符串、复数对象或嵌套对象。 */
-export type MessageNode =
-  | string
-  | { one?: string; other?: string }
-  | { [key: string]: MessageNode };
+type MessageNode = string | { one?: string; other?: string } | { [key: string]: MessageNode };
 export type MessageCatalog = Record<string, MessageNode>;
 
 const log = createLogger(LOG_NS.i18n);
@@ -27,7 +24,7 @@ export const LOCALES: Record<LocaleId, { label: string; messages: MessageCatalog
   'zh-CN': { label: '简体中文', messages: zhCN as MessageCatalog },
 };
 
-export const LOCALE_STORAGE_KEY = 'nethack3d.locale';
+const LOCALE_STORAGE_KEY = 'nethack3d.locale';
 
 let currentLocale: LocaleId = detectLocale();
 const listeners = new Set<(locale: LocaleId) => void>();

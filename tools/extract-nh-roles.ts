@@ -12,6 +12,7 @@ import type { Alignment, Attributes, RaceData, RoleAdvance, RoleData } from '../
 import fs from 'node:fs';
 import path from 'node:path';
 import { compareReference, loadRecordedReference, readReferenceState } from './nethack-ref';
+import { monById } from '../src/data/index';
 
 const projectRoot = path.resolve(import.meta.dir, '..');
 const nhRoot = path.resolve(
@@ -146,8 +147,29 @@ function parseRoles(
   for (const entry of splitEntries(body)) {
     const items = splitTopLevel(entry.replace(/^\s*\{/, '').replace(/\}\s*$/, ''));
     const name = groupValues(items[0]);
-    const idField = items.find((i) => /^PM_[A-Z_]+$/.test(i.trim()));
-    if (!idField) continue;
+    const mnumAt = items.findIndex((i) => /^PM_[A-Z_]+$/.test(i.trim()));
+    if (mnumAt < 0) continue;
+    const idField = items[mnumAt];
+    const pmId = (raw: string | undefined): string | null => {
+      const v = (raw ?? '').trim();
+      if (!v || v === 'NON_PM' || !/^PM_[A-Z_]+$/.test(v)) return null;
+      return v.replace(/^PM_/, '');
+    };
+    const symId = (raw: string | undefined): string | null => {
+      const v = (raw ?? '').trim();
+      return /^S_[A-Z_]+$/.test(v) ? v : null;
+    };
+    // role.c 的字段顺序：mnum、petnum、ldrnum、guardnum、neminum、
+    // enemy1num、enemy2num、enemy1sym、enemy2sym、questarti。
+    const quest = {
+      leader: pmId(items[mnumAt + 2]) ?? '',
+      guardian: pmId(items[mnumAt + 3]),
+      nemesis: pmId(items[mnumAt + 4]) ?? '',
+      enemies: [symId(items[mnumAt + 7]), symId(items[mnumAt + 8])].filter((s): s is string => !!s),
+      home: (items[mnumAt - 2] ?? '').replace(/"/g, '').trim(),
+      goal: (items[mnumAt - 1] ?? '').replace(/"/g, '').trim(),
+      prefix: (items[5] ?? '').replace(/"/g, '').trim(),
+    };
     // attrbase 是第一个「六个数字」的组。
     const attrsAt = items.findIndex(
       (i) =>
@@ -178,6 +200,7 @@ function parseRoles(
         spec: (tail[7] ?? '').trim(),
         bonus: num(tail[8]),
       },
+      quest,
       allowMask: evalMask(items[attrsAt - 1] ?? ''),
     });
   }
@@ -284,6 +307,28 @@ function main(): void {
   if (humans.length < 1) throw new Error('no race with all three alignments');
   const valRaces: string[] = roles.find((r) => r.id === 'VALKYRIE')?.races ?? [];
   if (!valRaces.includes('DWARF')) throw new Error(`Valkyrie races look wrong: ${valRaces}`);
+
+  // 任务字段：地名、前缀、怪物 id 都不能空，且怪物 id 必须在怪物数据里。
+  const arc = roles.find((r) => r.id === 'ARCHEOLOGIST');
+  if (
+    !arc ||
+    arc.quest.leader !== 'LORD_CARNARVON' ||
+    arc.quest.nemesis !== 'MINION_OF_HUHETOTL' ||
+    arc.quest.goal !== 'the Tomb of the Toltec Kings'
+  ) {
+    throw new Error(`self-check failed for Archeologist quest: ${JSON.stringify(arc?.quest)}`);
+  }
+  for (const r of roles) {
+    if (!r.quest.leader || !r.quest.nemesis || !r.quest.home || !r.quest.goal || !r.quest.prefix) {
+      throw new Error(`quest fields incomplete for ${r.id}`);
+    }
+    if (!monById.has(r.quest.leader)) throw new Error(`quest leader missing: ${r.quest.leader}`);
+    if (!monById.has(r.quest.nemesis)) throw new Error(`quest nemesis missing: ${r.quest.nemesis}`);
+    if (r.quest.guardian && !monById.has(r.quest.guardian)) {
+      throw new Error(`quest guardian missing: ${r.quest.guardian}`);
+    }
+    if (!r.quest.enemies.length) throw new Error(`quest enemies missing for ${r.id}`);
+  }
 
   const emit = (name: string, items: unknown[], typeName: string) =>
     `// 本文件由脚本生成，请勿手动修改。\n` +

@@ -130,7 +130,7 @@ export interface ObjectData {
   eyewear?: boolean;
 }
 
-export type ArmorSlot = 'suit' | 'shield' | 'helm' | 'gloves' | 'boots' | 'cloak' | 'shirt';
+type ArmorSlot = 'suit' | 'shield' | 'helm' | 'gloves' | 'boots' | 'cloak' | 'shirt';
 
 /** 属性升级曲线：初始与每级固定值/随机值。 */
 export interface RoleAdvance {
@@ -169,11 +169,31 @@ export interface RoleData {
     spec: string;
     bonus: number;
   };
+  /** 职业任务线：来自 src/role.c 的 quest 字段。 */
+  quest: RoleQuest;
   /** 允许的种族/性别/阵营位掩码。 */
   allowMask: number;
   aligns: Alignment[];
   races: string[];
   genders: Gender[];
+}
+
+/** 职业任务线的领袖、护卫、仇敌与地名。 */
+interface RoleQuest {
+  /** 任务领袖的怪物 id。 */
+  leader: string;
+  /** 任务护卫的怪物 id；没有时为空。 */
+  guardian: string | null;
+  /** 任务仇敌的怪物 id。 */
+  nemesis: string;
+  /** 任务层主题怪物类，取自 role.c 的 enemy1sym/enemy2sym。 */
+  enemies: string[];
+  /** 任务总部地名，例如 the College of Archeology。 */
+  home: string;
+  /** 任务目标地名，例如 the Tomb of the Toltec Kings。 */
+  goal: string;
+  /** 任务文件前缀，例如 Arc。 */
+  prefix: string;
 }
 
 export interface RaceData {
@@ -205,8 +225,23 @@ export interface Room {
   index: number;
   /** 商店房间由会话在其中摆放店主与货物。 */
   type: 'room' | 'shop';
+  /** 商店种类；非商店房间为空。 */
+  shopType?: ShopType;
   lit: boolean;
 }
+
+/** 商店种类，决定店内的货品类别与招呼语。 */
+export type ShopType =
+  | 'general'
+  | 'weapon'
+  | 'armor'
+  | 'potion'
+  | 'scroll'
+  | 'wand'
+  | 'book'
+  | 'jewelry'
+  | 'food'
+  | 'tool';
 
 export interface DoorState {
   closed: boolean;
@@ -214,12 +249,12 @@ export interface DoorState {
   broken: boolean;
 }
 
-export interface TrapState {
+interface TrapState {
   type: string;
   seen: boolean;
 }
 
-export interface StairRef {
+interface StairRef {
   x: number;
   y: number;
   dir: 'up' | 'down' | 'branch';
@@ -269,6 +304,8 @@ export interface Level {
   shopRestockAt?: number;
   /** 特殊楼层标识；普通楼层为空。 */
   special?: string | null;
+  /** 推箱层的变体 id（soko1-1 等），供会话放固定怪物。 */
+  sokobanVariant?: string;
   /** 分支标识；主地牢为空。 */
   branch?: string | null;
   /** 玩家是否到过该层。 */
@@ -298,6 +335,12 @@ export interface ItemInstance {
   contents?: ItemInstance[];
   /** 商店货品：尚未付款，结账或卖出时翻转。 */
   unpaid?: boolean;
+  /** 尸体：记录怪物原型 id，营养与内在抗性都从它推导。 */
+  corpse?: string;
+  /** 尸体的形成回合；用于判断腐败程度。 */
+  age?: number;
+  /** 罐头内容：记录怪物原型 id，开启后固定。 */
+  tin?: string;
   /** 起始装备标记，装备后清空。 */
   equipped?: EquipIntent | null;
 }
@@ -330,6 +373,10 @@ export interface Monster {
   tame: boolean;
   /** 驯服度：喂食提升，达到上限后成长一次。 */
   tameness: number;
+  /** 加速剩余回合：速度翻倍。 */
+  hasted: number;
+  /** 缓速剩余回合：速度减半（最低 1）。 */
+  slowed: number;
 }
 
 export type EquipmentSlot =
@@ -394,6 +441,10 @@ export interface Player {
   stun: number;
   /** 石化剩余回合；归零即死亡，完全治疗药水可解。 */
   petrifying: number;
+  /** 加速剩余回合；大于 0 时每次行动不给怪物回合。 */
+  hasted: number;
+  /** 疾病剩余回合；大于 0 时停止自然回复并周期性掉血。 */
+  sick: number;
   /** 阵营记录：正数表示神满意，负数表示失望，范围 [-128, 127]。 */
   alignRecord: number;
   /** 祈祷冷却：大于 0 时再次祈祷会触怒神明。 */
@@ -406,6 +457,20 @@ export interface Player {
   skillLevels: Record<string, number>;
   seeInvisible: boolean;
   knownSpells: string[];
+  /** 吃尸体得到的内在抗性（不依赖装备，永久保留）。 */
+  intrinsics: string[];
+  /** 心灵感应：感知附近怪物的位置（浮游眼等尸体赋予）。 */
+  telepathy: boolean;
+  /** 怪物探测剩余回合：与心灵感应相同的感知效果。 */
+  senseMonsters: number;
+  /** 物品探测剩余回合：小地图标出地面物品。 */
+  senseObjects: number;
+  /** 金币探测剩余回合：小地图标出带金币的物品堆。 */
+  senseGold: number;
+  /** 食物探测剩余回合：小地图标出带食物的物品堆。 */
+  senseFood: number;
+  /** 传送症：每回合有小概率随机传送（会传送的怪物尸体赋予）。 */
+  teleportitis: boolean;
 }
 
 /** 变形形态：只存怪物原型 id 与剩余回合，属性从数据查回。 */
@@ -469,7 +534,7 @@ export interface SessionStatus {
   dead: boolean;
 }
 
-export type ActionResult =
+type ActionResult =
   | 'moved'
   | 'blocked'
   | 'opened'
@@ -541,6 +606,12 @@ export interface SerializedItem {
   u?: 0 | 1;
   /** 神器标识。 */
   ar?: string;
+  /** 尸体的怪物原型 id。 */
+  cp?: string;
+  /** 尸体的形成回合。 */
+  ag?: number;
+  /** 罐头的怪物原型 id。 */
+  tn?: string;
   /** 容器内容；递归存储。 */
   n?: SerializedItem[];
 }
@@ -560,6 +631,9 @@ export interface SerializedMonster {
   tame?: 0 | 1;
   /** 驯服度。 */
   tameness?: number;
+  /** 加速与缓速剩余回合。 */
+  ha?: number;
+  sl?: number;
   mv: number;
 }
 
@@ -592,6 +666,14 @@ export interface SaveData {
   dead: 0 | 1;
   character: { roleId: string; raceId: string; align: Alignment; gender: Gender };
   attributes: Attributes;
+  /** 任务楼梯是否已获领袖许可。 */
+  questUnlocked?: 0 | 1;
+  /** 是否已带着职业神器向领袖复命。 */
+  questComplete?: 0 | 1;
+  /** 尤恩多巫师是否抢走了护身符。 */
+  wizardHasAmulet?: 0 | 1;
+  /** 已灭绝的怪物物种。 */
+  genocides?: string[];
   player: {
     x: number;
     y: number;
@@ -612,6 +694,8 @@ export interface SaveData {
     held?: number;
     stun?: number;
     petrifying?: number;
+    hasted?: number;
+    sick?: number;
     alignRecord?: number;
     prayerTimeout?: number;
     form?: { id: string; turns: number } | null;
@@ -619,6 +703,19 @@ export interface SaveData {
     skillLevels?: Record<string, number>;
     seeInvisible: boolean;
     knownSpells: string[];
+    /** 吃尸体得到的内在抗性。 */
+    intrinsics?: string[];
+    /** 心灵感应。 */
+    telepathy?: 0 | 1;
+    /** 怪物探测剩余回合。 */
+    senseMonsters?: number;
+    /** 物品探测剩余回合。 */
+    senseObjects?: number;
+    /** 金币探测与食物探测剩余回合。 */
+    senseGold?: number;
+    senseFood?: number;
+    /** 传送症。 */
+    teleportitis?: 0 | 1;
     inventory: SerializedItem[];
     equipment: Record<string, number>;
   };

@@ -44,7 +44,7 @@ const SOUND_NAMES = [
   'close',
 ] as const;
 
-export type SfxName = (typeof SOUND_NAMES)[number];
+type SfxName = (typeof SOUND_NAMES)[number];
 
 /** 存储键：静音开关。 */
 const MUTE_KEY = 'nethack3d.muted';
@@ -124,12 +124,12 @@ export function isMuted(): boolean {
 }
 
 /** 是否已经准备好可以出声。 */
-export function audioReady(): boolean {
+function audioReady(): boolean {
   return !!ctx && buffers.size > 0;
 }
 
 /** 已加载的音效数量。 */
-export function loadedSoundCount(): number {
+function loadedSoundCount(): number {
   return buffers.size;
 }
 

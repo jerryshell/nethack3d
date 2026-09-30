@@ -12,14 +12,22 @@
     "include/objects.h": "2c0b3045a1d48b3e",
     "include/defsym.h": "30e5e6d2105906a7",
     "include/color.h": "6913b7614e1286cc",
-    "src/role.c": "f4cdb1dc7d34daf3"
+    "src/role.c": "f4cdb1dc7d34daf3",
+    "dat/soko1-1.lua": "57c0ac7cecf066f6",
+    "dat/soko1-2.lua": "95ed1ea6357ac73a",
+    "dat/soko2-1.lua": "d66e4e3cfb885c43",
+    "dat/soko2-2.lua": "e17d648cb63c7ae3",
+    "dat/soko3-1.lua": "5122ffcb3199dd69",
+    "dat/soko3-2.lua": "f042a3bb8e8226e9",
+    "dat/soko4-1.lua": "b74165b352369bf0",
+    "dat/soko4-2.lua": "6c7170a69ba3de37"
   },
   "counts": {
     "monsters": 394,
     "objects": 440
   },
   "version": 1,
-  "recordedAt": "2026-09-27T06:51:32.557Z",
+  "recordedAt": "2026-09-30T04:40:35.639Z",
   "generated": {
     "monsters": 394,
     "objects": 440,

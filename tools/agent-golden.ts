@@ -18,17 +18,17 @@ import { teleportPlayer } from './agent-lib';
 const projectRoot = path.resolve(import.meta.dir, '..');
 
 /** 快照文件路径，随仓库提交。 */
-export const GOLDEN_PATH = path.join(projectRoot, 'tools', 'agent-golden.json');
+const GOLDEN_PATH = path.join(projectRoot, 'tools', 'agent-golden.json');
 
 /** 参与快照的种子与层数。覆盖面广且数量可控，便于人工核对差异。 */
-export const GOLDEN_SEEDS = [1, 42, 777, 12345, 99991];
-export const GOLDEN_DEPTHS = [1, 2, 5, 10, 20, 30];
+const GOLDEN_SEEDS = [1, 42, 777, 12345, 99991];
+const GOLDEN_DEPTHS = [1, 2, 5, 10, 20, 30];
 
 /** 战斗轨迹使用的种子。 */
-export const TRACE_SEEDS = [17, 4093];
+const TRACE_SEEDS = [17, 4093];
 
 /** 快照文件结构。 */
-export interface GoldenData {
+interface GoldenData {
   version: 1;
   generatedAt: string;
   levels: Record<string, string>;
@@ -53,7 +53,7 @@ export function hash(input: string): string {
 }
 
 /** 关卡地形与设施的规范化字符串。 */
-export function levelFingerprint(level: Level): string {
+function levelFingerprint(level: Level): string {
   return [
     `tiles=${Array.from(level.tiles).join('')}`,
     `lit=${Array.from(level.lit).join('')}`,
@@ -73,7 +73,7 @@ export function levelFingerprint(level: Level): string {
  * 玩家与怪物的属性都写死，唯一变量是游戏内的随机数，
  * 因此轨迹变化只可能来自战斗规则或随机数使用的改动。
  */
-export function combatTrace(seed: number): string {
+function combatTrace(seed: number): string {
   const session = newSession(seed);
   const { player } = session;
   player.maxHp = 100;
@@ -125,7 +125,7 @@ export function collectGolden(): GoldenData {
 }
 
 /** 读取快照文件；不存在或损坏时返回 null。 */
-export function loadGolden(): GoldenData | null {
+function loadGolden(): GoldenData | null {
   try {
     if (!fs.existsSync(GOLDEN_PATH)) return null;
     const data = JSON.parse(fs.readFileSync(GOLDEN_PATH, 'utf8')) as GoldenData;
@@ -137,7 +137,7 @@ export function loadGolden(): GoldenData | null {
 }
 
 /** 写入快照文件。 */
-export function writeGolden(data: GoldenData): void {
+function writeGolden(data: GoldenData): void {
   fs.writeFileSync(GOLDEN_PATH, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 

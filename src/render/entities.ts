@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { createMonsterModel, createBlobShadow } from './models';
+import { createMonsterModel, enableShadows } from './models';
 import { createCharacter, lookForMonster } from './characters';
 import type { CharacterHandle } from './characters';
 import { tileToWorld } from './dungeonMesh';
+import { lambertOf } from './palette';
 import type { GameSession } from '../game/session';
 import { index } from '../game/dungeon';
 
@@ -12,13 +13,6 @@ import { index } from '../game/dungeon';
  * 每只存活怪物对应一个 3D 视图；不在视野内时隐藏（与原版可见性一致），
  * 移动时在瓦片之间插值，死亡时播放短暂淡出。
  */
-
-/** 取出网格的 Lambert 材质；Group 或材质数组返回 null。 */
-function lambertOf(o: THREE.Object3D): THREE.MeshLambertMaterial | null {
-  const material = (o as THREE.Mesh).material;
-  if (!material || Array.isArray(material)) return null;
-  return material as THREE.MeshLambertMaterial;
-}
 
 /** 释放网格的几何体与材质。 */
 function disposeMesh(o: THREE.Object3D): void {
@@ -69,8 +63,8 @@ export class EntityLayer extends THREE.Group {
           : null;
         const group = character ? character.root : createMonsterModel(mon.data);
         group.position.set(0, 0, 0);
-        // 脚下阴影：不参与光照，只给落地感。
-        group.add(createBlobShadow(0.3));
+        // 参与实时阴影：怪物投射并接收脚边的光影。
+        enableShadows(group);
         this.add(group);
         view = {
           group,
@@ -89,7 +83,11 @@ export class EntityLayer extends THREE.Group {
       if (view.current.lengthSq() === 0) view.current.copy(view.target);
       const i = index(mon.x, mon.y);
       const seen = !!visible && visible[i] === 1;
-      view.group.visible = seen && view.dying === 0;
+      // 心灵感应与怪物探测：感知 12 格内的怪物，即使隔着墙也能看到它的身影。
+      const sensed =
+        (session.hasTelepathy() || session.player.senseMonsters > 0) &&
+        Math.max(Math.abs(mon.x - session.player.x), Math.abs(mon.y - session.player.y)) <= 12;
+      view.group.visible = (seen || sensed) && view.dying === 0;
     }
 
     // Anything no longer alive fades out.

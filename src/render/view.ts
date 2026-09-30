@@ -43,6 +43,10 @@ export class ViewRenderer {
     this.applyPixelRatio();
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
+    // 实时阴影：默认软阴影，低质量档改用基础阴影贴图；
+    // 只有跟随玩家的月光投射阴影，阴影范围小，填充率开销可控。
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = this.lowQuality ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x05060a);
