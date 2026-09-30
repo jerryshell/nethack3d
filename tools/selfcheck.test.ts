@@ -3103,6 +3103,14 @@ section('陷阱', async () => {
         s2.refreshFov();
         for (let i = 0; i < 30 && !door2.trapKnown; i++) s2.searchAction();
         ok(door2.trapKnown === true, '搜索可以发现门上的机关');
+        // 已知的机关门可以拆除。
+        ok(s2.disarmTarget()?.type === 'DOOR_TRAP', '机关门成为拆陷阱目标');
+        for (let i = 0; i < 40 && door2.trapped; i++) s2.untrapAction();
+        ok(!door2.trapped, '拆陷阱可以拆除门上的机关');
+        ok(
+          s2.messages.some((m) => m.key === 'msg.untrapDoorDone'),
+          '拆除门机关有提示',
+        );
       }
     }
 

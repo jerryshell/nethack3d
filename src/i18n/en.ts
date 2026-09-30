@@ -273,6 +273,8 @@ const messages: MessageCatalog = {
     greaseSaves: 'The grease flashes; your {obj} is saved.',
     untrapDone: 'You carefully disarm the {trap}.',
     untrapFail: 'The {trap} resists your attempt to disarm it.',
+    untrapDoorDone: 'You carefully disarm the trap on the door.',
+    untrapDoorFail: 'You fail to disarm the trap on the door.',
     searchNothing: 'You search carefully, but find nothing.',
     lavaBurn: 'You step into lava and are burned! (-{n} HP)',
     lavaResist: 'Your fire resistance takes the worst of the heat. (-{n} HP)',

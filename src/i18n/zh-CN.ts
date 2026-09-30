@@ -184,6 +184,8 @@ const messages: MessageCatalog = {
     greaseSaves: '油脂闪了闪，{obj}躲过一劫。',
     untrapDone: '你小心翼翼地拆除了{trap}。',
     untrapFail: '{trap}纹丝不动，解除失败。',
+    untrapDoorDone: '你拆掉了门上的机关。',
+    untrapDoorFail: '你没能拆掉门上的机关。',
     searchNothing: '仔细搜寻之后，一无所获。',
     lavaBurn: '踩进了岩浆，被灼伤（-{n} 生命）！',
     lavaResist: '火焰抗性挡下了大半灼热（-{n} 生命）。',

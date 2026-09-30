@@ -1475,10 +1475,13 @@ export class GameSession {
     const at = (dx: number, dy: number) => {
       const tile = index(this.player.x + dx, this.player.y + dy);
       const trap = this.level.traps.get(tile);
-      if (!trap || !trap.seen) return null;
-      // 传送门与振动方块是流程机关，不能拆。
-      if (trap.type === 'MAGIC_PORTAL' || trap.type === 'VIBRATING_SQUARE') return null;
-      return { tile, type: trap.type };
+      if (trap?.seen && trap.type !== 'MAGIC_PORTAL' && trap.type !== 'VIBRATING_SQUARE') {
+        return { tile, type: trap.type };
+      }
+      // 已知的门上机关同样可以拆除。
+      const door = this.level.doors.get(tile);
+      if (door?.trapped && door.trapKnown) return { tile, type: 'DOOR_TRAP' };
+      return null;
     };
     const offsets: [number, number][] = [
       [0, 0],
@@ -1516,12 +1519,21 @@ export class GameSession {
     if (this.player.stun > 0) chance += 2;
     if (this.player.role.id === 'ROGUE' || this.player.role.id === 'RANGER') chance--;
     if (chance < 1) chance = 1;
-    const trapName = trapNameKey(target.type);
-    if (this.rng.rn2(chance) === 0) {
+    const success = this.rng.rn2(chance) === 0;
+    if (target.type === 'DOOR_TRAP') {
+      const door = this.level.doors.get(target.tile);
+      if (success && door) {
+        door.trapped = false;
+        door.trapKnown = false;
+        this.log('msg.untrapDoorDone');
+      } else {
+        this.log('msg.untrapDoorFail');
+      }
+    } else if (success) {
       this.level.traps.delete(target.tile);
-      this.log('msg.untrapDone', { trap: trapName });
+      this.log('msg.untrapDone', { trap: trapNameKey(target.type) });
     } else {
-      this.log('msg.untrapFail', { trap: trapName });
+      this.log('msg.untrapFail', { trap: trapNameKey(target.type) });
     }
     this.finishTurn();
     return { result: 'used' };
