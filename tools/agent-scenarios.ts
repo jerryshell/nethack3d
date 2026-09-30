@@ -42,6 +42,7 @@ import { monById, objById } from '../src/data/index';
 import { FEATURE_ACTIONS, type FeatureAction } from '../src/game/features';
 import { serializeSession, restoreSession } from '../src/game/save';
 import { computeFov } from '../src/game/fov';
+import { findPath } from '../src/game/path';
 import { T, COLNO } from '../src/core/constants';
 
 /** 场景定义。 */
@@ -2398,6 +2399,22 @@ const quest: Scenario = {
         session.level.special ?? '-',
         call,
       );
+      // 搜索层的固定地图应当从上行楼梯走得到下行楼梯。
+      session.revealLevel();
+      const upStair = session.level.up;
+      const downStair = session.level.down;
+      checker.ok(!!upStair && !!downStair, '搜索层有上下楼梯', '', call);
+      if (upStair && downStair) {
+        checker.ok(
+          !!findPath(session.level, upStair, downStair, {
+            levitating: session.isFloating(),
+            avoidHazards: false,
+          }),
+          '搜索层上下楼梯连通',
+          '',
+          call,
+        );
+      }
       const level2 = session.changeDepth(2, 'down', 'quest');
       checker.ok(level2.result === 'descended', '解锁后可以下到任务第二层');
       session.changeDepth(5, 'down', 'quest');
