@@ -797,6 +797,16 @@ function startGame(options: StartGameOptions = {}): void {
         },
       },
       {
+        id: 'search',
+        label: t('actions.search'),
+        key: 's',
+        hint: t('actionHints.search'),
+        onRun: () => {
+          cancelTravel();
+          afterAction(session.searchAction());
+        },
+      },
+      {
         id: 'pray',
         label: t('actions.pray'),
         key: 'p',
@@ -1014,6 +1024,11 @@ function startGame(options: StartGameOptions = {}): void {
     if (e.key === 'p') {
       e.preventDefault();
       afterAction(session.pray());
+      return;
+    }
+    if (e.key === 's') {
+      e.preventDefault();
+      afterAction(session.searchAction());
       return;
     }
     if (VERB_KEYS[e.key]) {

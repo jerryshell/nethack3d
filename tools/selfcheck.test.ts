@@ -4911,6 +4911,41 @@ section('附魔与蒸发', async () => {
   }
 });
 
+section('搜索陷阱', async () => {
+  const { GameSession } = await import('../src/game/session');
+
+  // 相邻的隐藏陷阱能被搜出来。
+  {
+    const s = new GameSession({ seed: 8301 });
+    s.level.monsters = [];
+    const i = index(s.player.x + 1, s.player.y);
+    s.level.traps.set(i, { type: 'PIT', seen: false });
+    let found = false;
+    for (let n = 0; n < 20 && !found; n++) {
+      s.searchAction();
+      found = s.level.traps.get(i)?.seen === true;
+    }
+    ok(found, '搜索能发现相邻的隐藏陷阱');
+    ok(
+      s.messages.some((m) => m.key === 'msg.searchFound'),
+      '记录发现陷阱消息',
+    );
+  }
+
+  // 没有隐藏陷阱时只给提示。
+  {
+    const s = new GameSession({ seed: 8302 });
+    s.level.monsters = [];
+    s.level.traps.clear();
+    s.searchAction();
+    ok(
+      s.messages.some((m) => m.key === 'msg.searchNothing'),
+      '没有隐藏陷阱时一无所获',
+    );
+    ok(s.turn === 1, '搜索消耗一个回合');
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');

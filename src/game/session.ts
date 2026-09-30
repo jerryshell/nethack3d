@@ -1410,6 +1410,42 @@ export class GameSession {
   }
 
   /** 原地等待一回合。 */
+  /**
+   * 搜索附近的隐藏陷阱。
+   *
+   * 对应原版的搜索命令：逐格判定是否发现未见过的陷阱，
+   * 运气好更容易发现；已经见过的陷阱不再重复判定。
+   */
+  searchAction(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    const chance = 0.35 + Math.max(0, this.player.luck) * 0.02;
+    let found = 0;
+    const spots: [number, number][] = [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ];
+    for (const [dx, dy] of spots) {
+      const i = index(this.player.x + dx, this.player.y + dy);
+      const trap = this.level.traps.get(i);
+      if (!trap || trap.seen) continue;
+      if (this.rng.chance(chance)) {
+        trap.seen = true;
+        found++;
+      }
+    }
+    if (found > 0) this.log('msg.searchFound', { n: found });
+    else this.log('msg.searchNothing');
+    this.finishTurn();
+    return { result: 'used', key: found > 0 ? 'msg.searchFound' : undefined };
+  }
+
   wait(): ActionResultInfo {
     if (this.dead) return { result: 'dead' };
     this.finishTurn();
