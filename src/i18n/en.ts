@@ -240,6 +240,9 @@ const messages: MessageCatalog = {
     wakesUp: 'You wake up.',
     freeFromTrap: 'You pull yourself free.',
     victory: 'You have the Amulet of Yendor!',
+    lavaBurn: 'You step into lava and are burned! (-{n} HP)',
+    lavaResist: 'Your fire resistance takes the worst of the heat. (-{n} HP)',
+    waterDrag: 'The current drags at you, and you can barely move.',
     portalStep: 'You step through the portal into the other world.',
     invocationNoSquare: 'You are not standing on the vibrating square.',
     invocationMissing: 'The ritual lacks {obj}.',
@@ -771,6 +774,10 @@ const messages: MessageCatalog = {
     valley: 'the Valley of the Dead',
     oracle: 'the Oracle',
     sanctum: 'the Sanctum',
+    plane_earth: 'the Plane of Earth',
+    plane_air: 'the Plane of Air',
+    plane_fire: 'the Plane of Fire',
+    plane_water: 'the Plane of Water',
     astral: 'the Astral Plane',
     quest_home: 'your quest headquarters',
     quest_locate: 'the quest search level',
@@ -806,7 +813,7 @@ const messages: MessageCatalog = {
     tip20:
       'Rings work while worn: regeneration, slow digestion, searching, stealth, invisibility and protection all have real effects.',
     tip21:
-      'With the Bell of Opening, Candelabrum of Invocation and Book of the Dead in hand, perform the ritual on the Sanctum\u2019s vibrating square to open a portal to the Astral Plane.',
+      'With the Bell of Opening, Candelabrum of Invocation and Book of the Dead in hand, perform the ritual on the Sanctum\u2019s vibrating square to open a portal to the other world; cross the four elemental planes to reach the Astral Plane.',
   },
   trap: {
     arrow: 'an arrow trap',

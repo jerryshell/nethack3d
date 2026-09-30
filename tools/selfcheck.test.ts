@@ -3332,7 +3332,7 @@ section('开启仪式与异界', async () => {
   const { makeItem } = await import('../src/game/items');
   const { addToInventory } = await import('../src/game/inventory');
   const { objById } = await import('../src/data/index');
-  const { COLNO } = await import('../src/core/constants');
+  const { COLNO, T } = await import('../src/core/constants');
   const { branchByEntrance } = await import('../src/game/branches');
   const { branchSpecialFor, specialLevelById } = await import('../src/game/special');
   const { serializeSession, restoreSession } = await import('../src/game/save');
@@ -3400,8 +3400,18 @@ section('开启仪式与异界', async () => {
     ok(s.level.traps.get(square[0])?.type === 'MAGIC_PORTAL', '集齐圣物后开启传送门');
     s.enterPortal();
     ok(s.branch === 'planes' && s.depth === 1, `传送门通往异界（${s.branch} ${s.depth}）`);
-    ok(s.level.special === 'astral', '异界第一层是星界位面');
-    ok(!!s.level.up, '星界保留回程楼梯');
+    ok(s.level.special === 'plane_earth', '异界第一层是土之位面');
+    ok(!!s.level.up, '元素位面保留回程楼梯');
+    for (const [depth, id] of [
+      [2, 'plane_air'],
+      [3, 'plane_fire'],
+      [4, 'plane_water'],
+      [5, 'astral'],
+    ] as [number, string][]) {
+      s.changeDepth(depth, 'down', 'planes');
+      ok(s.level.special === id, `异界第 ${depth} 层是 ${id}`);
+    }
+    ok(!s.level.down, '星界没有下行楼梯（终局）');
     const altars = [...s.level.features.values()].filter((f) => f.type === 'ALTAR');
     ok(altars.length === 3, `星界有三座祭坛（${altars.length}）`);
     ok(
@@ -3448,9 +3458,104 @@ section('开启仪式与异界', async () => {
     );
   }
 
-  // 星界在分支特殊楼层表里可查。
-  ok(branchSpecialFor('planes', 1)?.id === 'astral', '星界登记在分支特殊楼层里');
+  // 星界在分支特殊楼层表里可查，四层元素位面各有主体地形。
+  ok(branchSpecialFor('planes', 1)?.id === 'plane_earth', '土之位面登记在分支特殊楼层里');
+  ok(branchSpecialFor('planes', 4)?.id === 'plane_water', '水之位面登记在分支特殊楼层里');
+  ok(branchSpecialFor('planes', 5)?.id === 'astral', '星界登记在分支特殊楼层里');
   ok(specialLevelById('astral')?.altars?.length === 3, '按标识能找到星界定义');
+
+  // 元素位面的地形散布：虚空、岩浆与水流，整层仍连成一片。
+  {
+    const { isWalkable, ROWNO } = await import('../src/core/constants');
+    const s = new GameSession({ seed: 20240101 });
+    const cases: [number, number, string][] = [
+      [2, T.AIR, '气之位面铺虚空'],
+      [3, T.LAVA, '火之位面铺岩浆'],
+      [4, T.WATER, '水之位面铺水流'],
+    ];
+    for (const [depth, tile, label] of cases) {
+      const level = s.getBranchLevel('planes', depth);
+      const blocks = Array.from(level.tiles).filter((t) => t === tile).length;
+      ok(blocks > 0, `${label}（${blocks} 格）`);
+      ok(
+        level.stairs.every((st) => level.tiles[st.y * COLNO + st.x] === T.STAIRS),
+        `${label}不覆盖楼梯`,
+      );
+      ok(
+        !!level.up && level.tiles[level.up.y * COLNO + level.up.x] === T.STAIRS,
+        `${label}保留上行楼梯`,
+      );
+      // 从上行楼梯淹水，所有可行走格子都要走得到。
+      let total = 0;
+      for (const t of level.tiles) if (isWalkable(t)) total++;
+      const seen = new Set<number>();
+      const queue: number[] = [];
+      if (level.up) {
+        const start = level.up.y * COLNO + level.up.x;
+        seen.add(start);
+        queue.push(start);
+      }
+      while (queue.length) {
+        const i = queue.pop() as number;
+        const x = i % COLNO;
+        const y = (i / COLNO) | 0;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as [number, number][]) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= COLNO || ny >= ROWNO) continue;
+          const ni = ny * COLNO + nx;
+          if (seen.has(ni) || !isWalkable(level.tiles[ni])) continue;
+          seen.add(ni);
+          queue.push(ni);
+        }
+      }
+      ok(seen.size === total, `${label}后全层仍连通（${seen.size}/${total}）`);
+    }
+  }
+
+  // 岩浆会灼伤踏进去的玩家，火焰抗性减半。
+  {
+    const s = new GameSession({ seed: 20240101 });
+    s.changeDepth(3, 'down', 'planes');
+    let spot: { from: [number, number]; to: [number, number] } | null = null;
+    for (let i = 0; i < s.level.tiles.length && !spot; i++) {
+      if (s.level.tiles[i] !== T.LAVA) continue;
+      const x = i % COLNO;
+      const y = (i / COLNO) | 0;
+      if (s.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as [number, number][]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (s.level.tiles[ny * COLNO + nx] !== T.ROOM) continue;
+        spot = { from: [nx, ny], to: [x, y] };
+        break;
+      }
+    }
+    ok(!!spot, '火之位面能找到可走上去的岩浆');
+    if (spot) {
+      s.player.maxHp = 200;
+      s.player.hp = 200;
+      const hp = s.player.hp;
+      s.player.x = spot.from[0];
+      s.player.y = spot.from[1];
+      s.movePlayer(spot.to[0] - spot.from[0], spot.to[1] - spot.from[1]);
+      ok(s.player.hp < hp, `踩进岩浆会灼伤（${hp} → ${s.player.hp}）`);
+      ok(
+        s.messages.some((m) => m.key === 'msg.lavaBurn'),
+        '记录岩浆灼伤消息',
+      );
+    }
+  }
 
   // 普通楼层的祭坛不足以登神：必须先经传送门到异界。
   {

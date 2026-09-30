@@ -942,6 +942,22 @@ export class GameSession {
     if (gold > 0) this.log('msg.gold', { n: gold });
     this.refreshFov();
 
+    // 元素位面的地表：岩浆灼伤，水流拖慢脚步。
+    const tileNow = this.tileAt(nx, ny);
+    if (tileNow === T.LAVA) {
+      const rolled = this.rng.dice(2, 6);
+      const resisted = playerResists(this.player).has('fire');
+      const dmg = resisted ? Math.ceil(rolled / 2) : rolled;
+      this.log(resisted ? 'msg.lavaResist' : 'msg.lavaBurn', { n: dmg });
+      if (this.player.takeDamage(dmg)) {
+        this.dead = true;
+        return { result: 'dead' };
+      }
+    } else if (tileNow === T.WATER && this.rng.chance(0.25)) {
+      this.player.held = Math.max(this.player.held, 1);
+      this.log('msg.waterDrag');
+    }
+
     // 踩中陷阱：可能受伤、被传走或掉到下一层。
     const displaced = this.springTrap(index(nx, ny));
     if (this.dead) return { result: 'dead' };

@@ -512,14 +512,35 @@ const invocation: Scenario = {
       );
       checker.absorb('开启传送门后状态自洽', checkInvariants(session), call);
 
-      // 踏入传送门：星界位面有成组的祭坛与天启骑士。
+      // 踏入传送门：先到土之位面，再过气、火、水三面抵达星界。
       session.enterPortal();
       checker.ok(
-        session.branch === 'planes' && session.level.special === 'astral',
-        '传送门通往星界位面',
-        `branch=${session.branch} special=${session.level.special ?? '-'}`,
+        session.branch === 'planes' && session.depth === 1,
+        '传送门通往异界第一层',
+        `branch=${session.branch} depth=${session.depth}`,
         call,
       );
+      checker.ok(
+        session.level.special === 'plane_earth',
+        '异界第一层是土之位面',
+        session.level.special ?? '-',
+        call,
+      );
+      const planes: [number, string][] = [
+        [2, 'plane_air'],
+        [3, 'plane_fire'],
+        [4, 'plane_water'],
+        [5, 'astral'],
+      ];
+      for (const [depth, id] of planes) {
+        session.changeDepth(depth, 'down', 'planes');
+        checker.ok(
+          session.level.special === id,
+          `异界第 ${depth} 层是${id}`,
+          session.level.special ?? '-',
+          call,
+        );
+      }
       const altars = [...session.level.features].filter(([, f]) => f.type === 'ALTAR');
       checker.ok(altars.length === 3, '星界有三座阵营祭坛', `n=${altars.length}`, call);
       checker.ok(

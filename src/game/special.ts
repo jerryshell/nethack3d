@@ -26,6 +26,8 @@ export interface SpecialLevel {
   fountains?: number;
   /** 保证出现的祭坛归属；星界位面用它铺出三座神殿。 */
   altars?: Alignment[];
+  /** 散布地形：把部分地面换成岩浆、水流或虚空，用于元素位面。 */
+  scatter?: { tile: 'lava' | 'water' | 'air'; chance: number };
 }
 
 /** 深度到特殊楼层的映射。 */
@@ -55,12 +57,36 @@ export const SPECIAL_LEVELS: Record<number, SpecialLevel> = {
 /**
  * 分支地牢的固定楼层，按 `分支 -> 深度` 登记。
  *
- * 星界位面是本作的终点：一整间大厅里立着三座阵营祭坛，
+ * 异界是终局：前四层是土、气、火、水四座元素位面，用大房间加地形散布
+ * 与元素怪物区分；第五层星界位面是一整间大厅，立着三座阵营祭坛，
  * 天使与天启骑士守着中央，把尤恩多护身符献给自己阵营的祭坛即登神。
  */
 export const BRANCH_SPECIAL_LEVELS: Record<string, Record<number, SpecialLevel>> = {
   planes: {
     1: {
+      id: 'plane_earth',
+      layout: 'bigRoom',
+      monsters: ['EARTH_ELEMENTAL', 'EARTH_ELEMENTAL', 'XORN', 'STONE_GOLEM'],
+    },
+    2: {
+      id: 'plane_air',
+      layout: 'bigRoom',
+      monsters: ['AIR_ELEMENTAL', 'AIR_ELEMENTAL', 'FOG_CLOUD', 'FREEZING_SPHERE'],
+      scatter: { tile: 'air', chance: 0.16 },
+    },
+    3: {
+      id: 'plane_fire',
+      layout: 'bigRoom',
+      monsters: ['FIRE_ELEMENTAL', 'FIRE_ELEMENTAL', 'SALAMANDER', 'FIRE_VORTEX'],
+      scatter: { tile: 'lava', chance: 0.14 },
+    },
+    4: {
+      id: 'plane_water',
+      layout: 'bigRoom',
+      monsters: ['WATER_ELEMENTAL', 'WATER_ELEMENTAL', 'GIANT_EEL', 'KRAKEN'],
+      scatter: { tile: 'water', chance: 0.18 },
+    },
+    5: {
       id: 'astral',
       layout: 'bigRoom',
       monsters: ['DEATH', 'FAMINE', 'PESTILENCE', 'ANGEL', 'ANGEL', 'ARCHON'],

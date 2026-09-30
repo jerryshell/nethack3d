@@ -21,6 +21,7 @@ export const PALETTE = {
   trap: 0x6b2f2f,
   water: 0x2b6a8f,
   lava: 0xd94f1a,
+  air: 0x2f3340,
   ice: 0x9fd8e8,
   tree: 0x3f5d34,
   ironbars: 0x555a63,
@@ -61,6 +62,9 @@ export function tileColor(t: number, _x: number, _y: number): number {
       return PALETTE.floorRoom;
     case T.ICE:
       return PALETTE.ice;
+    case T.AIR:
+    case T.CLOUD:
+      return PALETTE.air;
     case T.POOL:
     case T.MOAT:
     case T.WATER:

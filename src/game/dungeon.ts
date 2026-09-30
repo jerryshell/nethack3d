@@ -22,6 +22,7 @@ import {
   isWall,
   isRoom,
   isCorr,
+  isWalkable,
   randomTrapTypes,
 } from '../core/constants';
 import { createRng, deriveSeed } from '../core/rng';
@@ -882,6 +883,81 @@ function placeSpecialAltars(level: Level, aligns: Alignment[]): void {
   log.debug('特殊祭坛已布置', { depth: level.depth, count: chosen.length });
 }
 
+/**
+ * 元素位面的地形散布：把部分房间地面换成岩浆、水流或虚空。
+ *
+ * 虚空不可通行，可能把地面切成孤岛；每次改造后做一次连通性检查，
+ * 不连通就撒回，因此楼梯与所有可行走格子始终连在一起。
+ */
+function scatterTerrain(
+  level: Level,
+  rng: Rng,
+  tile: 'lava' | 'water' | 'air',
+  chance: number,
+): number {
+  const target = tile === 'lava' ? T.LAVA : tile === 'water' ? T.WATER : T.AIR;
+  const locked = new Set<number>();
+  for (const spot of [level.up, level.down, level.start]) {
+    if (spot) locked.add(index(spot.x, spot.y));
+  }
+  for (const stair of level.stairs) locked.add(index(stair.x, stair.y));
+  for (const i of level.traps.keys()) locked.add(i);
+  for (const i of level.features.keys()) locked.add(i);
+
+  const candidates: number[] = [];
+  for (let i = 0; i < level.tiles.length; i++) {
+    if (level.tiles[i] === T.ROOM) candidates.push(i);
+  }
+  rng.shuffle(candidates);
+  let changed = 0;
+  for (const i of candidates) {
+    if (locked.has(i)) continue;
+    if (rng.float() >= chance) continue;
+    level.tiles[i] = target;
+    // 只有虚空会改变可通行性；其余地形不用重新检查。
+    if (target === T.AIR && !floorConnected(level)) {
+      level.tiles[i] = T.ROOM;
+      continue;
+    }
+    changed++;
+  }
+  return changed;
+}
+
+/** 所有可行走格子是否连成一片；虚空散布后用它兜底。 */
+function floorConnected(level: Level): boolean {
+  const start = level.up ?? level.down ?? level.start;
+  if (!start) return true;
+  const from = index(start.x, start.y);
+  if (!isWalkable(level.tiles[from])) return false;
+  let total = 0;
+  for (let i = 0; i < level.tiles.length; i++) {
+    if (isWalkable(level.tiles[i])) total++;
+  }
+  const queue = [from];
+  const seen = new Set<number>([from]);
+  while (queue.length) {
+    const i = queue.pop() as number;
+    const x = i % COLNO;
+    const y = (i / COLNO) | 0;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as [number, number][]) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= COLNO || ny >= ROWNO) continue;
+      const ni = index(nx, ny);
+      if (seen.has(ni) || !isWalkable(level.tiles[ni])) continue;
+      seen.add(ni);
+      queue.push(ni);
+    }
+  }
+  return seen.size === total;
+}
+
 /** 房间四周一圈内是否有门。 */
 function hasDoor(level: Level, room: Room): boolean {
   for (let x = room.lx - 1; x <= room.hx + 1; x++) {
@@ -1236,6 +1312,14 @@ function generateLevelCore({
   }
   if (fountains) {
     placeExtraFeatures(level, rng, fountains, T.FOUNTAIN, 'FOUNTAIN');
+  }
+  if (special?.scatter) {
+    const scattered = scatterTerrain(level, rng, special.scatter.tile, special.scatter.chance);
+    log.debug('元素位面地形已散布', {
+      depth: level.depth,
+      tile: special.scatter.tile,
+      n: scattered,
+    });
   }
   // 圣所放一块振动方块：原版用它打开通往异界的传送门。
   if (level.special === 'sanctum') {

@@ -87,7 +87,7 @@ export const BRANCHES: Record<string, BranchDef> = {
     // 圣所的振动方块在开启仪式后打开通往异界的传送门；入口层不预生成楼梯。
     id: 'planes',
     entranceDepth: 29,
-    levels: 1,
+    levels: 5,
     hidden: true,
     // 星界是终局，随机怪物也要按深层强度生成。
     difficulty: 24,
