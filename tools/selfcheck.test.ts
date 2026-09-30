@@ -244,6 +244,19 @@ section('任务起始层数据', async () => {
       `${locate.role} 搜索层上下楼梯都可站`,
     );
   }
+
+  // 考古学家的搜索层有三座不同归属的祭坛（原版的 law/neutral/chaos）。
+  {
+    const arc = build('ARCHEOLOGIST', 3);
+    const aligns = [...arc.features.values()]
+      .map((feature) => feature.align)
+      .filter(Boolean)
+      .sort();
+    ok(
+      aligns.join(',') === 'chaotic,lawful,neutral',
+      `考古学家搜索层祭坛归属齐全（${aligns.join(',')}）`,
+    );
+  }
 });
 
 section('语言包完整性', async () => {

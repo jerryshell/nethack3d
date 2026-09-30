@@ -2033,16 +2033,19 @@ export const QUEST_LOCATE_LEVELS: QuestFixedLevel[] = [
         type: 'altar',
         x: 26,
         y: 5,
+        align: 'law',
       },
       {
         type: 'altar',
         x: 26,
         y: 10,
+        align: 'neutral',
       },
       {
         type: 'altar',
         x: 26,
         y: 15,
+        align: 'chaos',
       },
     ],
     traps: [

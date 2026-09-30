@@ -1315,9 +1315,11 @@ function questHomeTile(ch: string): number {
   }
 }
 
-/** 祭坛归属：coaligned 用玩家阵营，noalign 在本作按中立处理。 */
+/** 祭坛归属：原版的短名 law/neutral/chaos 与 coaligned/noalign 都要兼容。 */
 function questAltarAlign(raw: string | undefined, align: Alignment): Alignment {
   if (raw === 'coaligned') return align;
+  if (raw === 'law') return 'lawful';
+  if (raw === 'chaos') return 'chaotic';
   return 'neutral';
 }
 

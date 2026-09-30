@@ -132,10 +132,10 @@ function parsePlaceTable(src: string): [number, number][] {
   ]);
 }
 
-/** 解析 `local align = { "lawful", ... }` 之类的阵营表。 */
+/** 解析 `local align = { ... }`；没有本地定义时用 nhlib.lua 的全居表。 */
 function parseAlignTable(src: string): string[] {
   const m = src.match(/local\s+align\s*=\s*\{([^}]*)\}/);
-  if (!m) return [];
+  if (!m) return ['law', 'neutral', 'chaos'];
   return [...m[1].matchAll(/"([^"]+)"/g)].map((a) => a[1]);
 }
 
