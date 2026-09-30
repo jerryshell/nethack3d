@@ -3108,6 +3108,102 @@ const sokoban: Scenario = {
     }),
 };
 
+/** 机关门与自动拾取：在深层撞开关门、踩过地面物品，逐步校验不变量。 */
+const hazards: Scenario = {
+  name: 'hazards',
+  description: '深层调查机关门与自动拾取，逐步校验不变量',
+  run: (seed) =>
+    runScenario('hazards', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(() => describeState(session));
+      const call = repro('hazards', seed);
+
+      // 机关门是概率生成的，逐层扫到有机关门的深度再开工；
+      // 清场让结果只取决于地形与规则。
+      let trappedDoors = 0;
+      let depth = session.depth;
+      for (let d = 8; d <= 20 && trappedDoors === 0; d++) {
+        session.changeDepth(d, 'down');
+        session.level.monsters = [];
+        session.level.traps.clear();
+        session.level.objects = [];
+        depth = d;
+        trappedDoors = [...session.level.doors.values()].filter((dd) => dd.trapped).length;
+      }
+      checker.ok(
+        trappedDoors > 0,
+        '深层有带机关的门',
+        `深度=${depth} 机关门=${trappedDoors}`,
+        call,
+      );
+      checker.absorb('深层状态自洽', checkInvariants(session), call);
+
+      // 开门触发机关：把玩家挪到门边，撞开一扇关闭的门。
+      const entry = [...session.level.doors].find(([, d]) => d.closed && !d.locked);
+      checker.ok(!!entry, '有一扇可开的门', '', call);
+      if (entry) {
+        const [tile, door] = entry;
+        door.trapped = true;
+        const dx = tile % COLNO;
+        const dy = Math.floor(tile / COLNO);
+        const near = [
+          [dx - 1, dy],
+          [dx + 1, dy],
+          [dx, dy - 1],
+          [dx, dy + 1],
+        ].find(([x, y]) => walkableAt(session.level, x, y));
+        checker.ok(!!near, '门边有可站立的位置', '', call);
+        if (near) {
+          teleportPlayer(session, near[0], near[1]);
+          const before = session.turn;
+          const opened = session.movePlayer(dx - near[0], dy - near[1]);
+          checker.ok(opened.result === 'opened', '撞开了关闭的门', opened.result, call);
+          checker.ok(!door.trapped, '开门触发后机关失效');
+          checker.ok(session.turn > before, '开门消耗回合');
+          checker.absorb('开门后状态自洽', checkInvariants(session), call);
+        }
+      }
+
+      // 自动拾取：打开开关后踩过物品会顺手带走。
+      session.autoPickup = true;
+      const pileSpot = (() => {
+        const p = session.player;
+        return [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]
+          .map(([sx, sy]) => ({ x: p.x + sx, y: p.y + sy }))
+          .find(
+            (at) =>
+              walkableAt(session.level, at.x, at.y) &&
+              !session.level.doors.has(index(at.x, at.y)) &&
+              !session.level.stairs.some((st) => st.x === at.x && st.y === at.y),
+          );
+      })();
+      checker.ok(!!pileSpot, '玩家身边有空地放物品', '', call);
+      if (pileSpot) {
+        const item = makeItem(objById.get('LONG_SWORD') as ObjectData, session.rng);
+        session.level.objects.push({ x: pileSpot.x, y: pileSpot.y, items: [item] });
+        const r = session.movePlayer(pileSpot.x - session.player.x, pileSpot.y - session.player.y);
+        checker.ok(r.result === 'moved', '走到物品格', r.result, call);
+        checker.ok(session.player.inventory.includes(item), '自动拾取把物品带走');
+        checker.absorb('自动拾取后状态自洽', checkInvariants(session), call);
+      }
+
+      return {
+        metrics: {
+          depth,
+          trappedDoors,
+          autoPickup: session.autoPickup,
+        },
+        actions: 3,
+        invariantChecks: 3,
+      };
+    }),
+};
+
 export const SCENARIOS: Record<string, Scenario> = Object.fromEntries(
   [
     artifact,
@@ -3124,6 +3220,7 @@ export const SCENARIOS: Record<string, Scenario> = Object.fromEntries(
     feature,
     flee,
     fov,
+    hazards,
     hunger,
     invocation,
     items,
