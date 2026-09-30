@@ -41,7 +41,7 @@
 | 静态检查     | oxlint 零告警（`lint:strict`），oxfmt 格式一致                                                                      |
 | 单元自检     | `bun run check` 1076 项断言、47 个用例通过，约 12 秒                                                                |
 | 覆盖率       | 91.2% 行、91.8% 函数（含工具与界面），门槛 80% / 70%，弱点是 `palette.ts` 与 `minimap.ts` 这类界面文件              |
-| 反馈循环     | `bun run agent` 37 个场景全过，模糊 6 轮，地图审计 48 层，不变量 1510 项，快照 32 项，约 9 秒                       |
+| 反馈循环     | `bun run agent` 38 个场景全过，模糊 6 轮，地图审计 48 层，不变量 1661 项，快照 32 项，约 9 秒                       |
 | 浏览器端到端 | `bun run agent:e2e` 31 项检查通过（含画布命中、拖拽视角、门板形状与朝向、状态转储、状态标签、触屏方向键与消息历史） |
 | 渲染开销     | 绘制约 20 次、三角面约 1.4 万、着色器程序 15 个、纹理 5 张、模型 7 个                                               |
 | 产物位置     | 报告 `tools/agent-artifacts/report.json`，失败现场 `tools/agent-artifacts/failures/`，截图 `browser.png`            |

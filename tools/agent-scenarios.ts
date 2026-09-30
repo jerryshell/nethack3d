@@ -1728,6 +1728,47 @@ const deep: Scenario = {
     }),
 };
 
+/**
+ * 异界漫游：从土之位面开始随机行动。
+ *
+ * 覆盖元素位面的新机制：虚空、岩浆、深水、热浪与挖穿地板，
+ * 逐步校验不变量，死亡即停（与 deep 场景同风格）。
+ */
+const planes: Scenario = {
+  name: 'planes',
+  description: '在异界随机行动，覆盖浮空、岩浆、深水与挖掘等新机制',
+  run: (seed) =>
+    runScenario('planes', seed, (checker) => {
+      const session = newSession(seed);
+      checker.attachDump(
+        () => `${describeState(session)}
+
+${renderMap(session)}`,
+      );
+      session.player.maxHp = 300;
+      session.player.hp = 300;
+      session.changeDepth(1, 'down', 'planes');
+      const rng = testRng(seed, 'planes');
+      let checks = 0;
+      for (let i = 0; i < 150 && !session.dead; i++) {
+        randomAction(session, rng);
+        checks++;
+        const problems = checkInvariants(session);
+        if (problems.length) {
+          checker.absorb(`第 ${i + 1} 步后状态自洽`, problems, repro('planes', seed));
+          break;
+        }
+      }
+      checker.absorb('异界漫游结束时状态自洽', checkInvariants(session), repro('planes', seed));
+
+      return {
+        metrics: { depth: session.depth, turn: session.turn, kills: session.kills },
+        actions: checks,
+        invariantChecks: checks + 1,
+      };
+    }),
+};
+
 /** 卢迪奥斯要塞：财宝与守军，进入后拿到金币再返回主地牢。 */
 const ludios: Scenario = {
   name: 'ludios',
@@ -2993,6 +3034,7 @@ export const SCENARIOS: Record<string, Scenario> = Object.fromEntries(
     ludios,
     mines,
     pet,
+    planes,
     poly,
     prayer,
     quest,
