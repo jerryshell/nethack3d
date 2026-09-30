@@ -20,6 +20,7 @@ import {
   ROWNO,
   T,
   isWall,
+  isLiquid,
   isRoom,
   isCorr,
   isWalkable,
@@ -1336,7 +1337,12 @@ function questAltarAlign(raw: string | undefined, align: Alignment): Alignment {
   return 'neutral';
 }
 
-/** 离指定地图坐标最近的、可站立的瓦片；找不到返回 null。 */
+/**
+ * 离指定地图坐标最近的、可站立的瓦片；找不到返回 null。
+ *
+ * 优先选干地：水域（护城河/水池）也算可走，但把楼梯或落脚点放在水里
+ * 会让玩家一落地就瓵水，因此只在同半径没有干地时才退回水面。
+ */
 function nearestWalkable(
   level: Level,
   x: number,
@@ -1345,6 +1351,7 @@ function nearestWalkable(
   height: number,
   at: (x: number, y: number) => number,
 ): { x: number; y: number } | null {
+  let wet: { x: number; y: number } | null = null;
   for (let r = 0; r < 30; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -1352,14 +1359,17 @@ function nearestWalkable(
         const nx = x + dx;
         const ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-        if (isWalkable(level.tiles[at(nx, ny)])) return { x: nx, y: ny };
+        const tile = level.tiles[at(nx, ny)];
+        if (!isWalkable(tile)) continue;
+        if (!isLiquid(tile)) return { x: nx, y: ny };
+        wet ??= { x: nx, y: ny };
       }
     }
   }
-  return null;
+  return wet;
 }
 
-/** 离起点最远的一处可站地面，供固定地图缺少下行楼梯时兜底。 */
+/** 离起点最远的一处可站干地，供固定地图缺少下行楼梯时兜底。 */
 function pickFarWalkable(
   level: Level,
   rng: Rng,
@@ -1368,9 +1378,11 @@ function pickFarWalkable(
   const spots: { x: number; y: number }[] = [];
   let best = -1;
   for (let i = 0; i < level.tiles.length; i++) {
+    // 干地优先，找不到干地时保留水面备选。
     if (!isWalkable(level.tiles[i])) continue;
     const at = coords(i);
-    const d = Math.max(Math.abs(at.x - from.x), Math.abs(at.y - from.y));
+    const wet = isLiquid(level.tiles[i]);
+    const d = Math.max(Math.abs(at.x - from.x), Math.abs(at.y - from.y)) * (wet ? 2 : 1);
     if (d > best) {
       best = d;
       spots.length = 0;
@@ -1742,9 +1754,12 @@ function generateCastleLevel({ gameSeed }: { gameSeed: number }): Level {
     }
   }
   // 吊桥：原版初始收起（阻挡），用开门魔杖或踹门打开。
+  // 桥身靠着东侧的 DBWALL，开门后要能走进去，因此把它开成通道。
   const bridge = at(CASTLE_DRAWBRIDGE.x, CASTLE_DRAWBRIDGE.y);
   level.tiles[bridge] = T.DOOR;
   level.doors.set(bridge, { closed: true, locked: true, broken: false, drawbridge: true });
+  const dbwall = at(CASTLE_DRAWBRIDGE.x + 1, CASTLE_DRAWBRIDGE.y);
+  if (isWall(level.tiles[dbwall])) level.tiles[dbwall] = T.CORR;
   // 上行楼梯：原版落脚区中心 (5,10)。
   const upSpot = nearestWalkable(level, 5, 10, width, height, at) ?? { x: 5, y: 10 };
   {

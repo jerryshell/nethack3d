@@ -27,7 +27,7 @@ import {
   shuffleAppearances,
 } from '../src/data/index';
 import { generateLevel, index } from '../src/game/dungeon';
-import { isWalkable, isWall, COLNO, ROWNO, T } from '../src/core/constants';
+import { isWalkable, isWall, isLiquid, COLNO, ROWNO, T } from '../src/core/constants';
 
 interface CheckRecord {
   name: string;
@@ -4535,6 +4535,43 @@ section('特殊楼层', async () => {
     ok(s.level.doors.size === 19, `要塞有 18 扇门与 1 座吊桥（${s.level.doors.size}）`);
     ok(s.level.traps.size === CASTLE_TRAPS.length, `庭院地洞数量正确（${s.level.traps.size}）`);
     ok(!!s.level.up && !!s.level.down, '要塞有上下楼梯');
+    // 落脚点挨着干地，吊桥东侧的 DBWALL 开门后能通行。
+    const up = s.level.up;
+    ok(!!up, '要塞有落脚点');
+    if (up) {
+      const dryNeighbor = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ].some(([dx, dy]) => {
+        const tile = s.level.tiles[index(up.x + dx, up.y + dy)];
+        return isWalkable(tile) && !isLiquid(tile);
+      });
+      ok(dryNeighbor, '要塞落脚点挨着干地');
+      const dbwall = s.level.tiles[index(CASTLE_DRAWBRIDGE.x + 1, CASTLE_DRAWBRIDGE.y)];
+      ok(!isWall(dbwall), '吊桥东侧不是墙');
+      // 开门后可以从落脚点走进庭院。
+      s.revealLevel();
+      const bridgeDoor = s.level.doors.get(index(CASTLE_DRAWBRIDGE.x, CASTLE_DRAWBRIDGE.y));
+      if (bridgeDoor) {
+        bridgeDoor.closed = false;
+        bridgeDoor.locked = false;
+        const { findPath } = await import('../src/game/path');
+        ok(
+          !!findPath(
+            s.level,
+            up,
+            { x: 10, y: 8 },
+            {
+              levitating: s.isFloating(),
+              avoidHazards: false,
+            },
+          ),
+          '吊桥打开后可走进庭院',
+        );
+      }
+    }
     ok(
       s.level.monsters.filter((m) => m.data.id === 'GIANT_EEL' || m.data.id === 'SHARK').length ===
         8,

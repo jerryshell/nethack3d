@@ -51,8 +51,12 @@ export const CASTLE_DOORS: { x: number; y: number; state: 'locked' | 'closed' }[
   { state: 'closed', x: 55, y: 13 },
 ];
 
-/** 吊桥：原版初始为收起（阻挡），可用开门魔杖或踹门打开。 */
-export const CASTLE_DRAWBRIDGE = { x: 5, y: 8 };
+/** 吊桥：原版初始为收起（阻挡），可用开门魔杖或踹门打开；东侧是 DBWALL。 */
+export const CASTLE_DRAWBRIDGE: { x: number; y: number; dir: 'east' } = {
+  x: 5,
+  y: 8,
+  dir: 'east',
+};
 
 /** 原版 `des.trap("trap door", ...)`：通往下一层的庭院地洞。 */
 export const CASTLE_TRAPS: { x: number; y: number }[] = [
