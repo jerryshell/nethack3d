@@ -792,7 +792,11 @@ function readScroll(session: GameSession, item: ItemInstance): UseOutcome {
       }
       const ball = makeItem(proto, rng);
       ball.known = true;
-      addToInventory(session.player, ball);
+      // 背包满时拒绝受罚，避免出现「有惩罚却没有铁球」的悬空状态。
+      if (!addToInventory(session.player, ball).ok) {
+        out.key = 'use.inventoryFull';
+        break;
+      }
       session.player.punished = true;
       session.player.punishedTurn = 0;
       out.key = 'use.punished';

@@ -504,6 +504,11 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
     }
   }
 
+  // 装备槽与惩罚状态的一致性。
+  if (player.punished && !player.inventory.some((i) => i.proto.id === 'HEAVY_IRON_BALL')) {
+    problems.push('受罚状态没有对应的铁球');
+  }
+
   // 挖掘进度必须指向本层仍然合法的目标，否则换层后会留下悬空状态。
   if (session.digging) {
     const d = session.digging;

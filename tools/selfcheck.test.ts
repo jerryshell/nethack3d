@@ -4525,6 +4525,23 @@ section('铁球惩罚', async () => {
     );
   }
 
+  // 背包满时不会挂上惩罚却没有铁球。
+  {
+    const s = new GameSession({ seed: 8003 });
+    const rock = objById.get('ROCK') as ObjectData;
+    while (s.player.inventory.length < 51) {
+      s.player.inventory.push(makeItem(rock, s.rng));
+    }
+    const scroll = makeItem(objById.get('SCR_PUNISHMENT') as ObjectData, s.rng);
+    s.player.inventory.push(scroll);
+    s.useItem(scroll);
+    ok(!s.player.punished, '背包满时不进入受罚状态');
+    ok(
+      s.messages.some((m) => m.key === 'use.inventoryFull'),
+      '背包满时给出提示',
+    );
+  }
+
   // 惩罚状态随存档保留。
   {
     const { serializeSession, restoreSession } = await import('../src/game/save');
