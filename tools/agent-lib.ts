@@ -263,6 +263,30 @@ export function stepTowardGoal(
 
 /** 把玩家移动到目标点附近（用于构造测试局面），必要时直接改坐标。 */
 export function teleportPlayer(session: GameSession, x: number, y: number): void {
+  // 目标格站着怪物时先把它挤到相邻空地，避免造出玩家与怪物重叠的非法局面。
+  const occupant = monsterAt(session.level, x, y);
+  if (occupant) {
+    const steps: [number, number][] = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ];
+    for (const [dx, dy] of steps) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!inBounds(nx, ny)) continue;
+      if (!isWalkable(session.level.tiles[index(nx, ny)])) continue;
+      if (monsterAt(session.level, nx, ny)) continue;
+      occupant.x = nx;
+      occupant.y = ny;
+      break;
+    }
+  }
   session.player.x = x;
   session.player.y = y;
   session.refreshFov();
