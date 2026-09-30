@@ -515,6 +515,7 @@ const messages: MessageCatalog = {
     stack: '{item} ×{n}',
     artifact: '{name}',
     corpse: '{mon}的尸体',
+    figurine: '{mon}的塑像',
     known: {
       weapon: '{name}',
       armor: '{name}',
@@ -681,6 +682,7 @@ const messages: MessageCatalog = {
     instrumentSleep: '{n} 只怪物在乐声中沉沉睡去。',
     instrumentWake: '乐声吵醒了 {n} 只沉睡的怪物。',
     lampLit: '灯亮了起来，房间沐浴在光里。',
+    figurineLive: '{mon}从塑像里跳了出来！',
     alreadyPunished: '你已经在受罚了。',
     noCharges: '没有充能，什么也没发生。',
     zapWish: '许愿魔杖亮起，等待你说出愿望。',

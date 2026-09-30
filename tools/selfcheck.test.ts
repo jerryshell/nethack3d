@@ -5199,6 +5199,23 @@ section('工具应用', async () => {
     ok(pet.leashed === false, '再用一次解开牵引绳');
   }
 
+  // 塑像：放出来变成活物。
+  {
+    const s = new GameSession({ seed: 8510 });
+    s.level.monsters = [];
+    const figurine = makeItem(objById.get('FIGURINE') as ObjectData, s.rng);
+    addToInventory(s.player, figurine);
+    ok(!!figurine.corpse, '塑像生成时封着一只怪物');
+    const before = s.level.monsters.length;
+    s.useItem(figurine);
+    ok(s.level.monsters.length === before + 1, '塑像放出封着的怪物');
+    ok(!s.player.inventory.includes(figurine), '塑像用后消失');
+    ok(
+      s.messages.some((m) => m.key === 'use.figurineLive'),
+      '记录塑像活化消息',
+    );
+  }
+
   // 罐装油脂护住护甲一次，毁甲卷轴随之失效。
   {
     const s = new GameSession({ seed: 8505 });

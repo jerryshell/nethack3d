@@ -522,6 +522,7 @@ const messages: MessageCatalog = {
     stack: '{n} {item}',
     artifact: '{name}',
     corpse: '{mon} corpse',
+    figurine: 'a figurine of a {mon}',
     known: {
       weapon: '{name}',
       armor: '{name}',
@@ -688,6 +689,7 @@ const messages: MessageCatalog = {
     instrumentSleep: '{n} monster(s) fall asleep to the music.',
     instrumentWake: 'Your music wakes {n} sleeping monster(s).',
     lampLit: 'The lamp flares up and lights the room.',
+    figurineLive: 'The {mon} leaps out of the figurine!',
     alreadyPunished: 'You are already being punished.',
     noCharges: 'Nothing happens — no charges left.',
     zapWish: 'The wand of wishing glows, awaiting your wish.',

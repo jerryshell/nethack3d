@@ -506,6 +506,17 @@ export function applyItem(session: GameSession, item: ItemInstance): UseOutcome 
         session.refreshFov();
         return { key: 'use.lampLit', identified: true };
       }
+      // 塑像：把里面封着的怪物放出来。
+      if (proto.id === 'FIGURINE') {
+        const data = item.corpse ? monById.get(item.corpse) : null;
+        const spot = spotNearPlayer(session, 2);
+        if (!data || !spot) return { key: 'use.nothing' };
+        const mon = new MonsterEntity(data, spot.x, spot.y, session.rng);
+        mon.asleep = false;
+        session.level.monsters.push(mon);
+        removeFromInventory(p, item);
+        return { key: 'use.figurineLive', vars: { mon: data.id }, identified: true };
+      }
       // 牵引绳：拴上或解开身边的宠物，栓住的宠物不再乱跑。
       if (proto.id === 'LEASH') {
         const res = session.leashPet();

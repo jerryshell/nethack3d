@@ -22,7 +22,7 @@ import type {
 } from '../types';
 import { createLogger, LOG_NS } from '../core/log';
 import { MKOBJ_PROBS } from '../core/constants';
-import { REAL_OBJECTS, objById, shuffleAppearances } from '../data/index';
+import { GENERATABLE_MONSTERS, REAL_OBJECTS, objById, shuffleAppearances } from '../data/index';
 import { inRoom, index, shopRoom } from './dungeon';
 import { T } from '../core/constants';
 
@@ -68,6 +68,11 @@ export function makeItem(
   rng: Rng,
   { appearance = null, quantity = 1 }: { appearance?: string | null; quantity?: number } = {},
 ): ItemInstance {
+  // 塑像生成时决定它封着的怪物，对应原版的 corpsenm。
+  const figurine =
+    proto.id === 'FIGURINE'
+      ? GENERATABLE_MONSTERS.filter((m) => !m.genFlags.includes('G_UNIQ'))
+      : [];
   const item: ItemInstance = {
     uid: nextItemId(),
     proto,
@@ -79,6 +84,7 @@ export function makeItem(
     appearance,
     charges: proto.charges ? rng.rn1(4, 4) : undefined,
   };
+  if (figurine.length) item.corpse = rng.pick(figurine)?.id;
   return item;
 }
 
@@ -341,9 +347,13 @@ export function describeItem(item: ItemInstance): ItemDescription {
   if (item.gold || cls === 'coin') {
     return { qty: item.quantity, key: 'item.gold', vars: { n: item.quantity } };
   }
-  // 尸体有专属名字，与基础原型无关。
+  // 尸体与塑像有专属名字，与基础原型无关。
   if (item.corpse) {
-    return { qty: item.quantity, key: 'item.corpse', vars: { mon: item.corpse } };
+    return {
+      qty: item.quantity,
+      key: item.proto.id === 'FIGURINE' ? 'item.figurine' : 'item.corpse',
+      vars: { mon: item.corpse },
+    };
   }
   // 职业神器有专属名字，与基础原型无关。
   if (item.artifact) {
