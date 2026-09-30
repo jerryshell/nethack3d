@@ -282,6 +282,8 @@ const messages: MessageCatalog = {
     petMisses: 'Your {mon} misses.',
     petDies: 'Your {mon} dies.',
     petBetrayed: 'The {mon} no longer trusts you.',
+    petHungry: 'The {mon} looks hungry.',
+    petTurnsWild: 'The {mon} is starving and turns feral.',
     levelUp: 'Welcome to experience level {level}!',
     monHits: 'The {mon} hits you! (-{dmg})',
     monMisses: 'The {mon} misses you.',

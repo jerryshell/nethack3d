@@ -1701,6 +1701,42 @@ export class GameSession {
     } else if (p.hunger <= 150 && p.hunger > 149) {
       this.log('use.hunger');
     }
+
+    this.petUpkeep();
+  }
+
+  /** 宠物也会饿：饿到 0 会野生化，坐骑先落地再野生化。 */
+  private petUpkeep(): void {
+    for (const pet of this.level.monsters) {
+      if (!pet.tame || pet.dead) continue;
+      pet.hunger = (pet.hunger ?? 900) - 1;
+      if (pet.hunger === 100) this.log('msg.petHungry', { mon: pet.data.id });
+      if (pet.hunger <= 0) {
+        pet.tame = false;
+        pet.tameness = 0;
+        this.log('msg.petTurnsWild', { mon: pet.data.id });
+      }
+    }
+    const mount = this.ride;
+    if (!mount || !mount.tame) return;
+    mount.hunger = (mount.hunger ?? 900) - 1;
+    if (mount.hunger === 100) this.log('msg.petHungry', { mon: mount.data.id });
+    if (mount.hunger > 0) return;
+    const spot = DIR8.map(([dx, dy]) => ({ x: this.player.x + dx, y: this.player.y + dy })).find(
+      (p) => this.freeSpot(p.x, p.y),
+    );
+    if (!spot) {
+      mount.hunger = 1;
+      return;
+    }
+    mount.tame = false;
+    mount.tameness = 0;
+    mount.x = spot.x;
+    mount.y = spot.y;
+    mount.mv = 0;
+    this.level.monsters.push(mount);
+    this.ride = null;
+    this.log('msg.petTurnsWild', { mon: mount.data.id });
   }
 
   // -------------------------------------------------------------------------
@@ -2966,6 +3002,7 @@ export class GameSession {
     this.consumeItem(food);
     pet.mhp = Math.min(pet.mhpmax, pet.mhp + Math.ceil(pet.mhpmax / 2));
     pet.tameness = Math.min(20, pet.tameness + 2);
+    pet.hunger = Math.min(2000, (pet.hunger ?? 900) + (food.proto.nutrition ?? 100));
     this.log('msg.petEats', { mon: pet.data.id, item: describeItem(food) });
     const grown = PET_GROWTH[pet.data.id];
     if (pet.tameness >= 20 && grown) {
@@ -3768,6 +3805,7 @@ export class GameSession {
     const pet = new MonsterEntity(data, spot.x, spot.y, this.rng);
     pet.tame = true;
     pet.tameness = 10;
+    pet.hunger = 900;
     pet.asleep = false;
     this.level.monsters.push(pet);
     this.log('msg.petAppears', { mon: data.id });

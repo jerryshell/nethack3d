@@ -205,6 +205,8 @@ const messages: MessageCatalog = {
     petMisses: '{mon}扑了个空。',
     petDies: '宠物{mon}死了。',
     petBetrayed: '{mon}不再信任你了。',
+    petHungry: '{mon}看起来饿了。',
+    petTurnsWild: '{mon}饿急了，不再听从你的指挥。',
     levelUp: '升到第 {level} 级。',
     monHits: '被{mon}击中（-{dmg}）。',
     monMisses: '{mon}的攻击落空。',

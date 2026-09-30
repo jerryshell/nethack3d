@@ -390,6 +390,8 @@ export interface Monster {
   cancelled?: boolean;
   /** 任务仇敌是否已经叫过阵。 */
   taunted?: boolean;
+  /** 宠物的饱食度：900 为饱腹，归零会变野。 */
+  hunger?: number;
 }
 
 export type EquipmentSlot =
@@ -663,6 +665,8 @@ export interface SerializedMonster {
   cn?: 0 | 1;
   /** 任务仇敌是否已经叫过阵。 */
   tt?: 0 | 1;
+  /** 宠物饱食度。 */
+  hg?: number;
   mv: number;
 }
 

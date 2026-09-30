@@ -3156,6 +3156,38 @@ section('宠物', async () => {
     ok(s.turn === turn && s.messages.some((m) => m.key === 'msg.petNoFood'), '没有食物时喂食无效');
   }
 
+  // 宠物会饿：靠近饥饿阈值会抱怨，归零后变野；喂食能补回饱食度。
+  {
+    const s = newSession();
+    const pet = s.level.monsters.find((m) => m.tame);
+    ok(!!pet, '开局有宠物');
+    if (pet) {
+      pet.hunger = 101;
+      s.upkeep();
+      ok(
+        s.messages.some((m) => m.key === 'msg.petHungry'),
+        '宠物饿了会抱怨',
+      );
+      pet.hunger = 1;
+      s.upkeep();
+      ok(!pet.tame, '饿到 0 的宠物变野');
+      ok(
+        s.messages.some((m) => m.key === 'msg.petTurnsWild'),
+        '记录宠物变野消息',
+      );
+    }
+  }
+  {
+    const s = newSession();
+    const pet = s.level.monsters.find((m) => m.tame);
+    if (pet) {
+      addToInventory(s.player, makeItem(objById.get('FOOD_RATION') as ObjectData, s.rng));
+      pet.hunger = 100;
+      ok(s.feedPet().result === 'used', '喂食可用');
+      ok((pet.hunger ?? 0) > 100, `喂食提升饱食度（${pet.hunger}）`);
+    }
+  }
+
   // 骑乘：中大型驯服宠物可骑，攻击有冲锋，存档保留坐骑。
   {
     const s = newSession();

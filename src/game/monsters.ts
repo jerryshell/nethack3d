@@ -43,6 +43,8 @@ export class Monster implements MonsterState {
   cancelled?: boolean;
   /** 任务仇敌是否已经叫过阵。 */
   taunted?: boolean;
+  /** 宠物饱食度；只有驯服的宠物会消耗与饥饿。 */
+  hunger?: number;
 
   constructor(data: MonsterData, x: number, y: number, rng: Rng, { mlev }: { mlev?: number } = {}) {
     this.id = nextId++;
@@ -66,6 +68,7 @@ export class Monster implements MonsterState {
     this.stasis = 0;
     this.cancelled = false;
     this.taunted = false;
+    this.hunger = 900;
   }
 
   get ac(): number {
