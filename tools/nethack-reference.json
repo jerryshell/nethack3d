@@ -32,14 +32,27 @@
     "dat/Sam-strt.lua": "f473600b1cad0cb4",
     "dat/Tou-strt.lua": "730a3330ae04571c",
     "dat/Val-strt.lua": "250d58394d4f9753",
-    "dat/Wiz-strt.lua": "a5047d06ab3ac3e0"
+    "dat/Wiz-strt.lua": "a5047d06ab3ac3e0",
+    "dat/Arc-loca.lua": "29269be8cd042e49",
+    "dat/Bar-loca.lua": "a5f70aab5e2942b6",
+    "dat/Cav-loca.lua": "d866736c0a191409",
+    "dat/Hea-loca.lua": "4196320370fae54b",
+    "dat/Kni-loca.lua": "2e38c03eec4a2097",
+    "dat/Mon-loca.lua": "23674ff71f68f9f7",
+    "dat/Pri-loca.lua": "c7bb64e313d49486",
+    "dat/Ran-loca.lua": "bcba944976a8ec19",
+    "dat/Rog-loca.lua": "36972c54787c7fac",
+    "dat/Sam-loca.lua": "10dfb71f038fd7a7",
+    "dat/Tou-loca.lua": "f9fce3e572a1da6c",
+    "dat/Val-loca.lua": "cf4dc19d4a39087b",
+    "dat/Wiz-loca.lua": "aa3d7d3cec63c851"
   },
   "counts": {
     "monsters": 394,
     "objects": 440
   },
   "version": 1,
-  "recordedAt": "2026-09-30T20:37:24.065Z",
+  "recordedAt": "2026-09-30T21:19:28.734Z",
   "generated": {
     "monsters": 394,
     "objects": 441,

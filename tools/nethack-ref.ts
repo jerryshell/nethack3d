@@ -49,6 +49,19 @@ export const REFERENCE_FILES = [
   'dat/Tou-strt.lua',
   'dat/Val-strt.lua',
   'dat/Wiz-strt.lua',
+  'dat/Arc-loca.lua',
+  'dat/Bar-loca.lua',
+  'dat/Cav-loca.lua',
+  'dat/Hea-loca.lua',
+  'dat/Kni-loca.lua',
+  'dat/Mon-loca.lua',
+  'dat/Pri-loca.lua',
+  'dat/Ran-loca.lua',
+  'dat/Rog-loca.lua',
+  'dat/Sam-loca.lua',
+  'dat/Tou-loca.lua',
+  'dat/Val-loca.lua',
+  'dat/Wiz-loca.lua',
 ];
 
 /** 参考仓库当前状态。 */

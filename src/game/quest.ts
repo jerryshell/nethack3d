@@ -47,8 +47,8 @@ export interface QuestTrap {
   y: number;
 }
 
-/** 一个职业的任务起始层。 */
-export interface QuestHomeData {
+/** 一个职业的固定任务层（起始层或搜索层）。 */
+export interface QuestFixedLevel {
   /** 职业 id（与 roles.gen.ts 一致）。 */
   role: string;
   /** 地图字符网格；行数与列数按原版文件原样保留。 */

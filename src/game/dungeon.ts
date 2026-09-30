@@ -31,7 +31,7 @@ import { specialLevelFor, branchSpecialFor } from './special';
 import { branchById, branchByEntrance } from './branches';
 import { SOKOBAN_LEVELS } from '../data/sokoban.gen';
 import { SOKOBAN_CLASSES, type SokobanVariant } from './sokoban';
-import { QUEST_HOME_LEVELS } from '../data/quest.gen';
+import { QUEST_HOME_LEVELS, QUEST_LOCATE_LEVELS } from '../data/quest.gen';
 import { QUEST_MAP_CHARS } from './quest';
 import { makeBoulder, makeItem, randomItemOfClass } from './items';
 import { OBJECTS } from '../data/index';
@@ -1102,9 +1102,14 @@ export function generateBranchLevel({
 }): Level {
   // 推箱用原版提取的固定布局，不跑随机房间生成。
   if (branchById(branch)?.sokoban) return generateSokobanLevel({ gameSeed, depth });
-  // 任务起始层有固定地图，不连通或缺失时退回通用布局。
-  if (branch === 'quest' && depth === 1 && questRole) {
-    const fixed = generateQuestHomeLevel({ gameSeed, role: questRole, align });
+  // 任务起始层与搜索层有固定地图，不连通或缺失时退回通用布局。
+  if (branch === 'quest' && questRole) {
+    const fixed =
+      depth === 1
+        ? generateQuestHomeLevel({ gameSeed, role: questRole, kind: 'home', align })
+        : depth === 3
+          ? generateQuestHomeLevel({ gameSeed, role: questRole, kind: 'locate', align })
+          : null;
     if (fixed) return fixed;
   }
   return generateLevelCore({ gameSeed, depth, branch, levels, questRole });
@@ -1408,15 +1413,19 @@ function questHomeConnected(
 function generateQuestHomeLevel({
   gameSeed,
   role,
+  kind,
   align,
 }: {
   gameSeed: number;
   role: string;
+  /** home 是任务起始层，locate 是原版的搜索层。 */
+  kind: 'home' | 'locate';
   align: Alignment;
 }): Level | null {
-  const data = QUEST_HOME_LEVELS.find((home) => home.role === role);
+  const source = kind === 'home' ? QUEST_HOME_LEVELS : QUEST_LOCATE_LEVELS;
+  const data = source.find((level) => level.role === role);
   if (!data) return null;
-  const rng = createRng(deriveSeed(gameSeed, 'quest-home', role));
+  const rng = createRng(deriveSeed(gameSeed, 'quest-fixed', kind, role));
   const width = Math.max(...data.map.map((line) => line.length));
   const height = data.map.length;
   const ox = Math.floor((COLNO - width) / 2);
@@ -1441,7 +1450,7 @@ function generateQuestHomeLevel({
     monsters: [],
     populated: false,
     visited: false,
-    special: 'quest_home',
+    special: kind === 'home' ? 'quest_home' : 'quest_locate',
     branch: 'quest',
   };
   for (let y = 0; y < height; y++) {
@@ -1494,23 +1503,32 @@ function generateQuestHomeLevel({
     }
     level.features.set(i, { type });
   }
-  // 分支落脚点：原版 levregion 的中心；不可站时往周围找一格。
-  const branchSpot = data.branch
-    ? nearestWalkable(level, data.branch.x, data.branch.y, width, height, at)
-    : null;
-  if (branchSpot) {
-    const i = at(branchSpot.x, branchSpot.y);
+  // 上行楼梯：起始层是分支落脚区（levregion 中心），搜索层是原版的 up 楼梯；
+  // 数据缺失（如浪人的搜索层）时从地图中间挑一处最远的地面。
+  const upSource = kind === 'home' ? data.branch : data.stairs.find((stair) => stair.dir === 'up');
+  const upSpot = upSource
+    ? nearestWalkable(level, upSource.x, upSource.y, width, height, at)
+    : pickFarWalkable(level, rng, {
+        x: ox + Math.floor(width / 2),
+        y: oy + Math.floor(height / 2),
+      });
+  if (upSpot) {
+    const i = at(upSpot.x, upSpot.y);
     level.tiles[i] = T.STAIRS;
-    const spot = { x: ox + branchSpot.x, y: oy + branchSpot.y };
-    level.stairs.push({ x: spot.x, y: spot.y, dir: 'branch', branch: 'quest' });
+    const spot = { x: ox + upSpot.x, y: oy + upSpot.y };
+    level.stairs.push(
+      kind === 'home'
+        ? { x: spot.x, y: spot.y, dir: 'branch', branch: 'quest' }
+        : { x: spot.x, y: spot.y, dir: 'up' },
+    );
     level.up = spot;
     level.start = spot;
   }
   // 下行楼梯：优先原版坐标，不可站或缺失时挑最远的地面兜底。
-  const downSpot = data.stairs
-    .filter((stair) => stair.dir === 'down')
-    .map((stair) => nearestWalkable(level, stair.x, stair.y, width, height, at))
-    .find((spot): spot is { x: number; y: number } => !!spot);
+  const downSource = data.stairs.find((stair) => stair.dir === 'down');
+  const downSpot = downSource
+    ? nearestWalkable(level, downSource.x, downSource.y, width, height, at)
+    : null;
   const chosen = downSpot ?? (level.up ? pickFarWalkable(level, rng, level.up) : null);
   if (chosen) {
     const i = at(chosen.x, chosen.y);
@@ -1557,7 +1575,7 @@ function generateQuestHomeLevel({
   });
   if (!level.up || !level.down) return null;
   if (!questHomeConnected(level, level.up, level.down)) return null;
-  log.debug('任务起始层使用固定地图', { role, doors: level.doors.size });
+  log.debug('任务固定地图已生成', { role, kind, doors: level.doors.size });
   return level;
 }
 

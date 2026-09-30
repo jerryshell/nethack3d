@@ -169,7 +169,7 @@ section('数据完整性', async () => {
 });
 
 section('任务起始层数据', async () => {
-  const { QUEST_HOME_LEVELS } = await import('../src/data/quest.gen');
+  const { QUEST_HOME_LEVELS, QUEST_LOCATE_LEVELS } = await import('../src/data/quest.gen');
   const { QUEST_MAP_CHARS } = await import('../src/game/quest');
   const { generateBranchLevel } = await import('../src/game/dungeon');
 
@@ -195,18 +195,18 @@ section('任务起始层数据', async () => {
   }
 
   // 生成端：同一职业与种子两次生成完全一致，楼梯可站且连通。
-  const build = (role: string) =>
+  const build = (role: string, depth: number) =>
     generateBranchLevel({
       gameSeed: 20240101,
       branch: 'quest',
-      depth: 1,
+      depth,
       levels: 5,
       questRole: role,
       align: 'neutral',
     });
   for (const home of QUEST_HOME_LEVELS) {
-    const first = build(home.role);
-    const again = build(home.role);
+    const first = build(home.role, 1);
+    const again = build(home.role, 1);
     ok(
       first.doors.size === again.doors.size &&
         first.stairs.length === again.stairs.length &&
@@ -219,6 +219,29 @@ section('任务起始层数据', async () => {
         isWalkable(first.tiles[index(first.up.x, first.up.y)]) &&
         isWalkable(first.tiles[index(first.down.x, first.down.y)]),
       `${home.role} 上下楼梯都可站`,
+    );
+  }
+
+  // 搜索层（原版 loca）13 个职业都有固定地图。
+  ok(QUEST_LOCATE_LEVELS.length === 13, `13 个职业有固定搜索层（${QUEST_LOCATE_LEVELS.length}）`);
+  for (const locate of QUEST_LOCATE_LEVELS) {
+    const width = Math.max(...locate.map.map((line) => line.length));
+    ok(
+      width <= 80 && locate.map.length <= 21,
+      `${locate.role} 搜索层尺寸合法（${width}×${locate.map.length}）`,
+    );
+    ok(
+      locate.map.every((line) => [...line].every((ch) => ch in QUEST_MAP_CHARS)),
+      `${locate.role} 搜索层字符都在表内`,
+    );
+    const level = build(locate.role, 3);
+    ok(level.special === 'quest_locate', `${locate.role} 搜索层标记正确`);
+    ok(
+      !!level.up &&
+        !!level.down &&
+        isWalkable(level.tiles[index(level.up.x, level.up.y)]) &&
+        isWalkable(level.tiles[index(level.down.x, level.down.y)]),
+      `${locate.role} 搜索层上下楼梯都可站`,
     );
   }
 });

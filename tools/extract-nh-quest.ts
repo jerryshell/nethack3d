@@ -1,15 +1,17 @@
 #!/usr/bin/env bun
 /**
- * 数据提取脚本：解析 NetHack 5.0 的职业任务起始层（dat/*-strt.lua），
- * 生成 `src/data/quest.gen.ts`。
+ * 数据提取脚本：解析 NetHack 5.0 的职业任务固定层，生成 `src/data/quest.gen.ts`。
  *
  * 用法：
  *   bun tools/extract-nh-quest.ts [NetHack 源码路径]
  *
+ * 目前提取两类：
+ *   - 起始层 `dat/*-strt.lua`（12 个职业；浪人没有 `des.map`）；
+ *   - 搜索层 `dat/*-loca.lua`（13 个职业）。
+ *
  * 只提取固定地图本身：字符网格、门、楼梯、分支落脚区、亮暗区域、
  * 固定设施与陷阱。领袖、护卫、怪物与物品仍由游戏侧按职业数据布置，
  * 因此这里不解析 `des.monster`/`des.object`。
- * 浪人（Ran-strt.lua）的起始层没有 `des.map`，跳过。
  */
 
 import fs from 'node:fs';
@@ -17,7 +19,7 @@ import path from 'node:path';
 import { compareReference, loadRecordedReference, readReferenceState } from './nethack-ref';
 import type {
   QuestFeature,
-  QuestHomeData,
+  QuestFixedLevel,
   QuestRegion,
   QuestStair,
   QuestTrap,
@@ -29,20 +31,21 @@ const nhRoot = path.resolve(
   process.argv[2] || process.env.NETHACK_SRC || path.join(projectRoot, '..', 'nethack'),
 );
 
-/** 职业 id 到原版起始层文件的映射；浪人没有固定地图。 */
-const ROLE_FILES: Record<string, string> = {
-  ARCHEOLOGIST: 'Arc-strt.lua',
-  BARBARIAN: 'Bar-strt.lua',
-  CAVE_DWELLER: 'Cav-strt.lua',
-  HEALER: 'Hea-strt.lua',
-  KNIGHT: 'Kni-strt.lua',
-  MONK: 'Mon-strt.lua',
-  CLERIC: 'Pri-strt.lua',
-  ROGUE: 'Rog-strt.lua',
-  SAMURAI: 'Sam-strt.lua',
-  TOURIST: 'Tou-strt.lua',
-  VALKYRIE: 'Val-strt.lua',
-  WIZARD: 'Wiz-strt.lua',
+/** 职业 id 到原版文件前缀的映射。 */
+const ROLE_PREFIXES: Record<string, string> = {
+  ARCHEOLOGIST: 'Arc',
+  BARBARIAN: 'Bar',
+  CAVE_DWELLER: 'Cav',
+  HEALER: 'Hea',
+  KNIGHT: 'Kni',
+  MONK: 'Mon',
+  CLERIC: 'Pri',
+  RANGER: 'Ran',
+  ROGUE: 'Rog',
+  SAMURAI: 'Sam',
+  TOURIST: 'Tou',
+  VALKYRIE: 'Val',
+  WIZARD: 'Wiz',
 };
 
 /** Lua 的陷阱名映射到引擎的陷阱 id。 */
@@ -129,8 +132,15 @@ function parsePlaceTable(src: string): [number, number][] {
   ]);
 }
 
-/** 提取一个职业的起始层；缺少地图时返回 null。 */
-function parseHome(role: string, file: string): QuestHomeData | null {
+/** 解析 `local align = { "lawful", ... }` 之类的阵营表。 */
+function parseAlignTable(src: string): string[] {
+  const m = src.match(/local\s+align\s*=\s*\{([^}]*)\}/);
+  if (!m) return [];
+  return [...m[1].matchAll(/"([^"]+)"/g)].map((a) => a[1]);
+}
+
+/** 提取一个固定任务层；文件缺少 `des.map` 时返回 null。 */
+function parseFixedLevel(role: string, file: string): QuestFixedLevel | null {
   const src = read(path.join(nhRoot, 'dat', file));
   const mapMatch = src.match(/des\.map\(\[\[\n([\s\S]*?)\n\]\]\)/);
   if (!mapMatch) return null;
@@ -138,7 +148,7 @@ function parseHome(role: string, file: string): QuestHomeData | null {
   const map = mapMatch[1].split('\n').map((line) => line.replace(/\s+$/, ''));
   const height = map.length;
 
-  const doors: QuestHomeData['doors'] = [];
+  const doors: QuestFixedLevel['doors'] = [];
   for (const body of calls(src, 'door')) {
     const m = body.match(/^\s*"(locked|closed)"\s*,\s*(\d+)\s*,\s*(\d+)\s*$/);
     if (m) doors.push({ state: m[1] as 'locked' | 'closed', x: Number(m[2]), y: Number(m[3]) });
@@ -165,7 +175,7 @@ function parseHome(role: string, file: string): QuestHomeData | null {
     }
   }
 
-  let branch: QuestHomeData['branch'] = null;
+  let branch: QuestFixedLevel['branch'] = null;
   for (const body of calls(src, 'levregion')) {
     if (!/type\s*=\s*"branch"/.test(body)) continue;
     const m = body.match(/region\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\}/);
@@ -182,6 +192,7 @@ function parseHome(role: string, file: string): QuestHomeData | null {
     if (region) regions.push(region);
   }
 
+  const alignTable = parseAlignTable(src);
   const features: QuestFeature[] = [];
   for (const body of calls(src, 'feature')) {
     const m = body.match(/^\s*"([a-z]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*$/);
@@ -190,15 +201,16 @@ function parseHome(role: string, file: string): QuestHomeData | null {
   for (const body of calls(src, 'altar')) {
     const x = body.match(/\bx\s*=\s*(\d+)/);
     const y = body.match(/\by\s*=\s*(\d+)/);
-    const align = body.match(/align\s*=\s*"([^"]+)"/);
-    if (x && y) {
-      features.push({
-        type: 'altar',
-        x: Number(x[1]),
-        y: Number(y[1]),
-        ...(align ? { align: align[1] } : {}),
-      });
-    }
+    const named = body.match(/align\s*=\s*"([^"]+)"/);
+    const indexed = body.match(/align\s*=\s*align\[(\d+)\]/);
+    if (!x || !y) continue;
+    const align = named ? named[1] : indexed ? alignTable[Number(indexed[1]) - 1] : undefined;
+    features.push({
+      type: 'altar',
+      x: Number(x[1]),
+      y: Number(y[1]),
+      ...(align ? { align } : {}),
+    });
   }
 
   const traps: QuestTrap[] = [];
@@ -227,46 +239,59 @@ function parseHome(role: string, file: string): QuestHomeData | null {
     y >= 0 && y < height && x >= 0 && x < (map[y]?.length ?? 0);
   for (const door of doors)
     if (!inside(door.x, door.y)) throw new Error(`${file}: 门越界 (${door.x},${door.y})`);
-  for (const stair of stairs)
-    if (!inside(stair.x, stair.y)) throw new Error(`${file}: 楼梯越界 (${stair.x},${stair.y})`);
+  // 原版有些楼梯故意放在地图外（如牧师搜索层的上行楼梯）；
+  // 生成端会在可行走范围内兜底，这里只跳过越界项。
+  for (let i = stairs.length - 1; i >= 0; i--) {
+    if (inside(stairs[i].x, stairs[i].y)) continue;
+    console.log(`跳过 ${file} 地图外的楼梯 (${stairs[i].x},${stairs[i].y})`);
+    stairs.splice(i, 1);
+  }
   if (branch && !inside(branch.x, branch.y))
     throw new Error(`${file}: 分支落脚区越界 (${branch.x},${branch.y})`);
 
   return { role, map, doors, stairs, branch, regions, features, traps, trapCount };
 }
 
-function main(): void {
-  const homes: QuestHomeData[] = [];
-  for (const [role, file] of Object.entries(ROLE_FILES)) {
-    const home = parseHome(role, file);
-    if (!home) {
+/** 按文件后缀提取一类固定层；缺少地图的角色跳过。 */
+function extractKind(kind: 'strt' | 'loca'): QuestFixedLevel[] {
+  const out: QuestFixedLevel[] = [];
+  for (const [role, prefix] of Object.entries(ROLE_PREFIXES)) {
+    const file = `${prefix}-${kind}.lua`;
+    const level = parseFixedLevel(role, file);
+    if (!level) {
       console.log(`跳过 ${file}：没有 des.map`);
       continue;
     }
-    homes.push(home);
-  }
-
-  // 自检：每个职业都有地图、下行楼梯与分支落脚区。
-  for (const home of homes) {
-    if (!home.stairs.some((stair) => stair.dir === 'down')) {
-      throw new Error(`${home.role}: 没有下行楼梯`);
+    if (kind === 'strt') {
+      if (!level.stairs.some((stair) => stair.dir === 'down')) {
+        throw new Error(`${role}: 起始层没有下行楼梯`);
+      }
+      if (!level.branch) throw new Error(`${role}: 起始层没有分支落脚区`);
     }
-    if (!home.branch) throw new Error(`${home.role}: 没有分支落脚区`);
+    out.push(level);
   }
-  if (homes.length < 12) throw new Error(`只提取到 ${homes.length} 个职业的任务起始层`);
+  return out;
+}
+
+function main(): void {
+  const homes = extractKind('strt');
+  const locates = extractKind('loca');
+  if (homes.length < 12) throw new Error(`只提取到 ${homes.length} 个起始层`);
+  if (locates.length < 12) throw new Error(`只提取到 ${locates.length} 个搜索层`);
 
   const header = [
     '// 本文件由脚本生成，请勿手动修改。',
-    '// 来源：nethack/dat/{Arc,Bar,Cav,Hea,Kni,Mon,Pri,Rog,Sam,Tou,Val,Wiz}-strt.lua',
+    '// 来源：nethack/dat/{Role}-strt.lua 与 {Role}-loca.lua',
     '// 重新生成：bun tools/extract-nh-quest.ts [NetHack 源码路径]',
     '// 内容派生自 NetHack，按 NetHack General Public License 分发，见 NOTICE.md。',
     '',
-    "import type { QuestHomeData } from '../game/quest';",
+    "import type { QuestFixedLevel } from '../game/quest';",
     '',
   ].join('\n');
   fs.writeFileSync(
     path.join(projectRoot, 'src', 'data', 'quest.gen.ts'),
-    `${header}export const QUEST_HOME_LEVELS: QuestHomeData[] = ${JSON.stringify(homes, null, 2)};\n`,
+    `${header}export const QUEST_HOME_LEVELS: QuestFixedLevel[] = ${JSON.stringify(homes, null, 2)};\n\n` +
+      `export const QUEST_LOCATE_LEVELS: QuestFixedLevel[] = ${JSON.stringify(locates, null, 2)};\n`,
   );
   console.log('wrote src/data/quest.gen.ts');
 
