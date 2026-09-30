@@ -2576,6 +2576,23 @@ section('怪物伤势提示', async () => {
     ok(!!info && info.kind === 'monster' && info.title.length > 0, '悬停怪物能给出说明');
     ok(!!info?.hint?.includes('25%'), `悬停提示带生命百分比（${info?.hint ?? ''}）`);
     ok(monsterHealthHint(mon).includes('25%'), '伤势提示包含生命百分比');
+
+    // 命中幸存的目标会写入对应的伤势消息。
+    const victim = new Monster(
+      monById.get('KOBOLD') as MonsterData,
+      s.player.x + 1,
+      s.player.y,
+      createRng(6),
+    );
+    victim.asleep = false;
+    victim.mhp = victim.mhpmax = 999;
+    s.level.monsters = [victim];
+    s.player.hitInc = 100;
+    s.attackMonster(victim);
+    ok(
+      s.messages.some((m) => m.key === 'msg.monWoundLight'),
+      '命中满血目标给出轻伤提示',
+    );
   }
 });
 

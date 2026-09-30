@@ -59,6 +59,7 @@ import {
   killExperience,
   monsterDamage,
   skillDamageBonus,
+  woundLevel,
   skillHitBonus,
   equipmentRingBonus,
   xpForLevel,
@@ -2089,6 +2090,11 @@ export class GameSession {
       return 'killed';
     }
     this.passiveAttack(mon);
+    // 幸存的目标给出伤势反馈，与悬停提示用同一套档位。
+    const wound = woundLevel(mon.mhp, mon.mhpmax);
+    if (wound === 'light') this.log('msg.monWoundLight', { mon: mon.data.id });
+    else if (wound === 'heavy') this.log('msg.monWoundHeavy', { mon: mon.data.id });
+    else if (wound === 'nearDeath') this.log('msg.monWoundNearDeath', { mon: mon.data.id });
     return 'attacked';
   }
 
