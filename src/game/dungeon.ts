@@ -1046,21 +1046,27 @@ export function generateLevel({ gameSeed, depth }: { gameSeed: number; depth: nu
   return generateLevelCore({ gameSeed, depth });
 }
 
+/** 原版里总部是露天营地或洞穴的职业：任务总部用一整间大厅表示。 */
+const OPEN_HOME_ROLES = new Set(['BARBARIAN', 'CAVE_DWELLER', 'RANGER', 'VALKYRIE', 'MONK']);
+
 /** 生成一层分支地牢（矿坑等）；随机流与主地牢互相独立。 */
 export function generateBranchLevel({
   gameSeed,
   branch,
   depth,
   levels,
+  questRole = null,
 }: {
   gameSeed: number;
   branch: string;
   depth: number;
   levels: number;
+  /** 职业任务分支时传入职业 id，用于选择总部布局。 */
+  questRole?: string | null;
 }): Level {
   // 推箱用原版提取的固定布局，不跑随机房间生成。
   if (branchById(branch)?.sokoban) return generateSokobanLevel({ gameSeed, depth });
-  return generateLevelCore({ gameSeed, depth, branch, levels });
+  return generateLevelCore({ gameSeed, depth, branch, levels, questRole });
 }
 
 /** 按原版显示名找物品原型：同时接受带类别前缀的名字。 */
@@ -1227,11 +1233,13 @@ function generateLevelCore({
   depth,
   branch = null,
   levels = 0,
+  questRole = null,
 }: {
   gameSeed: number;
   depth: number;
   branch?: string | null;
   levels?: number;
+  questRole?: string | null;
 }): Level {
   const seed = branch
     ? deriveSeed(gameSeed, 'branch', branch, depth)
@@ -1269,7 +1277,10 @@ function generateLevelCore({
   level.special = special?.id ?? (branchDef?.quest ? questLevelSpecial(depth, levels) : null);
   // 任务目标层用一整间大厅，让仇敌与神器更醒目。
   const questGoal = !!branchDef?.quest && depth >= levels;
-  if (special?.layout === 'bigRoom' || questGoal) {
+  // 部分职业的任务总部是露天营地或洞穴，用大房间表达。
+  const questHome =
+    !!branchDef?.quest && depth === 1 && !!questRole && OPEN_HOME_ROLES.has(questRole);
+  if (special?.layout === 'bigRoom' || questGoal || questHome) {
     carveBigRoom(level);
   } else {
     level.rooms = placeRooms(level, rng);

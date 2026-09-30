@@ -283,6 +283,7 @@ export class GameSession {
           branch,
           depth,
           levels: def?.levels ?? depth,
+          questRole: branch === 'quest' ? this.character.role.id : null,
         }),
       );
     }

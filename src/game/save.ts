@@ -316,6 +316,8 @@ export function restoreSession(data: SaveData): GameSession {
           branch: ld.branch,
           depth: ld.depth,
           levels: branchById(ld.branch)?.levels ?? ld.depth,
+          // 任务总部的布局与职业有关，恢复时要传同一个职业。
+          questRole: ld.branch === 'quest' ? data.character.roleId : null,
         })
       : generateLevel({ gameSeed: session.seed, depth: ld.depth });
     level.depth = ld.depth;

@@ -5528,6 +5528,30 @@ section('职业神器', async () => {
     ok(again?.artifact === 'tsurugi_of_muramasa', '神器随存档保留');
   }
 
+  // 部分职业的任务总部是露天营地/洞穴，用大房间布局；其余用普通房间。
+  {
+    const character = (role: typeof roleById.SAMURAI) => ({
+      role,
+      race: raceById.HUMAN,
+      align: 'neutral' as const,
+      gender: 'male' as const,
+    });
+    const open = new GameSession({
+      seed: 4243,
+      character: character(roleById.CAVE_DWELLER),
+    });
+    open.changeDepth(1, 'down', 'quest');
+    ok(open.level.rooms.length === 1, `洞穴人的总部是整间大厅（${open.level.rooms.length}）`);
+    const restored = restoreSession(serializeSession(open));
+    ok(restored.level.rooms.length === 1, '存档恢复保留任务总部布局');
+    const indoor = new GameSession({
+      seed: 4243,
+      character: character(roleById.ARCHEOLOGIST),
+    });
+    indoor.changeDepth(1, 'down', 'quest');
+    ok(indoor.level.rooms.length > 1, `考古学家的总部是多个房间（${indoor.level.rooms.length}）`);
+  }
+
   // 任务仇敌首次照面时叫阵一次。
   {
     const s = new GameSession({
