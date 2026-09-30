@@ -4097,6 +4097,75 @@ section('法杖效果', async () => {
   }
 });
 
+section('冷门药水与卷轴', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+
+  const give = (s: InstanceType<typeof GameSession>, id: string) => {
+    const item = makeItem(objById.get(id) as ObjectData, s.rng);
+    item.buc = 'uncursed';
+    addToInventory(s.player, item);
+    return item;
+  };
+
+  // 恢复属性药水把被吸走的属性补回基准。
+  {
+    const s = new GameSession({ seed: 6001 });
+    const base = { ...s.player.baseAttributes };
+    s.player.str = Math.max(3, base.str - 2);
+    s.player.con = Math.max(3, base.con - 3);
+    s.useItem(give(s, 'POT_RESTORE_ABILITY'));
+    ok(s.player.str === base.str && s.player.con === base.con, '恢复属性药水补回基准值');
+    ok(
+      s.messages.some((m) => m.key === 'use.restored'),
+      '记录恢复属性消息',
+    );
+  }
+
+  // 失忆卷轴忘掉一半法术。
+  {
+    const s = new GameSession({ seed: 6002 });
+    s.player.knownSpells = ['SPE_FORCE_BOLT', 'SPE_KNOCK', 'SPE_HEALING', 'SPE_LIGHT'];
+    s.useItem(give(s, 'SCR_AMNESIA'));
+    ok(s.player.knownSpells.length === 2, `失忆卷轴忘掉一半法术（${s.player.knownSpells.length}）`);
+  }
+
+  // 地震卷轴震伤附近怪物并留下陷坑。
+  {
+    const s = new GameSession({ seed: 6003 });
+    const mon = s.level.monsters.find((m) => !m.dead);
+    ok(!!mon, '地震测试有怪物');
+    if (mon) {
+      mon.mhp = 200;
+      mon.mhpmax = 200;
+      mon.x = s.player.x + 1;
+      mon.y = s.player.y;
+      const trapsBefore = s.level.traps.size;
+      s.useItem(give(s, 'SCR_EARTH'));
+      ok(mon.mhp < 200, `地震震伤了怪物（${mon.mhp}）`);
+      ok(s.level.traps.size > trapsBefore, '地震留下一处陷坑');
+    }
+  }
+
+  // 邮件与空白卷轴只有提示，不改变状态。
+  {
+    const s = new GameSession({ seed: 6004 });
+    const hp = s.player.hp;
+    s.useItem(give(s, 'SCR_MAIL'));
+    ok(
+      s.messages.some((m) => m.key === 'use.mail'),
+      '邮件卷轴给出提示',
+    );
+    s.useItem(give(s, 'SCR_BLANK_PAPER'));
+    ok(
+      s.messages.some((m) => m.key === 'use.blankScroll'),
+      '空白卷轴给出提示',
+    );
+    ok(s.player.hp === hp, '两类卷轴不改变生命');
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');

@@ -19,7 +19,7 @@ import { describeItem, makeItem } from './items';
 import { killExperience } from './combat';
 import { monsterMagicResists, monsterResists, playerResists } from './resist';
 import type { ResistKind } from './resist';
-import { isWalkable, MAX_DEPTH, COLNO } from '../core/constants';
+import { isWalkable, MAX_DEPTH, COLNO, T } from '../core/constants';
 import { index, inRoom } from './dungeon';
 import { monById, objById } from '../data/index';
 import { pickMonsterType, Monster as MonsterEntity } from './monsters';
@@ -503,6 +503,20 @@ function quaffPotion(session: GameSession, item: ItemInstance): UseOutcome {
       player.hunger = Math.min(2000, player.hunger + 10 + rng.rn2(10));
       out.key = 'use.juice';
       break;
+    case 'POT_RESTORE_ABILITY': {
+      const base = player.baseAttributes;
+      const keys = ['str', 'int', 'wis', 'dex', 'con', 'cha'] as const;
+      let restored = 0;
+      for (const key of keys) {
+        if (player[key] < base[key]) {
+          player[key] = base[key];
+          restored++;
+        }
+      }
+      out.key = restored > 0 ? 'use.restored' : 'use.restoreNothing';
+      out.vars = { ...out.vars, n: restored };
+      break;
+    }
     case 'POT_WATER':
       if (item.buc === 'blessed' || item.buc === 'cursed') {
         const count = blessInventory(player, item.buc);
@@ -521,6 +535,7 @@ function quaffPotion(session: GameSession, item: ItemInstance): UseOutcome {
 
 function readScroll(session: GameSession, item: ItemInstance): UseOutcome {
   const id = item.proto.id;
+  const { rng } = session;
   const out: UseOutcome = { key: 'use.read', vars: { obj: id }, identified: true };
   switch (id) {
     case 'SCR_ENCHANT_ARMOR': {
@@ -725,6 +740,57 @@ function readScroll(session: GameSession, item: ItemInstance): UseOutcome {
     case 'SCR_FOOD_DETECTION': {
       session.player.senseFood = Math.max(session.player.senseFood, 30);
       out.key = 'use.detectFood';
+      break;
+    }
+    case 'SCR_AMNESIA': {
+      const known = session.player.knownSpells ?? [];
+      if (!known.length) {
+        out.key = 'use.nothingHappens';
+        break;
+      }
+      const count = Math.max(1, Math.ceil(known.length / 2));
+      for (let n = 0; n < count && known.length; n++) {
+        known.splice(rng.rn2(known.length), 1);
+      }
+      out.key = 'use.amnesia';
+      out.vars = { ...out.vars, n: count };
+      break;
+    }
+    case 'SCR_MAIL': {
+      out.key = 'use.mail';
+      break;
+    }
+    case 'SCR_BLANK_PAPER': {
+      out.key = 'use.blankScroll';
+      break;
+    }
+    case 'SCR_EARTH': {
+      // 地震：附近的怪物受创并被惊醒，身边留下一处陷坑。
+      let hit = 0;
+      for (const mon of session.level.monsters) {
+        if (mon.dead) continue;
+        const d = Math.max(Math.abs(mon.x - session.player.x), Math.abs(mon.y - session.player.y));
+        if (d > 8) continue;
+        mon.mhp -= rng.dice(2, 6);
+        mon.asleep = false;
+        hit++;
+        if (mon.mhp <= 0) session.slayMonster(mon, true);
+      }
+      let pit = 0;
+      for (let dx = -1; dx <= 1 && !pit; dx++) {
+        for (let dy = -1; dy <= 1 && !pit; dy++) {
+          if (!dx && !dy) continue;
+          const x = session.player.x + dx;
+          const y = session.player.y + dy;
+          const i = index(x, y);
+          if (session.level.tiles[i] !== T.ROOM && session.level.tiles[i] !== T.CORR) continue;
+          if (session.level.traps.has(i)) continue;
+          session.level.traps.set(i, { type: 'PIT', seen: true });
+          pit = 1;
+        }
+      }
+      out.key = 'use.earthquake';
+      out.vars = { ...out.vars, n: hit };
       break;
     }
     case 'SCR_GENOCIDE': {

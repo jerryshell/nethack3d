@@ -67,6 +67,8 @@ export class Player implements PlayerState {
   dex!: number;
   con!: number;
   cha!: number;
+  /** 生成时的属性基准；恢复属性药水用它判断提升空间。 */
+  baseAttributes!: Attributes;
 
   hitInc: number;
   luck: number;
@@ -134,6 +136,14 @@ export class Player implements PlayerState {
     this.gender = gender;
 
     Object.assign(this, attributes ?? rollAttributes(role, race, rng));
+    this.baseAttributes = {
+      str: this.str,
+      int: this.int,
+      wis: this.wis,
+      dex: this.dex,
+      con: this.con,
+      cha: this.cha,
+    };
 
     this.level = 1;
     this.xp = 0;
