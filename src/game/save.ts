@@ -145,6 +145,7 @@ export function serializeSession(session: GameSession): SaveData {
     ...(session.questComplete ? { questComplete: 1 as const } : {}),
     ...(session.questLeaderDead ? { questLeaderDead: 1 as const } : {}),
     ...(session.shopDamage > 0 ? { shopDamage: session.shopDamage } : {}),
+    ...(session.autoPickup ? { autoPickup: 1 as const } : {}),
     ...(session.wizardHasAmulet ? { wizardHasAmulet: 1 as const } : {}),
     ...(session.genocides.size ? { genocides: [...session.genocides] } : {}),
     ...(session.digging
@@ -391,6 +392,7 @@ export function restoreSession(data: SaveData): GameSession {
   session.questComplete = !!data.questComplete;
   session.questLeaderDead = !!data.questLeaderDead;
   session.shopDamage = data.shopDamage ?? 0;
+  session.autoPickup = !!data.autoPickup;
   session.wizardHasAmulet = !!data.wizardHasAmulet;
   session.genocides = new Set((data.genocides ?? []).filter((id) => monById.has(id)));
   session.digging = data.digging

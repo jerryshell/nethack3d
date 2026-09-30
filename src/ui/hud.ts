@@ -20,6 +20,27 @@ import { alignDisplayName } from '../data/i18n';
 import { isMuted, playSfx, setMuted } from '../core/audio';
 import { HUNGER_DANGER, HUNGER_WARN } from '../core/constants';
 
+/** 自动拾取偏好存在本地，与静音一样刷新后保持。 */
+const AUTO_PICKUP_KEY = 'nethack3d.autopickup';
+
+/** 读取上次的自动拾取开关。 */
+export function loadAutoPickup(): boolean {
+  try {
+    return localStorage.getItem(AUTO_PICKUP_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** 记录自动拾取开关；无本地存储时忽略，本局内仍然有效。 */
+export function saveAutoPickup(value: boolean): void {
+  try {
+    localStorage.setItem(AUTO_PICKUP_KEY, value ? '1' : '0');
+  } catch {
+    // 忽略：仅表示无法持久化偏好。
+  }
+}
+
 /** 情境操作：由调用方根据当前局面生成。 */
 export interface HudAction {
   id: string;
@@ -89,6 +110,20 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     paintMute();
   });
 
+  const autoBtn = document.createElement('button');
+  autoBtn.className = 'btn ghost small';
+  const paintAuto = (): void => {
+    autoBtn.textContent = t(current?.autoPickup ? 'hud.autoPickupOn' : 'hud.autoPickupOff');
+    autoBtn.title = t('hud.autoPickupHint');
+  };
+  autoBtn.addEventListener('click', () => {
+    if (!current) return;
+    current.autoPickup = !current.autoPickup;
+    saveAutoPickup(current.autoPickup);
+    paintAuto();
+    playSfx('click');
+  });
+
   const dumpBtn = document.createElement('button');
   const historyBtn = document.createElement('button');
   historyBtn.className = 'btn ghost small';
@@ -106,7 +141,7 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
   exitBtn.dataset.i18n = 'menu.back';
   exitBtn.addEventListener('click', () => onExit?.());
 
-  actions.append(langBtn, muteBtn, historyBtn, dumpBtn, exitBtn);
+  actions.append(langBtn, muteBtn, autoBtn, historyBtn, dumpBtn, exitBtn);
   top.append(stats, actions);
 
   const center = document.createElement('div');
@@ -363,6 +398,7 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
   function render(session: GameSession | null = null): void {
     paintLang();
     paintMute();
+    paintAuto();
     dumpBtn.title = t('hud.dumpHint');
     applyI18n(el);
     if (session) {

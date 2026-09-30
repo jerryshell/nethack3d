@@ -209,6 +209,8 @@ export class GameSession {
   questLeaderDead = false;
   /** 在商店里造成的修缮费，离店时与货款一起结算。 */
   shopDamage = 0;
+  /** 自动拾取：踩到地面堆时顺手拿走物品（金币本来就自动拾取）。 */
+  autoPickup = false;
   /** 已被灭绝的物种，不再生成。 */
   genocides = new Set<string>();
   /** 玩家读完灭绝卷轴后等待输入物种名。 */
@@ -1099,6 +1101,7 @@ export class GameSession {
 
     const gold = autoPickupGold(this.player, this.level);
     if (gold > 0) this.log('msg.gold', { n: gold });
+    if (this.autoPickup) this.autoPickupItems();
     this.refreshFov();
 
     // 元素位面的地表：岩浆灼伤，水流与溺水由 upkeep 逐回合结算。
@@ -3883,6 +3886,19 @@ export class GameSession {
     this.monsterTrap(mon);
     // 会收集的怪物顺手带走脚下的物品。
     if (!mon.dead) this.monsterPickup(mon);
+  }
+
+  /**
+   * 自动拾取：踩到地面堆时顺手带走物品（金币已单独结算）。
+   *
+   * 未付款的商店货物不碰，避免无声无息地背上账单；巨石太重不捡，
+   * 背包放不下的物品留给玩家自己决定。
+   */
+  private autoPickupItems(): void {
+    const res = pickupItems(this.player, this.level, {
+      canTake: (item) => !item.unpaid && item.id !== 'BOULDER',
+    });
+    if (res.picked.length > 0) this.log('msg.autoPickup', { n: res.picked.length });
   }
 
   /**

@@ -2464,6 +2464,93 @@ section('怪物伤势提示', async () => {
   }
 });
 
+section('自动拾取', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { serializeSession, restoreSession } = await import('../src/game/save');
+
+  const setup = (seed: number): InstanceType<typeof GameSession> => {
+    const s = new GameSession({ seed });
+    s.level.monsters = [];
+    s.level.traps.clear();
+    s.level.objects = [];
+    return s;
+  };
+  /** 找一个空着的相邻地面，用来放测试物品。 */
+  const stepTo = (s: InstanceType<typeof GameSession>) => {
+    const p = s.player;
+    return [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]
+      .map(([dx, dy]) => ({ dx, dy, x: p.x + dx, y: p.y + dy }))
+      .find(
+        (spot) =>
+          isWalkable(s.level.tiles[index(spot.x, spot.y)]) &&
+          !s.level.doors.has(index(spot.x, spot.y)) &&
+          !s.level.traps.has(index(spot.x, spot.y)) &&
+          !s.level.stairs.some((st) => st.x === spot.x && st.y === spot.y),
+      );
+  };
+
+  // 关闭时物品留在原地。
+  {
+    const s = setup(2468);
+    const step = stepTo(s);
+    ok(!!step, '找得到自动拾取测试的相邻地面');
+    if (step) {
+      const item = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+      s.level.objects.push({ x: step.x, y: step.y, items: [item] });
+      const r = s.movePlayer(step.dx, step.dy);
+      ok(r.result === 'moved', `走到物品格（${r.result}）`);
+      ok(!s.player.inventory.includes(item), '关闭自动拾取时物品留在地上');
+    }
+  }
+
+  // 打开时顺手捡起，且不额外消耗回合。
+  {
+    const s = setup(2468);
+    s.autoPickup = true;
+    const step = stepTo(s);
+    if (step) {
+      const item = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+      s.level.objects.push({ x: step.x, y: step.y, items: [item] });
+      const turnBefore = s.turn;
+      const r = s.movePlayer(step.dx, step.dy);
+      ok(r.result === 'moved' && s.turn === turnBefore + 1, '自动拾取不额外消耗回合');
+      ok(s.player.inventory.includes(item), '打开自动拾取时物品被捡起');
+      ok(
+        s.messages.some((m) => m.key === 'msg.autoPickup'),
+        '自动拾取有提示',
+      );
+    }
+  }
+
+  // 未付款的商店货物不碰。
+  {
+    const s = setup(2468);
+    s.autoPickup = true;
+    const step = stepTo(s);
+    if (step) {
+      const item = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+      item.unpaid = true;
+      s.level.objects.push({ x: step.x, y: step.y, items: [item] });
+      s.movePlayer(step.dx, step.dy);
+      ok(!s.player.inventory.includes(item), '未付款的商店货物不自动拾取');
+    }
+  }
+
+  // 开关随存档保留。
+  {
+    const s = setup(2468);
+    s.autoPickup = true;
+    const restored = restoreSession(serializeSession(s));
+    ok(restored.autoPickup === true, '自动拾取开关随存档保留');
+  }
+});
+
 section('巨石', async () => {
   {
     const { GameSession } = await import('../src/game/session');

@@ -735,6 +735,8 @@ export interface SaveData {
   questLeaderDead?: 0 | 1;
   /** 在商店里造成的修缮费，离店时结算。 */
   shopDamage?: number;
+  /** 自动拾取开关。 */
+  autoPickup?: 0 | 1;
   /** 尤恩多巫师是否抢走了护身符。 */
   wizardHasAmulet?: 0 | 1;
   /** 已灭绝的怪物物种。 */

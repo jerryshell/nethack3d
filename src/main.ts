@@ -28,7 +28,7 @@ import { isContainer } from './game/containers';
 import type { ActionResultInfo, Attributes, CharacterChoice } from './types';
 import type { HudAction, HudHandle } from './ui/hud';
 import { describeTile, monsterHealthHint } from './ui/tileInfo';
-import { createHud } from './ui/hud';
+import { createHud, loadAutoPickup } from './ui/hud';
 import type { InventoryPanelHandle } from './ui/inventory';
 import { createInventoryPanel } from './ui/inventory';
 import { createWishPanel } from './ui/wish';
@@ -409,6 +409,8 @@ function startGame(options: StartGameOptions = {}): void {
   }
   backdrop.detach();
   const session = options.session ?? new GameSession(options);
+  // 新局沿用本机偏好；继续游戏时以存档里的设置为准。
+  if (!options.session) session.autoPickup = loadAutoPickup();
   log.info('开始游戏', {
     seed: session.seed,
     depth: session.depth,
