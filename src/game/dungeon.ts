@@ -689,8 +689,11 @@ function placeStairs(
     if (up) level.up = up;
   }
   if (!opts.isBranch || !opts.isBottom) {
-    const down = put(far === startRoom ? rooms[rooms.length - 1] : far, 'down');
-    if (down) level.down = down;
+    // 土之位面的出口要靠向下挖，不铺下行楼梯。
+    if (level.special !== 'plane_earth') {
+      const down = put(far === startRoom ? rooms[rooms.length - 1] : far, 'down');
+      if (down) level.down = down;
+    }
   }
 
   // 主地牢第 1 层的起始位置在起始房间内；其余层从上行楼梯进入。

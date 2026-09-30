@@ -555,7 +555,10 @@ export function checkInvariants(session: GameSession, tracker?: SeenTracker): st
   }
 
   // 楼梯必须存在且可通行；分支入口层还要有一段分支楼梯。
-  if (!level.down && session.depth < session.maxDepth) problems.push('本层缺少下行楼梯');
+  // 土之位面没有下行楼梯，出口靠玩家自己挖穿地板。
+  if (!level.down && session.depth < session.maxDepth && level.special !== 'plane_earth') {
+    problems.push('本层缺少下行楼梯');
+  }
   if (!level.up && !(session.branch === 'main' && session.depth === 1)) {
     // 推箱顶层只有下行楼梯，回程要从入口层走分支楼梯。
     if (!(level.branch === 'sokoban' && level.depth === 1)) problems.push('本层缺少上行楼梯');

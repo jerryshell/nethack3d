@@ -3477,7 +3477,7 @@ section('特殊楼层', async () => {
 section('开启仪式与异界', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');
-  const { addToInventory } = await import('../src/game/inventory');
+  const { addToInventory, wieldItem } = await import('../src/game/inventory');
   const { objById } = await import('../src/data/index');
   const { COLNO, T } = await import('../src/core/constants');
   const { branchByEntrance } = await import('../src/game/branches');
@@ -3549,6 +3549,29 @@ section('开启仪式与异界', async () => {
     ok(s.branch === 'planes' && s.depth === 1, `传送门通往异界（${s.branch} ${s.depth}）`);
     ok(s.level.special === 'plane_earth', '异界第一层是土之位面');
     ok(!!s.level.up, '元素位面保留回程楼梯');
+    // 土之位面没有下行楼梯，必须拿保底镐自己向下挖。
+    ok(!s.level.down, '土之位面没有下行楼梯');
+    const earthPick = s.level.objects.flatMap((p) => p.items).find((i) => i.id === 'PICK_AXE');
+    ok(!!earthPick, '土之位面放着保底镐');
+    if (earthPick) {
+      const spot = (
+        [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as [number, number][]
+      )
+        .map(([dx, dy]) => ({ x: s.player.x + dx, y: s.player.y + dy }))
+        .find((p) => s.level.tiles[index(p.x, p.y)] === T.ROOM);
+      if (spot) {
+        s.player.x = spot.x;
+        s.player.y = spot.y;
+      }
+      addToInventory(s.player, earthPick);
+      wieldItem(s.player, earthPick);
+      ok(s.canDigDown(), '拿到镐后可以在土之位面向下挖');
+    }
     for (const [depth, id] of [
       [2, 'plane_air'],
       [3, 'plane_fire'],

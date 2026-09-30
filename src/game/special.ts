@@ -67,6 +67,8 @@ export const BRANCH_SPECIAL_LEVELS: Record<string, Record<number, SpecialLevel>>
       id: 'plane_earth',
       layout: 'bigRoom',
       monsters: ['EARTH_ELEMENTAL', 'EARTH_ELEMENTAL', 'XORN', 'STONE_GOLEM'],
+      // 土之位面没有下行楼梯，必须自己挖穿地板；镐就放在地上保底。
+      objects: [{ proto: 'PICK_AXE', count: 1 }],
     },
     2: {
       id: 'plane_air',
