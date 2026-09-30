@@ -3237,6 +3237,28 @@ export class GameSession {
   }
 
   /**
+   * 给身边的宠物拴上或解开牵引绳；栓住的宠物只能在玩家两格内活动。
+   *
+   * 只返回消息键，交给使用物品的流程统一记日志。
+   */
+  leashPet(): ActionResultInfo {
+    if (this.dead) return { result: 'dead' };
+    const pet = this.level.monsters.find(
+      (m) =>
+        m.tame &&
+        !m.dead &&
+        Math.max(Math.abs(m.x - this.player.x), Math.abs(m.y - this.player.y)) <= 1,
+    );
+    if (!pet) return { result: 'nothing', key: 'msg.leashNoPet' };
+    pet.leashed = !pet.leashed;
+    return {
+      result: 'used',
+      key: pet.leashed ? 'msg.leashOn' : 'msg.leashOff',
+      vars: { mon: pet.data.id },
+    };
+  }
+
+  /**
    * 喂食宠物：消耗一份食物，恢复生命并提升驯服度；驯服度满值后成长一次。
    */
   feedPet(): ActionResultInfo {
@@ -3588,6 +3610,8 @@ export class GameSession {
       if (!isWalkable(t)) continue;
       // 不会水、怕火的怪物主动绕开岩浆与水。
       if (this.monsterFearsTile(mon, t)) continue;
+      // 拴了牵引绳的宠物走不出玩家两格。
+      if (mon.leashed && Math.max(Math.abs(nx - player.x), Math.abs(ny - player.y)) > 2) continue;
       if (monsterAt(this.level, nx, ny)) continue;
       if (nx === player.x && ny === player.y) continue;
       const d = Math.max(Math.abs(nx - player.x), Math.abs(ny - player.y));

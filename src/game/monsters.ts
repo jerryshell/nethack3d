@@ -43,6 +43,8 @@ export class Monster implements MonsterState {
   cancelled?: boolean;
   /** 任务仇敌是否已经叫过阵。 */
   taunted?: boolean;
+  /** 拴了牵引绳：只能在玩家两格内活动。 */
+  leashed?: boolean;
   /** 宠物饱食度；只有驯服的宠物会消耗与饥饿。 */
   hunger?: number;
   /** 平和生物：不主动出手，被攻击后才反击。 */
@@ -70,6 +72,7 @@ export class Monster implements MonsterState {
     this.stasis = 0;
     this.cancelled = false;
     this.taunted = false;
+    this.leashed = false;
     this.hunger = 900;
     this.peaceful = false;
   }

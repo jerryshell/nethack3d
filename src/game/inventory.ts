@@ -506,6 +506,11 @@ export function applyItem(session: GameSession, item: ItemInstance): UseOutcome 
         session.refreshFov();
         return { key: 'use.lampLit', identified: true };
       }
+      // 牵引绳：拴上或解开身边的宠物，栓住的宠物不再乱跑。
+      if (proto.id === 'LEASH') {
+        const res = session.leashPet();
+        return { key: res.key ?? 'use.nothing', vars: res.vars, identified: true };
+      }
       // 镜子：照一照，最近的怪物落荒而逃。
       if (proto.id === 'MIRROR') {
         const mon = session.level.monsters.find(

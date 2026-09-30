@@ -392,6 +392,8 @@ export interface Monster {
   cancelled?: boolean;
   /** 任务仇敌是否已经叫过阵。 */
   taunted?: boolean;
+  /** 拴了牵引绳：只能在玩家两格内活动。 */
+  leashed?: boolean;
   /** 宠物的饱食度：900 为饱腹，归零会变野。 */
   hunger?: number;
   /** 平和生物：数据默认敌对、但因站位/阵营不主动出手（如同阵营神殿的天使）。 */
@@ -581,6 +583,8 @@ export interface ActionResultInfo {
   result: ActionResult;
   picked?: number;
   key?: string;
+  /** 消息变量；仅在由使用物品流程代为记日志时需要。 */
+  vars?: MessageVars;
 }
 
 export interface CombatFeedback {
@@ -671,6 +675,8 @@ export interface SerializedMonster {
   cn?: 0 | 1;
   /** 任务仇敌是否已经叫过阵。 */
   tt?: 0 | 1;
+  /** 拴了牵引绳。 */
+  lh?: 0 | 1;
   /** 宠物饱食度。 */
   hg?: number;
   /** 平和生物。 */

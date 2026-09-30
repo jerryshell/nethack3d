@@ -5171,6 +5171,34 @@ section('工具应用', async () => {
     }
   }
 
+  // 牵引绳：拴住的宠物走不出玩家两格。
+  {
+    const s = new GameSession({ seed: 8509 });
+    s.level.monsters = [];
+    const pet = new Monster(monById.get('LITTLE_DOG')!, s.player.x + 1, s.player.y, s.rng);
+    pet.tame = true;
+    s.level.monsters.push(pet);
+    const leash = makeItem(objById.get('LEASH') as ObjectData, s.rng);
+    addToInventory(s.player, leash);
+    s.useItem(leash);
+    ok(pet.leashed === true, '牵引绳拴住宠物');
+    ok(
+      s.messages.some((m) => m.key === 'msg.leashOn'),
+      '记录拴绳消息',
+    );
+    pet.x = s.player.x + 2;
+    pet.y = s.player.y;
+    s.stepMonster(pet, -1);
+    ok(
+      Math.max(Math.abs(pet.x - s.player.x), Math.abs(pet.y - s.player.y)) <= 2,
+      '拴住的宠物走不出两格',
+    );
+    pet.x = s.player.x + 1;
+    pet.y = s.player.y;
+    s.useItem(leash);
+    ok(pet.leashed === false, '再用一次解开牵引绳');
+  }
+
   // 罐装油脂护住护甲一次，毁甲卷轴随之失效。
   {
     const s = new GameSession({ seed: 8505 });
