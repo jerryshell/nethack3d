@@ -271,6 +271,24 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
         objective.dataset.state = session.questComplete ? 'done' : 'active';
         return;
       }
+      // 异界终局：先穿过元素位面，到星界后把护身符献给本阵营的祭坛。
+      if (session.branch === 'planes') {
+        const astral = session.depth >= session.maxDepth;
+        if (astral && session.carryingAmulet) {
+          objective.textContent = t('hud.astralGoal');
+          objective.dataset.state = 'active';
+        } else if (astral) {
+          objective.textContent = t('hud.astralNoAmulet');
+          objective.dataset.state = 'active';
+        } else {
+          objective.textContent = t('hud.planesGoal', {
+            depth: session.depth,
+            max: session.maxDepth,
+          });
+          objective.dataset.state = 'active';
+        }
+        return;
+      }
       objective.textContent = t('hud.branchGoal', {
         branch: t(`branch.${session.branch}`),
         depth: session.depth,
