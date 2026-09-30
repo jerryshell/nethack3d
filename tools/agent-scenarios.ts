@@ -3182,6 +3182,8 @@ const hazards: Scenario = {
       }
 
       // 自动拾取：打开开关后踩过物品会顺手带走。
+      // 门上的机关可能让人睡着，先等到醒来再做拾取测试。
+      for (let i = 0; i < 10 && session.player.sleep > 0; i++) session.wait();
       session.autoPickup = true;
       const pileSpot = (() => {
         const p = session.player;
