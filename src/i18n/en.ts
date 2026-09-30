@@ -397,7 +397,8 @@ const messages: MessageCatalog = {
     skillUp: 'You feel more skilled with your {obj} (skill {level}).',
     spellSkillUp: 'Your grasp of the {obj} school deepens (skill {level}).',
     branchEnter: 'You enter {branch}.',
-    questLocked: 'The stairs down are sealed until you speak with your quest leader.',
+    questLocked:
+      'A mysterious force prevents you from descending until you speak with your quest leader.',
     questNoLeader: 'There is no quest leader here to speak with.',
     questLeaderAngry: '{mon} glares at you and says nothing.',
     questBetrayed: 'The quest headquarters turns on you for this betrayal!',

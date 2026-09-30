@@ -311,7 +311,7 @@ const messages: MessageCatalog = {
     skillUp: '你对{obj}的掌握更熟练了（熟练度 {level}）。',
     spellSkillUp: '你对{obj}流派的理解更深了（熟练度 {level}）。',
     branchEnter: '你进入了{branch}。',
-    questLocked: '尚未得到任务领袖的许可，下行楼梯封着。',
+    questLocked: '尚未得到任务领袖的许可，一股神秘的力量阻止你下行。',
     questNoLeader: '身边没有可以交谈的任务领袖。',
     questLeaderAngry: '{mon}怒气冲冲地瞪着你，一言不发。',
     questBetrayed: '任务总部因你的背叛翻脸了！',

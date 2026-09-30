@@ -258,7 +258,11 @@ export function invokeArtifact(session: GameSession, item: ItemInstance): UseOut
         (d) => d >= 1 && d <= MAX_DEPTH,
       );
       const target = session.rng.pick(candidates) as number;
-      session.changeDepth(target, target > session.depth ? 'down' : 'up');
+      const moved = session.changeDepth(target, target > session.depth ? 'down' : 'up');
+      // 任务总部的下行封锁连神器的楼层传送也拦。
+      if (moved.result === 'blocked') {
+        return { key: 'msg.questLocked', charges: item.charges };
+      }
       return {
         key: 'use.artifactTeleport',
         vars: { depth: target },
@@ -1456,11 +1460,13 @@ export function zapWand(session: GameSession, item: ItemInstance): UseOutcome {
       out.key =
         result === 'blocked'
           ? 'use.digBlocked'
-          : result === 'wall'
-            ? 'use.digWall'
-            : result === 'down'
-              ? 'use.digDown'
-              : 'use.nothingHappens';
+          : result === 'quest'
+            ? 'msg.questLocked'
+            : result === 'wall'
+              ? 'use.digWall'
+              : result === 'down'
+                ? 'use.digDown'
+                : 'use.nothingHappens';
       break;
     }
     case 'WAN_STASIS': {

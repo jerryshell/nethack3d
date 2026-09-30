@@ -458,7 +458,8 @@ const invocation: Scenario = {
         addToInventory(session.player, item);
       };
 
-      // 开启之铃在任务仇敌脚下。
+      // 开启之铃在任务仇敌脚下；测试只关心摆放，直接解锁楼梯。
+      session.questUnlocked = true;
       session.changeDepth(1, 'down', 'quest');
       session.changeDepth(5, 'down', 'quest');
       const bell = session.level.objects
@@ -2243,6 +2244,8 @@ const artifact: Scenario = {
       const session = newSession(seed);
       checker.attachDump(() => describeState(session));
 
+      // 测试只关心目标层的神器，直接解锁任务楼梯。
+      session.questUnlocked = true;
       session.changeDepth(1, 'down', 'quest');
       session.changeDepth(5, 'down', 'quest');
       checker.ok(
@@ -2282,14 +2285,6 @@ const quest: Scenario = {
         session.level.special ?? '-',
         call,
       );
-      session.changeDepth(3, 'down', 'quest');
-      checker.ok(
-        session.level.special === 'quest_locate',
-        '任务中层标记为搜索层',
-        session.level.special ?? '-',
-        call,
-      );
-      session.changeDepth(1, 'up', 'quest');
       const leader = session.level.monsters.find((m) => m.data.id === quest.leader);
       checker.ok(!!leader, `任务总部有领袖 ${quest.leader}`, '', call);
       checker.absorb('任务总部状态自洽', checkInvariants(session), call);
@@ -2325,6 +2320,56 @@ const quest: Scenario = {
         }
       }
 
+      // 未获许可时，地洞与向下挖同样过不去。
+      const roomSpot = (() => {
+        for (let x = 1; x < session.level.width - 1; x++) {
+          for (let y = 1; y < session.level.height - 1; y++) {
+            if (session.level.tiles[index(x, y)] !== T.ROOM) continue;
+            if (!freeSpot(x, y)) continue;
+            return { x, y };
+          }
+        }
+        return null;
+      })();
+      checker.ok(!!roomSpot, '任务总部有可站立的地板', '', call);
+      if (roomSpot) {
+        teleportPlayer(session, roomSpot.x, roomSpot.y);
+        const depthBefore = session.depth;
+        const holeTile = index(roomSpot.x, roomSpot.y);
+        session.level.traps.set(holeTile, { type: 'HOLE', seen: true });
+        session.springTrap(holeTile);
+        checker.ok(
+          session.depth === depthBefore,
+          '未获许可时地洞不换层',
+          `深度=${session.depth}`,
+          call,
+        );
+        checker.ok(
+          session.messages.some((m) => m.key === 'msg.questLocked'),
+          '地洞被神秘力量挡下',
+          '',
+          call,
+        );
+        const pick = makeItem(objById.get('PICK_AXE') as ObjectData, session.rng);
+        addToInventory(session.player, pick);
+        wieldItem(session.player, pick);
+        const dug = session.digDown();
+        checker.ok(
+          dug.result === 'blocked' && session.depth === depthBefore,
+          '未获许可时挖不穿地板',
+          `结果=${dug.result}`,
+          call,
+        );
+      }
+      // 换层入口本身也拦住任务下行，不只是楼梯判定。
+      const forced = session.changeDepth(2, 'down', 'quest');
+      checker.ok(
+        forced.result === 'blocked' && session.depth === 1,
+        '换层入口拦住任务下行',
+        forced.result,
+        call,
+      );
+
       // 走到领袖身边交谈。
       const beside = [
         [leader.x - 1, leader.y],
@@ -2346,6 +2391,13 @@ const quest: Scenario = {
       }
 
       // 解锁后可以下行，深处应有仇敌与神器。
+      session.changeDepth(3, 'down', 'quest');
+      checker.ok(
+        session.level.special === 'quest_locate',
+        '任务中层标记为搜索层',
+        session.level.special ?? '-',
+        call,
+      );
       const level2 = session.changeDepth(2, 'down', 'quest');
       checker.ok(level2.result === 'descended', '解锁后可以下到任务第二层');
       session.changeDepth(5, 'down', 'quest');

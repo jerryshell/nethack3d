@@ -204,6 +204,8 @@ export class GameSession {
   questComplete = false;
   /** 尤恩多巫师是否抢走了护身符。 */
   wizardHasAmulet = false;
+  /** 任务领袖是否已被杀死；对应原版 ok_to_quest 的 killed_leader 例外。 */
+  questLeaderDead = false;
   /** 已被灭绝的物种，不再生成。 */
   genocides = new Set<string>();
   /** 玩家读完灭绝卷轴后等待输入物种名。 */
@@ -1139,12 +1141,7 @@ export class GameSession {
     }
 
     // 任务楼梯要等领袖下令才能下行。
-    if (
-      special === 'descend' &&
-      this.branch === 'quest' &&
-      this.depth === 1 &&
-      !this.questUnlocked
-    ) {
+    if (special === 'descend' && this.questDescentBlocked()) {
       this.log('msg.questLocked');
       return { result: 'blocked' };
     }
@@ -1638,16 +1635,24 @@ export class GameSession {
         }
         const delta = this.rng.rn2(3) - 1 || 1;
         const target = Math.max(1, Math.min(MAX_DEPTH, this.depth + delta));
+        // 任务总部的下行封锁同样拦住楼层传送。
+        if (target > this.depth && this.questDescentBlocked()) {
+          this.log('msg.questLocked');
+          break;
+        }
         this.log(effect.message, { trap: trapName, depth: target });
         this.changeDepth(target, target > this.depth ? 'down' : 'up');
         moved = true;
         break;
       }
       case 'hole': {
-        if (this.depth < MAX_DEPTH) {
+        if (this.depth < MAX_DEPTH && !this.questDescentBlocked()) {
           this.log(effect.message, { trap: trapName });
           this.changeDepth(this.depth + 1, 'down');
           moved = true;
+        } else if (this.questDescentBlocked()) {
+          // 地洞也被神秘力量封住：人留在原地，洞照旧已发现。
+          this.log('msg.questLocked');
         } else {
           this.log('msg.trapFlavor', { trap: trapName });
         }
@@ -2115,6 +2120,13 @@ export class GameSession {
   slayMonster(mon: Monster, byPlayer = true): void {
     if (mon.dead) return;
     mon.dead = true;
+    // 杀死任务领袖也解锁下行（原版 ok_to_quest 的 killed_leader 例外），
+    // 但任务从此无法正常复命。
+    const quest = this.character.role.quest;
+    if (quest && mon.data.id === quest.leader) {
+      this.questLeaderDead = true;
+      log.info('任务领袖被击杀', { role: this.player.role.id });
+    }
     this.kills++;
     const xp = killExperience(mon);
     log.info('怪物被击杀', {
@@ -2475,6 +2487,11 @@ export class GameSession {
       this.log('msg.digDownNo');
       return { result: 'nothing' };
     }
+    // 任务总部的地板受神秘力量保护，未经领袖许可不得穿透。
+    if (this.questDescentBlocked()) {
+      this.log('msg.questLocked');
+      return { result: 'blocked' };
+    }
     const x = this.player.x;
     const y = this.player.y;
     if (!this.digging || !this.digging.down || this.digging.x !== x || this.digging.y !== y) {
@@ -2521,7 +2538,7 @@ export class GameSession {
    * 返回 blocked 表示推箱层禁止挖掘，wall 表示挖穿墙壁，
    * down 表示向下开洞并换层，none 表示没有可挖的目标。
    */
-  zapDigging(): 'blocked' | 'wall' | 'down' | 'none' {
+  zapDigging(): 'blocked' | 'quest' | 'wall' | 'down' | 'none' {
     if (this.branch === 'sokoban') return 'blocked';
     let best: { x: number; y: number } | null = null;
     let bestD = Infinity;
@@ -2537,6 +2554,8 @@ export class GameSession {
     if (best) return this.digWall(best.x, best.y) === 'dug' ? 'wall' : 'none';
     // 飘着的时候踩不到地板，也落不进洞里。
     if (this.depth >= this.maxDepth || this.isFloating()) return 'none';
+    // 任务总部的地板受神秘力量保护，未经领袖许可不得穿透。
+    if (this.questDescentBlocked()) return 'quest';
     // 向下打一个洞并立即落下，与踩中地洞陷阱一致。
     this.level.traps.set(index(this.player.x, this.player.y), { type: 'HOLE', seen: true });
     this.changeDepth(this.depth + 1, 'down');
@@ -4248,11 +4267,33 @@ export class GameSession {
   // 楼层切换
   // -------------------------------------------------------------------------
 
+  /**
+   * 任务总部的下行封锁。
+   *
+   * 对应原版的 `ok_to_quest()`：在任务总部（任务第一层）里，没经领袖
+   * 许可前楼梯、地洞与楼层传送都无法下行；杀了领袖或复命之后解封。
+   */
+  questDescentBlocked(): boolean {
+    return (
+      this.branch === 'quest' &&
+      this.depth === 1 &&
+      !this.questUnlocked &&
+      !this.questComplete &&
+      !this.questLeaderDead
+    );
+  }
+
   changeDepth(
     depth: number,
     direction: 'up' | 'down',
     branch: string = this.branch,
   ): ActionResultInfo {
+    // 任务总部的下行封锁放在入口处，未预期的下行路径也被拦下；
+    // 具体调用方负责给消息，这里只拒绝换层。
+    if (direction === 'down' && depth > this.depth && this.questDescentBlocked()) {
+      log.info('任务下行被拦下', { from: this.depth, to: depth });
+      return { result: 'blocked' };
+    }
     log.info('切换楼层', {
       from: this.depth,
       to: depth,

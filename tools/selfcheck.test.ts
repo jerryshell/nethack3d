@@ -3533,6 +3533,8 @@ section('开启仪式与异界', async () => {
   // 三件圣物各有出处。
   {
     const s = new GameSession({ seed: 20240101 });
+    // 测试只关心圣物摆放，直接解锁任务楼梯。
+    s.questUnlocked = true;
     s.changeDepth(1, 'down', 'quest');
     s.changeDepth(5, 'down', 'quest');
     ok(
@@ -6039,6 +6041,8 @@ section('职业神器', async () => {
         gender: 'male',
       },
     });
+    // 测试只关心神器摆放，直接解锁任务楼梯。
+    s.questUnlocked = true;
     s.changeDepth(5, 'down', 'quest');
     const found = s.level.objects.flatMap((p) => p.items).find((i) => i.artifact);
     ok(found?.artifact === 'tsurugi_of_muramasa', `任务目标层放着本职业神器（${found?.artifact}）`);
@@ -6069,6 +6073,8 @@ section('职业神器', async () => {
         gender: 'male' as const,
       },
     });
+    // 测试只关心巢穴结构与摆放，直接解锁任务楼梯。
+    s.questUnlocked = true;
     s.changeDepth(5, 'down', 'quest');
     const lair = QUEST_LAIR;
     const inside = (x: number, y: number) =>
@@ -6132,6 +6138,8 @@ section('职业神器', async () => {
         gender: 'male',
       },
     });
+    // 测试只关心叫阵，直接解锁任务楼梯。
+    s.questUnlocked = true;
     s.changeDepth(5, 'down', 'quest');
     const nemesis = s.level.monsters.find((m) => m.data.id === 'ASHIKAGA_TAKAUJI');
     ok(!!nemesis, '任务目标层有仇敌');
@@ -6185,6 +6193,41 @@ section('职业神器', async () => {
         const blocked = s.movePlayer(down.x - spot[0], down.y - spot[1]);
         ok(blocked.result === 'blocked', `未获许可时楼梯不可用（${blocked.result}）`);
       }
+
+      // 地洞、向下挖与换层入口同样被神秘力量拦住。
+      const roomSpot = (() => {
+        for (let x = 1; x < s.level.width - 1; x++) {
+          for (let y = 1; y < s.level.height - 1; y++) {
+            if (s.level.tiles[index(x, y)] !== T.ROOM) continue;
+            if (s.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+            return { x, y };
+          }
+        }
+        return null;
+      })();
+      ok(!!roomSpot, '任务总部有可站立的地板');
+      if (roomSpot) {
+        s.player.x = roomSpot.x;
+        s.player.y = roomSpot.y;
+        const depthBefore = s.depth;
+        const holeTile = index(roomSpot.x, roomSpot.y);
+        s.level.traps.set(holeTile, { type: 'HOLE', seen: true });
+        s.springTrap(holeTile);
+        ok(s.depth === depthBefore, '未获许可时地洞不换层');
+        ok(
+          s.messages.some((m) => m.key === 'msg.questLocked'),
+          '地洞被神秘力量挡下',
+        );
+        const { makeItem } = await import('../src/game/items.js');
+        const { wieldItem } = await import('../src/game/inventory.js');
+        const pick = makeItem(objById.get('PICK_AXE') as ObjectData, s.rng);
+        s.player.inventory.push(pick);
+        ok(wieldItem(s.player, pick).ok, '镐类工具可以持握');
+        const dug = s.digDown();
+        ok(dug.result === 'blocked' && s.depth === depthBefore, '未获许可时挖不穿地板');
+      }
+      const forced = s.changeDepth(2, 'down', 'quest');
+      ok(forced.result === 'blocked' && s.depth === 1, '换层入口拦住任务下行');
       s.player.x = leader.x;
       s.player.y = leader.y - 1;
       s.talkToLeader();
@@ -6246,6 +6289,12 @@ section('职业神器', async () => {
         s.messages.some((m) => m.key === 'msg.questBetrayed'),
         '记录背叛消息',
       );
+      // 杀死领袖后下行解封（原版 ok_to_quest 的 killed_leader 例外），且随存档保留。
+      s.slayMonster(leader);
+      ok(s.questLeaderDead, '杀死领袖标记任务已失败');
+      ok(!s.questDescentBlocked(), '杀死领袖后下行解封');
+      const restoredLeader = restoreSession(serializeSession(s));
+      ok(restoredLeader.questLeaderDead, '领袖死亡随存档保留');
     }
   }
 });
