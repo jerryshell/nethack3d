@@ -802,6 +802,28 @@ async function main(): Promise<void> {
     const shotFile = Bun.file(screenshotPath);
     const bytes = (await shotFile.exists()) ? shotFile.size : 0;
     record('截图已生成且非空白', shot.code === 0 && bytes > 20_000, `字节=${bytes}`);
+
+    // 8. 触屏方向键：?touch=1 强制显示；九个按键都要在，点击能推进回合。
+    run(['agent-browser', '--session', session, 'open', `${baseUrl}?debug=1&touch=1`]);
+    evaluate(
+      session,
+      `(() => { const b = [...document.querySelectorAll('button')].find((x) => /新游戏|New Game/i.test(x.textContent)); b?.click(); return !!b; })()`,
+    );
+    evaluate(
+      session,
+      `(() => { const b = [...document.querySelectorAll('button')].find((x) => /开始下潜|Begin/i.test(x.textContent)); b?.click(); return !!b; })()`,
+    );
+    const touchKeys = evaluate(session, `document.querySelectorAll('.touch-key').length`);
+    run(['agent-browser', '--session', session, 'click', '.touch-key:nth-child(6)']);
+    const touchTurn = evaluate(
+      session,
+      `String(window.__nethack3d ? window.__nethack3d.session.turn : -1)`,
+    );
+    record(
+      '触屏方向键可用',
+      Number(touchKeys.value ?? 0) === 9 && Number(touchTurn.value ?? -1) === 1,
+      `按键=${touchKeys.value} 回合=${touchTurn.value}`,
+    );
   } finally {
     if (!options.keepBrowser) run(['agent-browser', '--session', session, 'close']);
     if (stopServer && !options.keepServer) stopServer();
