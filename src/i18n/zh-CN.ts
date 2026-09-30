@@ -176,6 +176,8 @@ const messages: MessageCatalog = {
     lavaBurn: '踩进了岩浆，被灼伤（-{n} 生命）！',
     lavaResist: '火焰抗性挡下了大半灼热（-{n} 生命）。',
     drowning: '你在深水中挣扎（-{n} 生命）！',
+    planeHeat: '火之位面的热浪灼烧着你（-{n} 生命）！',
+    burnedToDeath: '热浪吞没了你。',
     drownDies: '你沉入水底，不再动弹。',
     waterDrag: '水流拖住了你，一时动弹不得。',
     portalStep: '你踏入传送门，被卷入异界。',

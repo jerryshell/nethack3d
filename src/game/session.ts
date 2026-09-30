@@ -1702,6 +1702,20 @@ export class GameSession {
       this.log('use.hunger');
     }
 
+    // 火之位面本身就是熔炉：没有火焰抗性会被热浪灼伤。
+    if (this.branch === 'planes' && this.level.special === 'plane_fire') {
+      if (!playerResists(p).has('fire')) {
+        const dmg = this.rng.dice(1, 6);
+        this.log('msg.planeHeat', { n: dmg });
+        if (p.takeDamage(dmg)) {
+          this.dead = true;
+          this.log('msg.burnedToDeath');
+          log.warn('玩家被平面热浪烧死', { turn: this.turn, depth: this.depth });
+          return;
+        }
+      }
+    }
+
     this.petUpkeep();
   }
 

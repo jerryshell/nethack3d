@@ -252,6 +252,8 @@ const messages: MessageCatalog = {
     lavaBurn: 'You step into lava and are burned! (-{n} HP)',
     lavaResist: 'Your fire resistance takes the worst of the heat. (-{n} HP)',
     drowning: 'You struggle in deep water! (-{n} HP)',
+    planeHeat: 'The heat of the Plane of Fire sears you! (-{n} HP)',
+    burnedToDeath: 'The heat consumes you.',
     drownDies: 'You sink beneath the water and move no more.',
     waterDrag: 'The current drags at you, and you can barely move.',
     portalStep: 'You step through the portal into the other world.',

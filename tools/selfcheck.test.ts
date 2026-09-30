@@ -4516,6 +4516,25 @@ section('深水与溺水', async () => {
     s.upkeep();
     ok(s.player.hp === 100 && s.player.drowning === 0, '两栖形态不溺水');
   }
+
+  // 火之位面的热浪：没有火焰抗性每回合受伤，有抗性免疫。
+  {
+    const s = new GameSession({ seed: 7103 });
+    s.player.maxHp = 100;
+    s.player.hp = 100;
+    s.changeDepth(3, 'down', 'planes');
+    ok(s.level.special === 'plane_fire', '到达火之位面');
+    s.upkeep();
+    ok(s.player.hp < 100, `火之位面热浪造成伤害（${s.player.hp}）`);
+    ok(
+      s.messages.some((m) => m.key === 'msg.planeHeat'),
+      '记录热浪消息',
+    );
+    s.player.hp = 100;
+    s.player.intrinsics.push('fire');
+    s.upkeep();
+    ok(s.player.hp === 100, '火焰抗性免疫热浪');
+  }
 });
 
 section('铁球惩罚', async () => {
