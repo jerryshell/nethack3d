@@ -51,7 +51,10 @@ const WEARABLE_SLOT = (proto: ObjectData): EquipmentSlot | null =>
   proto.cls === 'armor' ? (proto.slot ?? 'suit') : null;
 
 export function wieldItem(player: Player, item: ItemInstance): { ok: boolean; reason?: string } {
-  if (item.proto.cls !== 'weapon') return { ok: false, reason: 'item.notWeapon' };
+  // 镐类工具（WEPTOOL）也能持握，用来挖墙。
+  if (item.proto.cls !== 'weapon' && item.proto.tool !== 'WEPTOOL') {
+    return { ok: false, reason: 'item.notWeapon' };
+  }
   player.equipment.weapon = item;
   return { ok: true };
 }
@@ -1046,6 +1049,18 @@ export function zapWand(session: GameSession, item: ItemInstance): UseOutcome {
         }
         out.vars = { ...out.vars, mon: target.data.id };
       } else out.key = 'use.nothingHappens';
+      break;
+    }
+    case 'WAN_DIGGING': {
+      const result = session.zapDigging();
+      out.key =
+        result === 'blocked'
+          ? 'use.digBlocked'
+          : result === 'wall'
+            ? 'use.digWall'
+            : result === 'down'
+              ? 'use.digDown'
+              : 'use.nothingHappens';
       break;
     }
     case 'WAN_NOTHING':

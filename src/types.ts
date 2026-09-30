@@ -310,6 +310,10 @@ export interface Level {
   branch?: string | null;
   /** 玩家是否到过该层。 */
   visited?: boolean;
+  /** 瓦片结构版本号；挖墙或设施消失时递增，渲染层据此重建网格。 */
+  revision?: number;
+  /** 运行时被改造过的瓦片下标；存档只记录这些差异。 */
+  changedTiles?: Set<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -655,6 +659,8 @@ export interface SerializedLevel {
   shopRestockAt?: number;
   objects: { x: number; y: number; items: SerializedItem[] }[];
   monsters: SerializedMonster[];
+  /** 与生成结果不同的瓦片：[下标, 瓦片类型]，只存运行时改造过的格子。 */
+  tiles?: [number, number][];
 }
 
 export interface SaveData {

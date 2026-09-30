@@ -39,6 +39,8 @@ export class GameScene {
   private emberTimer = 0;
   rig: CameraRig;
   dungeon: DungeonMesh | null;
+  /** 当前网格对应的瓦片版本号。 */
+  dungeonRevision: number;
   entities: EntityLayer;
   items: ItemLayer;
   /** 命中火花与死亡爆散的粒子池。 */
@@ -93,6 +95,7 @@ export class GameScene {
 
     this.rig = new CameraRig(renderer.camera);
     this.dungeon = null;
+    this.dungeonRevision = 0;
     this.time = 0;
 
     // 光标高亮：一层贴地的细边方框，用叠加混合避免遮挡地形。
@@ -139,10 +142,26 @@ export class GameScene {
       this.dungeon.dispose();
     }
     this.dungeon = new DungeonMesh(level);
+    this.dungeonRevision = level.revision ?? 0;
     this.root.add(this.dungeon);
     this.dungeon.setVisibility(visible);
     this.entities.clearAll();
     this.items.clearAll();
+  }
+
+  /**
+   * 瓦片结构变化（挖墙、设施消失）时重建网格。
+   *
+   * 返回是否真的重建；调用方随后重新同步实体与物品层。
+   */
+  syncLevel(level: Level, visible: Uint8Array | null = null): boolean {
+    if (!this.dungeon || this.dungeon.level !== level) {
+      this.setLevel(level, visible);
+      return true;
+    }
+    if (this.dungeonRevision === (level.revision ?? 0)) return false;
+    this.setLevel(level, visible);
+    return true;
   }
 
   /**

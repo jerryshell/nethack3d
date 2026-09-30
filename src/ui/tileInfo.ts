@@ -7,7 +7,7 @@
 
 import type { GameSession } from '../game/session';
 import type { Level } from '../types';
-import { T, isWalkable } from '../core/constants';
+import { T, isWalkable, isWall } from '../core/constants';
 import { index } from '../game/dungeon';
 import { t } from '../i18n/index';
 import { monsterName, objectName } from '../data/index';
@@ -159,10 +159,16 @@ export function describeTile(session: GameSession, x: number, y: number): TileIn
 
   const tile = level.tiles[i];
   const key = TERRAIN_KEYS[tile] ?? 'stone';
+  const digger = ['PICK_AXE', 'DWARVISH_MATTOCK'].includes(session.player.weapon?.id ?? '');
   return {
     title: t(`terrain.${key}`),
-    // 可行走的地面要点明「可以点」，这是鼠标移动的入口。
-    hint: isWalkable(tile) ? t('tile.walkHint') : undefined,
+    // 可行走的地面要点明「可以点」，这是鼠标移动的入口；
+    // 持镐时提示墙壁可以挖。
+    hint: isWalkable(tile)
+      ? t('tile.walkHint')
+      : digger && isWall(tile)
+        ? t('tile.digHint')
+        : undefined,
     kind: 'terrain',
   };
 }

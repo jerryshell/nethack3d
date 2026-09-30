@@ -37,7 +37,7 @@ import {
 } from './dungeon';
 import { computeFov } from './fov';
 import { createRng, deriveSeed } from '../core/rng';
-import { T, COLNO, MAX_DEPTH, isWalkable, isDoor } from '../core/constants';
+import { T, COLNO, MAX_DEPTH, isWalkable, isDoor, isWall } from '../core/constants';
 import { Player } from './player';
 import { randomCharacter } from './roles';
 import {
@@ -900,7 +900,18 @@ export class GameSession {
       }
     }
 
-    if (!isWalkable(t)) return { result: 'blocked' };
+    if (!isWalkable(t)) {
+      // 持握镐类工具时，向墙壁移动就是挖掘。
+      if (isWall(t) && this.wieldingDigger()) {
+        const dug = this.digWall(nx, ny);
+        if (dug !== 'none') {
+          this.refreshFov();
+          this.finishTurn();
+          return { result: 'moved' };
+        }
+      }
+      return { result: 'blocked' };
+    }
 
     // 巨石：推得动就推到身后一格，推不动就原地不动（不消耗回合）。
     const boulder = this.boulderAt(nx, ny);
@@ -2044,6 +2055,65 @@ export class GameSession {
     }
   }
 
+  /** 瓦片结构变化时记录差异并递增版本号，渲染层据此重建网格。 */
+  private markTilesChanged(tile: number): void {
+    this.level.revision = (this.level.revision ?? 0) + 1;
+    if (!this.level.changedTiles) this.level.changedTiles = new Set();
+    this.level.changedTiles.add(tile);
+  }
+
+  /** 玩家是否持握挖掘工具（镐或矮人锹）。 */
+  private wieldingDigger(): boolean {
+    const id = this.player.weapon?.id;
+    return id === 'PICK_AXE' || id === 'DWARVISH_MATTOCK';
+  }
+
+  /**
+   * 挖掘一格墙。返回结果：dug 挖开、blocked 被规则挡住、none 不是可挖的墙。
+   *
+   * 地图边界不可挖；推箱分支禁止破坏结构，对应原版的挖墙限制。
+   */
+  digWall(x: number, y: number): 'dug' | 'blocked' | 'none' {
+    if (x < 1 || y < 1 || x >= this.level.width - 1 || y >= this.level.height - 1) return 'none';
+    const i = index(x, y);
+    if (!isWall(this.level.tiles[i])) return 'none';
+    if (this.branch === 'sokoban') {
+      this.log('msg.digBlocked');
+      return 'blocked';
+    }
+    this.level.tiles[i] = T.CORR;
+    this.markTilesChanged(i);
+    this.log('msg.digWall');
+    return 'dug';
+  }
+
+  /**
+   * 挖掘魔杖：先挖穿附近最近的墙；没有墙就向下挖一层。
+   *
+   * 返回 blocked 表示推箱层禁止挖掘，wall 表示挖穿墙壁，
+   * down 表示向下开洞并换层，none 表示没有可挖的目标。
+   */
+  zapDigging(): 'blocked' | 'wall' | 'down' | 'none' {
+    if (this.branch === 'sokoban') return 'blocked';
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (let x = 1; x < this.level.width - 1; x++) {
+      for (let y = 1; y < this.level.height - 1; y++) {
+        if (!isWall(this.level.tiles[index(x, y)])) continue;
+        const d = Math.max(Math.abs(x - this.player.x), Math.abs(y - this.player.y));
+        if (d > 8 || d >= bestD) continue;
+        best = { x, y };
+        bestD = d;
+      }
+    }
+    if (best) return this.digWall(best.x, best.y) === 'dug' ? 'wall' : 'none';
+    if (this.depth >= this.maxDepth) return 'none';
+    // 向下打一个洞并立即落下，与踩中地洞陷阱一致。
+    this.level.traps.set(index(this.player.x, this.player.y), { type: 'HOLE', seen: true });
+    this.changeDepth(this.depth + 1, 'down');
+    return 'down';
+  }
+
   pickupAction(): ActionResultInfo {
     if (this.dead) return { result: 'dead' };
     const res = pickupItems(this.player, this.level, {
@@ -2809,6 +2879,7 @@ export class GameSession {
         // 设施破坏后恢复成普通地面，渲染层随 features 一起移除。
         this.level.tiles[tile] = T.ROOM;
         this.level.features.delete(tile);
+        this.markTilesChanged(tile);
         break;
       case 'spawn': {
         const mon = effect.monster ? this.spawnMonsterNear(effect.monster) : null;

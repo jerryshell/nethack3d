@@ -858,6 +858,8 @@ function startGame(options: StartGameOptions = {}): void {
       scene.setPlayer(session.player.x, session.player.y, { immediate: true });
     } else {
       scene.setPlayer(session.player.x, session.player.y);
+      // 挖墙或设施消失会改变瓦片结构，网格要重建并立即补回实体视图。
+      if (scene.syncLevel(session.level, session.visible)) scene.syncEntities(session);
       if (session.lastCombat) {
         const c = session.lastCombat;
         scene.entities.flash(c.monsterId, c.byPlayer ? 0xff4444 : 0x66aaff);

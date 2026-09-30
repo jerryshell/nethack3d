@@ -87,6 +87,9 @@ function serializeLevel(level: Level): SerializedLevel {
       d.broken,
     ]),
     traps: [...level.traps].map(([i, tp]): [number, string, boolean] => [i, tp.type, tp.seen]),
+    ...(level.changedTiles?.size
+      ? { tiles: [...level.changedTiles].map((i): [number, number] => [i, level.tiles[i]]) }
+      : {}),
     features: [...level.features].map(([i, f]): [number, 0 | 1, 0 | 1] => [
       i,
       f.depleted ? 1 : 0,
@@ -299,6 +302,12 @@ export function restoreSession(data: SaveData): GameSession {
       ]),
     );
     level.traps = new Map((ld.traps ?? []).map(([i, type, seen]) => [i, { type, seen: !!seen }]));
+    // 挖开的墙之类的瓦片差异覆盖回去。
+    if (ld.tiles) {
+      level.changedTiles = new Set(ld.tiles.map(([i]) => i));
+      for (const [i, t] of ld.tiles) level.tiles[i] = t;
+      level.revision = 1;
+    }
     if (ld.features) {
       // 只保留存档里仍存在的设施：消失的王座与碎裂的水槽不会复活。
       const kept = new Map<number, FeatureState>();

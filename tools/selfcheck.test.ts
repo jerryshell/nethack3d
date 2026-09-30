@@ -3838,6 +3838,112 @@ section('分支地牢', async () => {
     }
   }
 });
+section('挖掘与地形改造', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory, wieldItem } = await import('../src/game/inventory');
+  const { isWall } = await import('../src/core/constants');
+
+  const emptyNeighborWall = (s: InstanceType<typeof GameSession>) => {
+    for (let x = 1; x < COLNO - 1; x++) {
+      for (let y = 1; y < ROWNO - 1; y++) {
+        if (!isWall(s.level.tiles[index(x, y)])) continue;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as [number, number][]) {
+          const from = { x: x + dx, y: y + dy };
+          if (from.x < 0 || from.y < 0 || from.x >= COLNO || from.y >= ROWNO) continue;
+          if (!isWalkable(s.level.tiles[index(from.x, from.y)])) continue;
+          if (s.level.monsters.some((m) => !m.dead && m.x === from.x && m.y === from.y)) continue;
+          return { wall: { x, y }, from };
+        }
+      }
+    }
+    return null;
+  };
+
+  // 镐类工具可以持握，朝墙走就是挖掘，瓦片版本号随之递增。
+  {
+    const s = new GameSession({ seed: 4242 });
+    const pick = makeItem(objById.get('PICK_AXE') as ObjectData, s.rng);
+    addToInventory(s.player, pick);
+    ok(wieldItem(s.player, pick).ok, '镐类工具可以持握');
+    const spot = emptyNeighborWall(s);
+    ok(!!spot, '地牢里有可挖的墙');
+    if (spot) {
+      s.player.x = spot.from.x;
+      s.player.y = spot.from.y;
+      const before = s.level.revision ?? 0;
+      const result = s.movePlayer(spot.wall.x - spot.from.x, spot.wall.y - spot.from.y);
+      ok(result.result === 'moved', '挖掘消耗一次行动');
+      ok(s.level.tiles[index(spot.wall.x, spot.wall.y)] === T.CORR, '墙被挖成通道');
+      ok((s.level.revision ?? 0) === before + 1, '挖掘递增瓦片版本号');
+      ok(
+        s.messages.some((m) => m.key === 'msg.digWall'),
+        '记录挖掘消息',
+      );
+    }
+  }
+
+  // 推箱分支禁止破坏结构：挖墙只给提示，地形不变。
+  {
+    const s = new GameSession({ seed: 4243 });
+    s.changeDepth(4, 'down', 'sokoban');
+    const pick = makeItem(objById.get('PICK_AXE') as ObjectData, s.rng);
+    addToInventory(s.player, pick);
+    wieldItem(s.player, pick);
+    const spot = emptyNeighborWall(s);
+    ok(!!spot, '推箱层有贴着地面的墙');
+    if (spot) {
+      s.player.x = spot.from.x;
+      s.player.y = spot.from.y;
+      const tile = s.level.tiles[index(spot.wall.x, spot.wall.y)];
+      s.movePlayer(spot.wall.x - spot.from.x, spot.wall.y - spot.from.y);
+      ok(s.level.tiles[index(spot.wall.x, spot.wall.y)] === tile, '推箱层挖不动墙');
+      ok(
+        s.messages.some((m) => m.key === 'msg.digBlocked'),
+        '记录挖墙被挡下的消息',
+      );
+    }
+  }
+
+  // 元素位面是大房间：没有可挖的墙时，挖掘魔杖向下开洞并换层。
+  {
+    const s = new GameSession({ seed: 4244 });
+    s.changeDepth(1, 'down', 'planes');
+    s.player.x = Math.floor(COLNO / 2);
+    s.player.y = Math.floor(ROWNO / 2);
+    const result = s.zapDigging();
+    ok(result === 'down', `挖掘魔杖向下开洞（${result}）`);
+    ok(s.depth === 2, '向下挖后换层');
+    ok(
+      [...s.getBranchLevel('planes', 1).traps.values()].some((t) => t.type === 'HOLE'),
+      '原层留下地洞',
+    );
+  }
+
+  // 挖开的墙随存档保留。
+  {
+    const { serializeSession, restoreSession } = await import('../src/game/save');
+    const s = new GameSession({ seed: 4246 });
+    const pick = makeItem(objById.get('PICK_AXE') as ObjectData, s.rng);
+    addToInventory(s.player, pick);
+    wieldItem(s.player, pick);
+    const spot = emptyNeighborWall(s);
+    ok(!!spot, '存档测试找得到可挖的墙');
+    if (spot) {
+      s.player.x = spot.from.x;
+      s.player.y = spot.from.y;
+      s.movePlayer(spot.wall.x - spot.from.x, spot.wall.y - spot.from.y);
+      const restored = restoreSession(serializeSession(s));
+      ok(restored.level.tiles[index(spot.wall.x, spot.wall.y)] === T.CORR, '存档保留挖开的墙');
+    }
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');
