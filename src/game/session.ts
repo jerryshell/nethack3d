@@ -3835,6 +3835,70 @@ export class GameSession {
     }
     mon.x = choice.x;
     mon.y = choice.y;
+    // 踩中陷阱就地结算：怪物也会中招，浮空的除外。
+    this.monsterTrap(mon);
+  }
+
+  /**
+   * 怪物踩中陷阱，对应原版 mintrap() 的简化版。
+   *
+   * 目前只结算伤害、定身、睡眠与同层传送四类；地洞、楼层传送、
+   * 变形与魔法陷阱对怪物暂不生效（写在已知边界）。飞行的怪物
+   * 从地面陷阱上方掠过，但魔法传送门例外。
+   */
+  monsterTrap(mon: Monster): void {
+    const i = index(mon.x, mon.y);
+    const trap = this.level.traps.get(i);
+    if (!trap) return;
+    const effect = trapEffect(trap.type);
+    if (trap.type !== 'MAGIC_PORTAL' && mon.data.flags.includes('M1_FLY')) return;
+    // 玩家看得见的话，顺带认出这枚陷阱。
+    if (this.visible?.[i] === 1) trap.seen = true;
+    switch (effect.kind) {
+      case 'damage': {
+        if (!effect.dice) break;
+        const dmg = this.rng.dice(effect.dice[0], effect.dice[1]);
+        mon.mhp -= dmg;
+        log.debug('怪物踩中伤害陷阱', { monster: mon.data.id, trap: trap.type, dmg });
+        if (mon.mhp <= 0) this.trapKillMonster(mon);
+        break;
+      }
+      case 'hold': {
+        mon.stasis = Math.max(mon.stasis ?? 0, effect.turns ?? 2);
+        break;
+      }
+      case 'sleep': {
+        mon.asleep = true;
+        break;
+      }
+      case 'teleport': {
+        const spot = this.randomFloorTile();
+        if (spot) {
+          mon.x = spot.x;
+          mon.y = spot.y;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  /**
+   * 怪物踩中陷阱死亡：不计入玩家击杀与经验，掉落与尸体照旧。
+   */
+  private trapKillMonster(mon: Monster): void {
+    if (mon.dead) return;
+    mon.dead = true;
+    log.info('怪物死于陷阱', { monster: mon.data.id, turn: this.turn, depth: this.depth });
+    if (mon.tame) this.log('msg.petDies', { mon: mon.data.id });
+    if (this.rng.chance(0.35)) {
+      const pile = pileAt(this.level, mon.x, mon.y);
+      const gold = makeGold(this.rng, this.depth);
+      if (pile) pile.items.push(gold);
+      else this.level.objects.push({ x: mon.x, y: mon.y, items: [gold] });
+    }
+    this.maybeDropCorpse(mon);
   }
 
   /**

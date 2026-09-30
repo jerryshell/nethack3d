@@ -2077,6 +2077,87 @@ section('怪物开门', async () => {
   }
 });
 
+section('怪物与陷阱', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { Monster } = await import('../src/game/monsters');
+  const { monById } = await import('../src/data/index');
+  const { createRng } = await import('../src/core/rng');
+
+  const s = new GameSession({ seed: 917 });
+  s.level.monsters = [];
+  s.level.traps.clear();
+  s.refreshFov();
+  const spot = (() => {
+    let fallback: { x: number; y: number } | null = null;
+    for (let x = 1; x < s.level.width - 1; x++) {
+      for (let y = 1; y < s.level.height - 1; y++) {
+        if (s.level.tiles[index(x, y)] !== T.ROOM) continue;
+        if (x === s.player.x && y === s.player.y) continue;
+        const at = { x, y };
+        if (s.visible?.[index(x, y)] === 1) return at;
+        fallback ??= at;
+      }
+    }
+    return fallback;
+  })();
+  ok(!!spot, '找得到放置陷阱的地面');
+  if (spot) {
+    const spawn = (id: string): InstanceType<typeof Monster> =>
+      new Monster(monById.get(id) as MonsterData, spot.x, spot.y, createRng(5));
+
+    // 伤害陷阱：怪物掉血，血量不足时死于陷阱、不计入玩家击杀。
+    const kobold = spawn('KOBOLD');
+    kobold.mhp = 100;
+    kobold.mhpmax = 100;
+    s.level.monsters.push(kobold);
+    s.level.traps.set(index(spot.x, spot.y), { type: 'FIRE_TRAP', seen: false });
+    s.monsterTrap(kobold);
+    ok(kobold.mhp < 100, `怪物踩中火焰陷阱掉血（${kobold.mhp}/100）`);
+    ok(s.level.traps.get(index(spot.x, spot.y))?.seen === true, '玩家看得见时陷阱被发现');
+
+    const doomed = spawn('KOBOLD');
+    doomed.mhp = 1;
+    doomed.mhpmax = 1;
+    doomed.tame = true;
+    s.level.monsters.push(doomed);
+    const killsBefore = s.kills;
+    s.monsterTrap(doomed);
+    ok(doomed.dead, '重伤怪物被陷阱打死');
+    ok(s.kills === killsBefore, '陷阱击杀不计入玩家击杀数');
+    ok(
+      s.messages.some((m) => m.key === 'msg.petDies'),
+      '宠物死于陷阱有单独提示',
+    );
+    s.level.monsters = [];
+
+    // 定身、睡眠、传送三类陷阱。
+    const held = spawn('KOBOLD');
+    held.asleep = false;
+    s.level.monsters.push(held);
+    s.level.traps.set(index(spot.x, spot.y), { type: 'BEAR_TRAP', seen: false });
+    s.monsterTrap(held);
+    ok((held.stasis ?? 0) > 0, '捕兽夹困住怪物');
+
+    s.level.traps.set(index(spot.x, spot.y), { type: 'SLEEPING_GAS_TRAP', seen: false });
+    held.asleep = false;
+    s.monsterTrap(held);
+    ok(!!held.asleep, '催眠气体让怪物沉睡');
+
+    s.level.traps.set(index(spot.x, spot.y), { type: 'TELEP_TRAP', seen: false });
+    held.asleep = false;
+    s.monsterTrap(held);
+    ok(held.x !== spot.x || held.y !== spot.y, '传送陷阱把怪物挪走');
+
+    // 飞行的怪物从地面陷阱上方掠过。
+    const bee = spawn('KILLER_BEE');
+    bee.mhp = 100;
+    s.level.monsters.push(bee);
+    s.level.traps.set(index(spot.x, spot.y), { type: 'FIRE_TRAP', seen: false });
+    s.monsterTrap(bee);
+    ok(bee.mhp === 100, '飞行的怪物不触发地面陷阱');
+  }
+});
+
 section('巨石', async () => {
   {
     const { GameSession } = await import('../src/game/session');
