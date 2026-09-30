@@ -51,6 +51,8 @@ const messages: MessageCatalog = {
     depthLabel: 'Depth',
     seed: '{seed}',
     seedLabel: 'Seed',
+    history: 'Log',
+    historyHint: 'Review all messages',
     dump: 'Dump',
     dumpHint: 'Export seed, map, state and logs for bug reports',
     hitPoints: '{hp}/{max}',
@@ -107,6 +109,9 @@ const messages: MessageCatalog = {
     effectPetrifying: 'Petrifying!',
     controls:
       'Click the floor to walk there · Move: arrows/hjkl · Pick up: g · Pack: i · Help: ? · Camera: drag/wheel · Esc: menu',
+  },
+  history: {
+    title: 'Message log',
   },
   dump: {
     title: 'State dump',

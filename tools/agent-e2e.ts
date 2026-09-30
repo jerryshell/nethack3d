@@ -422,6 +422,26 @@ async function main(): Promise<void> {
       `种子 ${idData.seed}（应为 ${idData.expectedSeed}）· 层数 ${idData.depth}（应为 ${idData.expectedDepth}）`,
     );
 
+    // 5b3b. 消息历史：按钮弹出消息列表，可关闭。
+    const history = evaluate(
+      session,
+      `(() => {
+        const btn = document.querySelector('[data-i18n="hud.history"]');
+        if (!btn) return JSON.stringify({ error: 'missing button' });
+        btn.click();
+        const rows = document.querySelectorAll('.history-row').length;
+        const close = document.querySelector('.history-mask [data-i18n="dump.close"]');
+        if (close) close.click();
+        return JSON.stringify({ rows, closed: !document.querySelector('.history-mask') });
+      })()`,
+    );
+    const historyData = (history.value ?? {}) as Record<string, unknown>;
+    record(
+      '消息历史可查看',
+      Number(historyData.rows ?? 0) >= 3 && historyData.closed === true,
+      `消息=${historyData.rows}`,
+    );
+
     // 5b4. 状态效果标签：设置失明与石化后 HUD 出现对应词条。
     const effects = evaluate(
       session,

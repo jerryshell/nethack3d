@@ -143,11 +143,11 @@ printf 'new seed=7\nmove e\nmonsters\ninvariants\nmap 12\nquit\n' | bun tools/ag
 
 ## 浏览器端到端
 
-`bun run agent:e2e` 用 agent-browser 驱动真实浏览器，检查 30 项：
+`bun run agent:e2e` 用 agent-browser 驱动真实浏览器，检查 31 项：
 应用启动、调试句柄、画布与 WebGL、角色创建、进入会话、按键推进回合、
 目标与情境操作、种子与层数、状态转储、画布命中与点击移动、悬停提示、
 拖拽视角、背包菜单、门板位置与朝向、渲染开销、素材加载、实时阴影、
-截图非空白与触屏方向键（`?touch=1` 强制显示）。
+截图非空白、触屏方向键（`?touch=1` 强制显示）与消息历史面板。
 
 服务未启动时自动拉起；未安装 agent-browser 时输出 `skipped` 并以 0 退出，
 因此纯逻辑开发不会因此受阻。

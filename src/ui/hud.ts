@@ -17,7 +17,7 @@ import { createMinimap } from './minimap';
 import { statusIconSvg } from './icons';
 import { buildDump, dumpFileName } from './dump';
 import { alignDisplayName } from '../data/i18n';
-import { isMuted, setMuted } from '../core/audio';
+import { isMuted, playSfx, setMuted } from '../core/audio';
 
 /** 情境操作：由调用方根据当前局面生成。 */
 export interface HudAction {
@@ -48,6 +48,10 @@ export interface HudHandle {
   dumpOpen(): boolean;
   /** 关闭转储弹窗；未打开时返回 false。 */
   closeDump(): boolean;
+  /** 消息历史弹窗是否打开。 */
+  historyOpen(): boolean;
+  /** 关闭消息历史弹窗；未打开时返回 false。 */
+  closeHistory(): boolean;
   destroy(): void;
 }
 
@@ -89,6 +93,12 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
   });
 
   const dumpBtn = document.createElement('button');
+  const historyBtn = document.createElement('button');
+  historyBtn.className = 'btn ghost small';
+  historyBtn.dataset.i18n = 'hud.history';
+  historyBtn.title = t('hud.historyHint');
+  historyBtn.addEventListener('click', () => openHistory());
+
   dumpBtn.className = 'btn ghost small';
   dumpBtn.dataset.i18n = 'hud.dump';
   dumpBtn.title = t('hud.dumpHint');
@@ -99,7 +109,7 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
   exitBtn.dataset.i18n = 'menu.back';
   exitBtn.addEventListener('click', () => onExit?.());
 
-  actions.append(langBtn, muteBtn, dumpBtn, exitBtn);
+  actions.append(langBtn, muteBtn, historyBtn, dumpBtn, exitBtn);
   top.append(stats, actions);
 
   const center = document.createElement('div');
@@ -373,6 +383,8 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
 
   /** 转储弹窗：只保留一份，关掉即销毁。 */
   let dumpMask: HTMLElement | null = null;
+  /** 消息历史弹窗：只保留一份，关掉即销毁。 */
+  let historyMask: HTMLElement | null = null;
   /** 最近一次渲染的会话，转储按钮据此取状态。 */
   let current: GameSession | null = null;
 
@@ -380,6 +392,54 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     if (!dumpMask) return false;
     dumpMask.remove();
     dumpMask = null;
+    return true;
+  }
+
+  /** 打开消息历史：最新的消息排在最上面，每行带回合数。 */
+  function openHistory(): void {
+    const session = current;
+    if (!session || historyMask) return;
+
+    const mask = document.createElement('div');
+    mask.className = 'mask history-mask';
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog history';
+
+    const title = document.createElement('h2');
+    title.dataset.i18n = 'history.title';
+
+    const list = document.createElement('div');
+    list.className = 'history-list';
+    for (const message of [...session.messages].reverse()) {
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      const turn = document.createElement('span');
+      turn.className = 'history-turn';
+      turn.textContent = String(message.turn);
+      row.append(turn, document.createTextNode(formatMessage(message)));
+      list.append(row);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn ghost';
+    closeBtn.dataset.i18n = 'dump.close';
+    closeBtn.addEventListener('click', () => closeHistory());
+    dialog.append(title, list, closeBtn);
+    mask.append(dialog);
+    mask.addEventListener('click', (event) => {
+      if (event.target === mask) closeHistory();
+    });
+    el.append(mask);
+    historyMask = mask;
+    applyI18n(mask);
+    playSfx('open', { gain: 0.6 });
+  }
+
+  function closeHistory(): boolean {
+    if (!historyMask) return false;
+    historyMask.remove();
+    historyMask = null;
+    playSfx('close', { gain: 0.6 });
     return true;
   }
 
@@ -472,8 +532,11 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     setPath: (points) => minimap.setPath(points),
     dumpOpen: () => dumpMask !== null,
     closeDump,
+    historyOpen: () => historyMask !== null,
+    closeHistory,
     destroy() {
       closeDump();
+      closeHistory();
       offLocale();
       el.remove();
     },

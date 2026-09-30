@@ -902,3 +902,27 @@ body {
   vertical-align: -0.15em;
   margin-right: 0.25em;
 }
+
+/* ---------- 消息历史弹窗 ---------- */
+.history-list {
+  max-height: 55vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.25rem 0;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--ink-dim);
+}
+
+.history-row {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.history-turn {
+  color: var(--gold);
+  min-width: 3.2em;
+  text-align: right;
+}

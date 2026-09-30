@@ -50,6 +50,8 @@ const messages: MessageCatalog = {
     depthLabel: '地牢',
     seed: '{seed}',
     seedLabel: '种子',
+    history: '消息',
+    historyHint: '查看全部消息',
     dump: '转储',
     dumpHint: '导出种子、地图、状态与日志，便于反馈问题',
     hitPoints: '{hp}/{max}',
@@ -106,6 +108,9 @@ const messages: MessageCatalog = {
     effectPetrifying: '石化中！',
     controls:
       '点击地面即可走过去 · 移动：方向键/hjkl · 拾取：g · 背包：i · 帮助：? · 视角：拖拽/滚轮 · Esc：菜单',
+  },
+  history: {
+    title: '消息记录',
   },
   dump: {
     title: '状态转储',
