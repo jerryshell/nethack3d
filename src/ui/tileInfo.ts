@@ -103,7 +103,7 @@ export function describeTile(session: GameSession, x: number, y: number): TileIn
 
   const monster = level.monsters.find((m) => m.x === x && m.y === y && m.mhp > 0);
   if (monster) {
-    // 伪装的拟形怪只显示成它罗装的东西，撞上去才会现形。
+    // 伪装的拟形怪只显示成它伪装的东西，撞上去才会现形。
     if (monster.disguise) {
       return { title: objectName(monster.disguise), hint: t('tile.attackHint'), kind: 'monster' };
     }

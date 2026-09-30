@@ -1558,7 +1558,7 @@ const throwing: Scenario = {
       checker.attachDump(() => describeState(session));
 
       const data = monById.get('GIANT_ANT') as MonsterData;
-      // 目标要站得住，且在玩家视野内，否则投掷会自动矄不上。
+      // 目标要站得住，且在玩家视野内，否则投掷会自动打空。
       const fov = computeFov(level, player.x, player.y, 12, { remember: false });
       const candidates: { x: number; y: number }[] = [];
       for (let x = 1; x < level.width - 1; x++) {

@@ -1080,7 +1080,7 @@ export class GameSession {
   }
 
   /**
-   * 投掷一件物品：自动矄准视野内最近的敌对怪物。
+   * 投掷一件物品：自动瞄准视野内最近的敌对怪物。
    *
    * 命中后造成武器伤害，物品落在目标格供回收；掷空时不消耗物品。
    */
@@ -3273,7 +3273,7 @@ export class GameSession {
    */
   monsterAttack(mon: Monster): void {
     const resists = playerResists(this.player);
-    // 现出原形才能作战：伪装的拟形怪一旦出手就不再罗装。
+    // 现出原形才能作战：伪装的拟形怪一旦出手就不再伪装。
     if (mon.disguise) mon.disguise = null;
     this.maybeTaunt(mon);
     let index2 = 0;
