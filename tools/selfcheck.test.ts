@@ -5528,6 +5528,36 @@ section('职业神器', async () => {
     ok(again?.artifact === 'tsurugi_of_muramasa', '神器随存档保留');
   }
 
+  // 任务目标层的仇敌守在巢穴里：一间带门的石室，神器与仇敌都在室内。
+  {
+    const { QUEST_LAIR } = await import('../src/game/dungeon');
+    const { auditDoors } = await import('./agent-lib');
+    const s = new GameSession({
+      seed: 4244,
+      character: {
+        role: roleById.ARCHEOLOGIST,
+        race: raceById.HUMAN,
+        align: 'neutral' as const,
+        gender: 'male' as const,
+      },
+    });
+    s.changeDepth(5, 'down', 'quest');
+    const lair = QUEST_LAIR;
+    const inside = (x: number, y: number) =>
+      x >= lair.lx && x <= lair.hx && y >= lair.ly && y <= lair.hy;
+    const nemesis = s.level.monsters.find((m) => m.data.id === s.character.role.quest.nemesis);
+    ok(!!nemesis && inside(nemesis.x, nemesis.y), '仇敌守在巢穴里');
+    const artifactPile = s.level.objects.find((p) => p.items.some((i) => i.artifact));
+    ok(!!artifactPile && inside(artifactPile.x, artifactPile.y), '神器放在巢穴里');
+    ok(s.level.doors.size === 1, `巢穴只开一扇门（${s.level.doors.size}）`);
+    const audit = auditDoors(s.level);
+    ok(
+      audit.problems.length === 0,
+      `巢穴的门满足形状审计（${audit.problems.join(';') || '通过'}）`,
+    );
+    ok(!!s.level.up && !inside(s.level.up.x, s.level.up.y), '入口楼梯在巢穴外');
+  }
+
   // 部分职业的任务总部是露天营地/洞穴，用大房间布局；其余用普通房间。
   {
     const character = (role: typeof roleById.SAMURAI) => ({

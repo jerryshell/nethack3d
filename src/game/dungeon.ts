@@ -650,10 +650,16 @@ function freeTiles(
 function placeStairs(
   level: Level,
   rng: Rng,
-  opts: { isBranch?: boolean; isBottom?: boolean } = {},
+  opts: {
+    isBranch?: boolean;
+    isBottom?: boolean;
+    /** 不能落楼梯的瓦片（例如任务巢穴的室内）；按下标判断。 */
+    avoidTiles?: (i: number) => boolean;
+  } = {},
 ): void {
   const rooms = level.rooms;
   if (!rooms.length) return;
+  const avoid = opts.avoidTiles ?? ((): boolean => false);
   const startRoom = rooms[0];
   const sc = roomCenter(startRoom);
 
@@ -674,7 +680,7 @@ function placeStairs(
       const x = rng.rn1(room.lx, room.hx - room.lx + 1);
       const y = rng.rn1(room.ly, room.hy - room.ly + 1);
       const i = index(x, y);
-      if (level.tiles[i] === T.ROOM) {
+      if (level.tiles[i] === T.ROOM && !avoid(i)) {
         level.tiles[i] = T.STAIRS;
         level.stairs.push({ x, y, dir: glyph });
         return { x, y };
@@ -820,6 +826,31 @@ function carveBigRoom(level: Level): void {
   };
   level.rooms = [room];
   carveRooms(level, level.rooms);
+}
+
+/** 任务目标层仇敌巢穴的室内范围（含），随大厅布局固定。 */
+export const QUEST_LAIR = { lx: 34, ly: 7, hx: 46, hy: 14 } as const;
+
+/**
+ * 任务目标层的仇敌巢穴：大厅中央一间石室，只在南墙开一扇门。
+ *
+ * 在 computeWalls 之前把环墙置回石头，墙体类型由它统一计算；
+ * 门留在南墙中点，满足「前后通道、两侧墙」的审计规则。
+ */
+function carveLairChamber(level: Level): void {
+  const { lx, ly, hx, hy } = QUEST_LAIR;
+  for (let x = lx - 1; x <= hx + 1; x++) {
+    level.tiles[index(x, ly - 1)] = T.STONE;
+    level.tiles[index(x, hy + 1)] = T.STONE;
+  }
+  for (let y = ly; y <= hy; y++) {
+    level.tiles[index(lx - 1, y)] = T.STONE;
+    level.tiles[index(hx + 1, y)] = T.STONE;
+  }
+  // 南墙开门：门两侧是墙，前后是地面。
+  const doorX = (lx + hx) >> 1;
+  level.tiles[index(doorX, hy + 1)] = T.DOOR;
+  level.doors.set(index(doorX, hy + 1), { closed: true, locked: false, broken: false });
 }
 
 /** 额外放置同类设施（大墓地的坟墓、神谕所的喷泉）。 */
@@ -1282,6 +1313,7 @@ function generateLevelCore({
     !!branchDef?.quest && depth === 1 && !!questRole && OPEN_HOME_ROLES.has(questRole);
   if (special?.layout === 'bigRoom' || questGoal || questHome) {
     carveBigRoom(level);
+    if (questGoal) carveLairChamber(level);
   } else {
     level.rooms = placeRooms(level, rng);
     if (level.rooms.length < 3) {
@@ -1293,7 +1325,23 @@ function generateLevelCore({
     placeDoors(level, rng);
   }
   computeWalls(level);
-  placeStairs(level, rng, { isBranch: !!branch, isBottom: !!branch && depth >= levels });
+  // 巢穴的室内不落楼梯，玩家要从门进去。
+  const inLair = (i: number): boolean => {
+    const x = i % COLNO;
+    const y = (i / COLNO) | 0;
+    return (
+      questGoal &&
+      x >= QUEST_LAIR.lx &&
+      x <= QUEST_LAIR.hx &&
+      y >= QUEST_LAIR.ly &&
+      y <= QUEST_LAIR.hy
+    );
+  };
+  placeStairs(level, rng, {
+    isBranch: !!branch,
+    isBottom: !!branch && depth >= levels,
+    avoidTiles: questGoal ? inLair : undefined,
+  });
   if (!branch) {
     const entrance = branchByEntrance(depth);
     // 隐藏分支（异界）的入口由仪式开启，不在生成时铺楼梯。

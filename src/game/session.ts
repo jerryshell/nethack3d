@@ -34,6 +34,7 @@ import {
   inRoom,
   inShopRoom,
   shopRoom,
+  QUEST_LAIR,
 } from './dungeon';
 import { computeFov } from './fov';
 import { createRng, deriveSeed } from '../core/rng';
@@ -477,6 +478,8 @@ export class GameSession {
 
   /** 任务目标层的落点：不进商店，尽量远离入口楼梯。 */
   private questGoalSpot(level: Level): { x: number; y: number } | null {
+    // 任务目标层的仇敌守在巢穴里：只在室内挑落点，玩家要破门而入。
+    const lair = level.special === 'quest_goal' ? QUEST_LAIR : null;
     const far: { x: number; y: number }[] = [];
     const near: { x: number; y: number }[] = [];
     for (let x = 1; x < level.width - 1; x++) {
@@ -487,6 +490,11 @@ export class GameSession {
         if (x === this.player.x && y === this.player.y) continue;
         if (monsterAt(level, x, y)) continue;
         const spot = { x, y };
+        if (lair) {
+          if (x < lair.lx || x > lair.hx || y < lair.ly || y > lair.hy) continue;
+          near.push(spot);
+          continue;
+        }
         if (Math.abs(x - this.player.x) + Math.abs(y - this.player.y) >= 8) far.push(spot);
         else near.push(spot);
       }
