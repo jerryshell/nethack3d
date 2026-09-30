@@ -4143,6 +4143,22 @@ export class GameSession {
         this.log('msg.monSleep', { mon: monId });
         return;
       }
+      // 疾病与瘟疫：已有病时病情加重，否则按体质决定时长（原版 diseasemu）。
+      case 'AD_DISE':
+      case 'AD_PEST': {
+        if (player.sick > 0) player.sick = Math.floor(player.sick / 3) + 1;
+        else player.sick = 20 + this.rng.rn2(Math.max(1, player.con));
+        this.log('msg.monDisease', { mon: monId });
+        damage(Math.max(1, roll()), 'msg.monDiseaseHit');
+        return;
+      }
+      // 饥荒触碰：额外消耗饱食度，另外照常造成伤害（原版 morehungry）。
+      case 'AD_FAMN': {
+        player.hunger = Math.max(0, player.hunger - (40 + this.rng.rn2(40)));
+        this.log('msg.monFamine', { mon: monId });
+        damage(Math.max(1, roll()), 'msg.monFamineHit');
+        return;
+      }
       case 'AD_PLYS':
       case 'AD_STCK': {
         if (resists.has('hold')) {
@@ -4341,7 +4357,8 @@ export class GameSession {
         return;
       }
       default: {
-        // 少数没有对应机制的攻击（死亡触碰、瘟疫、反魔法等）保留骰子伤害。
+        // 少数没有对应机制的攻击（死亡触碰、反魔法等）保留骰子伤害。`AD_DETH`
+        // 在原版对玩家也只有骰子伤害，即死效果只作用于怪物。
         let dmg = monsterDamage(mon, { at: '', ad, dice }, this.rng);
         if (dmg > 0 && player.ac < 0) {
           dmg -= this.rng.rnd(-player.ac);

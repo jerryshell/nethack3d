@@ -1018,6 +1018,29 @@ section('抗性与特殊攻击', async () => {
     s.attackMonster(cock);
     ok(s.player.petrifying === 0, '手持武器时不会被动石化');
   }
+
+  // 疾病与饥荒：瘟疫让人生病、饥荒额外消耗饱食度，另外照常造成伤害。
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.hp = s.player.maxHp = 200;
+    s.player.sick = 0;
+    s.monsterAttack(foe(s, 'AD_PEST', [1, 1]));
+    ok(s.player.sick > 0, `瘟疫攻击让人生病（${s.player.sick}）`);
+    ok(s.player.hp < 200, '瘟疫攻击照常造成伤害');
+  }
+  {
+    const s = new GameSession({ seed: 4242 });
+    s.player.hunger = 900;
+    s.monsterAttack(foe(s, 'AD_FAMN', [1, 1]));
+    ok(s.player.hunger <= 860, `饥荒攻击额外消耗饱食度（${s.player.hunger}）`);
+  }
+  {
+    // 已有病时疫病加重而不是重新计时，对应原版的 Sick/3 + 1。
+    const s = new GameSession({ seed: 4242 });
+    s.player.sick = 60;
+    s.monsterAttack(foe(s, 'AD_DISE', [1, 1]));
+    ok(s.player.sick === 21, `已有疾病时病情加重（${s.player.sick}）`);
+  }
 });
 section('物品与背包', async () => {
   {
