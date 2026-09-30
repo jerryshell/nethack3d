@@ -196,6 +196,7 @@ export function createHud({ onExit }: HudOptions = {}): HudHandle {
     ];
     if (session.hasTelepathy()) all.push([1, 'hud.effectTelepathy', false]);
     if (session.hasLevitation()) all.push([1, 'hud.effectLevitation', false]);
+    if (p.drowning > 0) all.push([p.drowning, 'hud.effectDrowning', true]);
     if (session.hasInvisibility()) all.push([1, 'hud.effectInvisible', false]);
     if (session.player.senseObjects > 0) all.push([1, 'hud.effectSenseObjects', false]);
     if (session.player.senseGold > 0) all.push([1, 'hud.effectSenseGold', false]);

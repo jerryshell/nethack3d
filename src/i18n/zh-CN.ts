@@ -97,6 +97,7 @@ const messages: MessageCatalog = {
     effectHasted: '加速中',
     effectTelepathy: '心灵感应',
     effectLevitation: '浮空',
+    effectDrowning: '溺水',
     effectPetrifying: '石化中！',
     controls:
       '点击地面即可走过去 · 移动：方向键/hjkl · 拾取：g · 背包：i · 帮助：? · 视角：拖拽/滚轮 · Esc：菜单',
@@ -170,6 +171,8 @@ const messages: MessageCatalog = {
     victory: '夺得尤恩多护身符。',
     lavaBurn: '踩进了岩浆，被灼伤（-{n} 生命）！',
     lavaResist: '火焰抗性挡下了大半灼热（-{n} 生命）。',
+    drowning: '你在深水中挣扎（-{n} 生命）！',
+    drownDies: '你沉入水底，不再动弹。',
     waterDrag: '水流拖住了你，一时动弹不得。',
     portalStep: '你踏入传送门，被卷入异界。',
     invocationNoSquare: '你并不站在振动方块上。',

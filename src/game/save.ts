@@ -161,6 +161,7 @@ export function serializeSession(session: GameSession): SaveData {
       petrifying: p.petrifying ?? 0,
       hasted: p.hasted ?? 0,
       levitating: p.levitating ?? 0,
+      drowning: p.drowning ?? 0,
       sick: p.sick ?? 0,
       alignRecord: p.alignRecord ?? 0,
       prayerTimeout: p.prayerTimeout ?? 0,
@@ -264,6 +265,7 @@ export function restoreSession(data: SaveData): GameSession {
   player.petrifying = p.petrifying ?? 0;
   player.hasted = p.hasted ?? 0;
   player.levitating = p.levitating ?? 0;
+  player.drowning = p.drowning ?? 0;
   player.sick = p.sick ?? 0;
   player.alignRecord = p.alignRecord ?? 0;
   player.prayerTimeout = p.prayerTimeout ?? 0;

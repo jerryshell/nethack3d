@@ -457,6 +457,8 @@ export interface Player {
   hasted: number;
   /** 浮空剩余回合；大于 0 时飘浮，可越过虚空与地面陷阱。 */
   levitating: number;
+  /** 溺水累积回合；站在深水里时递增，脱离后归零。 */
+  drowning: number;
   /** 疾病剩余回合；大于 0 时停止自然回复并周期性掉血。 */
   sick: number;
   /** 阵营记录：正数表示神满意，负数表示失望，范围 [-128, 127]。 */
@@ -722,6 +724,8 @@ export interface SaveData {
     sick?: number;
     /** 浮空剩余回合。 */
     levitating?: number;
+    /** 溺水累积回合。 */
+    drowning?: number;
     alignRecord?: number;
     prayerTimeout?: number;
     form?: { id: string; turns: number } | null;

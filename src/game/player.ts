@@ -96,6 +96,8 @@ export class Player implements PlayerState {
   hasted: number;
   /** 浮空剩余回合；大于 0 时飘浮。 */
   levitating: number;
+  /** 溺水累积回合；站在水里递增。 */
+  drowning: number;
   /** 疾病剩余回合；大于 0 时停止自然回复并周期性掉血。 */
   sick: number;
   /** 阵营记录与祈祷冷却。 */
@@ -181,6 +183,7 @@ export class Player implements PlayerState {
     this.petrifying = 0;
     this.hasted = 0;
     this.levitating = 0;
+    this.drowning = 0;
     this.sick = 0;
     this.alignRecord = 0;
     this.prayerTimeout = 0;

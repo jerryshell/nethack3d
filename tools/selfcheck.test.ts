@@ -4289,6 +4289,49 @@ section('浮空', async () => {
   }
 });
 
+section('深水与溺水', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { T } = await import('../src/core/constants');
+
+  const standOnWater = (s: InstanceType<typeof GameSession>) => {
+    s.level.tiles[index(s.player.x, s.player.y)] = T.WATER;
+  };
+
+  // 不会游泳又没有浮空：每回合受伤。
+  {
+    const s = new GameSession({ seed: 7101 });
+    s.player.maxHp = 100;
+    s.player.hp = 100;
+    standOnWater(s);
+    s.upkeep();
+    ok(s.player.hp < 100, `深水造成溺水伤害（${s.player.hp}）`);
+    ok(s.player.drowning > 0, '溺水计数递增');
+    ok(
+      s.messages.some((m) => m.key === 'msg.drowning'),
+      '记录溺水消息',
+    );
+    // 离开水面后计数归零。
+    s.level.tiles[index(s.player.x, s.player.y)] = T.ROOM;
+    s.upkeep();
+    ok(s.player.drowning === 0, '离开水面后溺水计数归零');
+  }
+
+  // 浮空与会游泳的形态都能免除溺水。
+  {
+    const s = new GameSession({ seed: 7102 });
+    s.player.maxHp = 100;
+    s.player.hp = 100;
+    s.player.levitating = 5;
+    standOnWater(s);
+    s.upkeep();
+    ok(s.player.hp === 100 && s.player.drowning === 0, '浮空不溺水');
+    s.player.levitating = 0;
+    s.player.form = { id: 'GIANT_EEL', turns: 10 };
+    s.upkeep();
+    ok(s.player.hp === 100 && s.player.drowning === 0, '两栖形态不溺水');
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');

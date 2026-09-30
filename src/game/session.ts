@@ -550,6 +550,13 @@ export class GameSession {
     );
   }
 
+  /** 当前形态是否会游泳或两栖；原形不会游泳，需要浮空过深水。 */
+  playerSwims(): boolean {
+    const form = this.player.formData;
+    if (!form) return false;
+    return form.flags.includes('M1_SWIM') || form.flags.includes('M1_AMPHIBIOUS');
+  }
+
   /**
    * 与身边的职业任务领袖交谈。
    *
@@ -988,7 +995,7 @@ export class GameSession {
     if (gold > 0) this.log('msg.gold', { n: gold });
     this.refreshFov();
 
-    // 元素位面的地表：岩浆灼伤，水流拖慢脚步；浮空时从上方飘过。
+    // 元素位面的地表：岩浆灼伤，水流与溺水由 upkeep 逐回合结算。
     const tileNow = this.tileAt(nx, ny);
     if (!levitating && tileNow === T.LAVA) {
       const rolled = this.rng.dice(2, 6);
@@ -999,9 +1006,6 @@ export class GameSession {
         this.dead = true;
         return { result: 'dead' };
       }
-    } else if (!levitating && tileNow === T.WATER && this.rng.chance(0.25)) {
-      this.player.held = Math.max(this.player.held, 1);
-      this.log('msg.waterDrag');
     }
 
     // 踩中陷阱：可能受伤、被传走或掉到下一层。
@@ -1562,6 +1566,24 @@ export class GameSession {
     if (p.levitating > 0) {
       p.levitating--;
       if (p.levitating === 0) this.log('msg.levitateEnd');
+    }
+    // 深水：浮空、会游泳的形态或水上行走装备才能免除溺水。
+    const watery =
+      this.tileAt(p.x, p.y) === T.WATER ||
+      this.tileAt(p.x, p.y) === T.POOL ||
+      this.tileAt(p.x, p.y) === T.MOAT;
+    if (watery && !this.hasLevitation() && !this.playerSwims()) {
+      p.drowning++;
+      const dmg = this.rng.dice(1, 6);
+      this.log('msg.drowning', { n: dmg });
+      if (p.takeDamage(dmg)) {
+        this.dead = true;
+        this.log('msg.drownDies');
+        log.warn('玩家溺死', { turn: this.turn, depth: this.depth });
+        return;
+      }
+    } else if (p.drowning > 0) {
+      p.drowning = 0;
     }
     if (p.blind > 0) {
       p.blind--;

@@ -98,6 +98,7 @@ const messages: MessageCatalog = {
     effectHasted: 'Hasted',
     effectTelepathy: 'Telepathy',
     effectLevitation: 'Levitating',
+    effectDrowning: 'Drowning',
     effectPetrifying: 'Petrifying!',
     controls:
       'Click the floor to walk there · Move: arrows/hjkl · Pick up: g · Pack: i · Help: ? · Camera: drag/wheel · Esc: menu',
@@ -244,6 +245,8 @@ const messages: MessageCatalog = {
     victory: 'You have the Amulet of Yendor!',
     lavaBurn: 'You step into lava and are burned! (-{n} HP)',
     lavaResist: 'Your fire resistance takes the worst of the heat. (-{n} HP)',
+    drowning: 'You struggle in deep water! (-{n} HP)',
+    drownDies: 'You sink beneath the water and move no more.',
     waterDrag: 'The current drags at you, and you can barely move.',
     portalStep: 'You step through the portal into the other world.',
     invocationNoSquare: 'You are not standing on the vibrating square.',
