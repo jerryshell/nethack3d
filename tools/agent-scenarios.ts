@@ -35,7 +35,7 @@ import { MAX_DEPTH } from '../src/game/session';
 import { BRANCHES } from '../src/game/branches';
 import { index, inRoom, shopRoom } from '../src/game/dungeon';
 import { makeItem, SHOP_TYPES, shopBuyPrice, shopSellPrice } from '../src/game/items';
-import { addToInventory, wearItem } from '../src/game/inventory';
+import { addToInventory, wearItem, wieldItem } from '../src/game/inventory';
 import { clearBones, loadBones, saveBones } from '../src/game/bones';
 import { Monster } from '../src/game/monsters';
 import { monById, objById } from '../src/data/index';
@@ -530,8 +530,40 @@ const invocation: Scenario = {
         session.level.special ?? '-',
         call,
       );
+      // 土之位面没楼梯：拾起保底镐，向下挖穿地板到气之位面。
+      const pick = session.level.objects.flatMap((p) => p.items).find((i) => i.id === 'PICK_AXE');
+      checker.ok(!!pick, '土之位面放着保底镐', '', call);
+      checker.ok(!session.level.down, '土之位面没有下行楼梯', '', call);
+      if (pick) {
+        addToInventory(session.player, pick);
+        wieldItem(session.player, pick);
+        session.player.hp = session.player.maxHp;
+        const spot = (
+          [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as [number, number][]
+        )
+          .map(([dx, dy]) => ({ x: session.player.x + dx, y: session.player.y + dy }))
+          .find((p) => session.level.tiles[index(p.x, p.y)] === T.ROOM);
+        if (spot) {
+          session.player.x = spot.x;
+          session.player.y = spot.y;
+        }
+        for (let n = 0; n < 3; n++) {
+          session.player.hp = session.player.maxHp;
+          session.digDown();
+        }
+        checker.ok(
+          session.level.special === 'plane_air',
+          '挖穿土之位面到达气之位面',
+          session.level.special ?? '-',
+          call,
+        );
+      }
       const planes: [number, string][] = [
-        [2, 'plane_air'],
         [3, 'plane_fire'],
         [4, 'plane_water'],
         [5, 'astral'],
