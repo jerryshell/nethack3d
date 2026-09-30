@@ -559,24 +559,62 @@ function readScroll(session: GameSession, item: ItemInstance): UseOutcome {
         session.player.equipment.suit ??
         session.player.equipment.shield ??
         session.player.equipment.helm;
-      if (armor) {
-        armor.enchant += item.buc === 'blessed' ? 2 : item.buc === 'cursed' ? -1 : 1;
-        out.key = 'use.enchantArmor';
-        out.vars = { obj: armor.proto.id, bonus: armor.enchant };
-      } else {
+      if (!armor) {
         out.key = 'use.nothingHappens';
+        break;
       }
+      // 精灵护甲与巫师冠能承更强的附魔；顺着当前方向超过阈值有蒸发风险。
+      const special = armor.proto.id.startsWith('ELVEN_') || armor.proto.id === 'CORNUTHAUM';
+      const limit = special ? 5 : 3;
+      const spe = item.buc === 'cursed' ? -armor.enchant : armor.enchant;
+      if (spe > limit && rng.rn2(spe) !== 0) {
+        removeFromInventory(session.player, armor);
+        out.key = 'use.enchantArmorEvaporate';
+        out.vars = { obj: armor.proto.id };
+        break;
+      }
+      // 附魔收益随强度递减；祝福卷轴与精灵护甲更有效。
+      let power = Math.floor((4 - spe) / 2);
+      if (special) power++;
+      if (item.buc === 'blessed') power++;
+      if (power <= 0) {
+        power = armor.enchant > 0 && rng.rn2(armor.enchant) === 0 ? 1 : 0;
+      } else {
+        power = rng.rnd(power);
+      }
+      if (power > 11) power = 11;
+      if (item.buc === 'cursed') power = -power;
+      armor.enchant += power;
+      out.key = power === 0 ? 'use.enchantNothing' : 'use.enchantArmor';
+      out.vars = { obj: armor.proto.id, bonus: armor.enchant };
       break;
     }
     case 'SCR_ENCHANT_WEAPON': {
       const weapon = session.player.weapon;
-      if (weapon) {
-        weapon.enchant += item.buc === 'blessed' ? 2 : item.buc === 'cursed' ? -1 : 1;
-        out.key = 'use.enchantWeapon';
-        out.vars = { obj: weapon.proto.id, bonus: weapon.enchant };
-      } else {
+      if (!weapon) {
         out.key = 'use.nothingHappens';
+        break;
       }
+      // 附魔收益随强度递减：+9 以上只有小概率再进一步。
+      let amount = 1;
+      if (item.buc === 'cursed') amount = -1;
+      else if (weapon.enchant >= 9) amount = rng.rn2(weapon.enchant) === 0 ? 1 : 0;
+      else if (item.buc === 'blessed') {
+        amount = rng.rnd(Math.max(1, 3 - Math.floor(weapon.enchant / 3)));
+      }
+      // 超过 ±5 还要继续附魔，武器有三分之二概率直接蒸发。
+      if (
+        ((weapon.enchant > 5 && amount >= 0) || (weapon.enchant < -5 && amount < 0)) &&
+        rng.rn2(3) !== 0
+      ) {
+        removeFromInventory(session.player, weapon);
+        out.key = 'use.enchantWeaponEvaporate';
+        out.vars = { obj: weapon.proto.id };
+        break;
+      }
+      weapon.enchant = Math.max(-99, Math.min(99, weapon.enchant + amount));
+      out.key = amount === 0 ? 'use.enchantNothing' : 'use.enchantWeapon';
+      out.vars = { obj: weapon.proto.id, bonus: weapon.enchant };
       break;
     }
     case 'SCR_REMOVE_CURSE': {

@@ -4834,6 +4834,83 @@ section('怪物避让危险地形', async () => {
   }
 });
 
+section('附魔与蒸发', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory, wearItem, wieldItem } = await import('../src/game/inventory');
+
+  /** 读一张指定 BUC 的附魔卷轴。 */
+  const readEnchant = (
+    s: InstanceType<typeof GameSession>,
+    id: string,
+    buc: 'blessed' | 'cursed' | 'uncursed',
+  ) => {
+    const scroll = makeItem(objById.get(id) as ObjectData, s.rng);
+    scroll.buc = buc;
+    addToInventory(s.player, scroll);
+    s.useItem(scroll);
+  };
+
+  // 低附魔稳步生效：普通卷轴 +1~+2，祝福卷轴更多，诅咒卷轴反向削弱。
+  {
+    const s = new GameSession({ seed: 8201 });
+    const armor = makeItem(objById.get('PLATE_MAIL') as ObjectData, s.rng);
+    addToInventory(s.player, armor);
+    wearItem(s.player, armor);
+    armor.enchant = 0;
+    readEnchant(s, 'SCR_ENCHANT_ARMOR', 'uncursed');
+    ok(armor.enchant >= 1 && armor.enchant <= 2, `普通卷轴给护甲 +1~+2（${armor.enchant}）`);
+    const before = armor.enchant;
+    readEnchant(s, 'SCR_ENCHANT_ARMOR', 'blessed');
+    ok(
+      armor.enchant > before && armor.enchant - before <= 3,
+      `祝福卷轴附魔更多（${before} -> ${armor.enchant}）`,
+    );
+    const beforeCurse = armor.enchant;
+    readEnchant(s, 'SCR_ENCHANT_ARMOR', 'cursed');
+    ok(armor.enchant < beforeCurse, `诅咒卷轴削弱护甲（${beforeCurse} -> ${armor.enchant}）`);
+  }
+
+  // 武器在 +5 以下稳步附魔。
+  {
+    const s = new GameSession({ seed: 8202 });
+    const sword = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+    addToInventory(s.player, sword);
+    wieldItem(s.player, sword);
+    sword.enchant = 5;
+    readEnchant(s, 'SCR_ENCHANT_WEAPON', 'uncursed');
+    ok(sword.enchant === 6, `武器 +5 仍能稳步附魔（${sword.enchant}）`);
+  }
+
+  // 高附魔再附魔会蒸发：护甲超过 +3、武器超过 +5。
+  {
+    const s = new GameSession({ seed: 8203 });
+    const armor = makeItem(objById.get('PLATE_MAIL') as ObjectData, s.rng);
+    addToInventory(s.player, armor);
+    wearItem(s.player, armor);
+    armor.enchant = 20;
+    for (let n = 0; n < 5; n++) readEnchant(s, 'SCR_ENCHANT_ARMOR', 'uncursed');
+    ok(!s.player.inventory.includes(armor), '高附魔护甲会被附魔卷轴蒸发');
+    ok(
+      s.messages.some((m) => m.key === 'use.enchantArmorEvaporate'),
+      '记录护甲蒸发消息',
+    );
+  }
+  {
+    const s = new GameSession({ seed: 8204 });
+    const sword = makeItem(objById.get('LONG_SWORD') as ObjectData, s.rng);
+    addToInventory(s.player, sword);
+    wieldItem(s.player, sword);
+    sword.enchant = 6;
+    for (let n = 0; n < 10; n++) readEnchant(s, 'SCR_ENCHANT_WEAPON', 'uncursed');
+    ok(!s.player.inventory.includes(sword), '高附魔武器会被附魔卷轴蒸发');
+    ok(
+      s.messages.some((m) => m.key === 'use.enchantWeaponEvaporate'),
+      '记录武器蒸发消息',
+    );
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');
