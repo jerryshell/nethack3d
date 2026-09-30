@@ -37,6 +37,10 @@ export class Monster implements MonsterState {
   slowed: number;
   /** 拟形怪的伪装物品原型 id；为空表示现出原形。 */
   disguise?: string | null;
+  /** 定身剩余回合：大于 0 时跳过行动。 */
+  stasis?: number;
+  /** 被取消：非物理的特殊攻击全部失效。 */
+  cancelled?: boolean;
 
   constructor(data: MonsterData, x: number, y: number, rng: Rng, { mlev }: { mlev?: number } = {}) {
     this.id = nextId++;
@@ -57,6 +61,8 @@ export class Monster implements MonsterState {
     this.hasted = 0;
     this.slowed = 0;
     this.disguise = null;
+    this.stasis = 0;
+    this.cancelled = false;
   }
 
   get ac(): number {

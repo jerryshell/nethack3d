@@ -19,7 +19,7 @@ import { describeItem, makeItem } from './items';
 import { killExperience } from './combat';
 import { monsterMagicResists, monsterResists, playerResists } from './resist';
 import type { ResistKind } from './resist';
-import { isWalkable, MAX_DEPTH } from '../core/constants';
+import { isWalkable, MAX_DEPTH, COLNO } from '../core/constants';
 import { index, inRoom } from './dungeon';
 import { monById, objById } from '../data/index';
 import { pickMonsterType, Monster as MonsterEntity } from './monsters';
@@ -1063,6 +1063,131 @@ export function zapWand(session: GameSession, item: ItemInstance): UseOutcome {
               : 'use.nothingHappens';
       break;
     }
+    case 'WAN_STASIS': {
+      const target = nearestMonster(session, 12);
+      if (!target) {
+        out.key = 'use.nothingHappens';
+        break;
+      }
+      out.vars = { ...out.vars, mon: target.data.id };
+      if (monsterMagicResists(target.data, rng)) {
+        out.key = 'use.zapResisted';
+        break;
+      }
+      target.stasis = 3 + rng.rn2(3);
+      out.key = 'use.zapStasis';
+      break;
+    }
+    case 'WAN_CANCELLATION': {
+      const target = nearestMonster(session, 12);
+      if (!target) {
+        out.key = 'use.nothingHappens';
+        break;
+      }
+      out.vars = { ...out.vars, mon: target.data.id };
+      if (monsterMagicResists(target.data, rng)) {
+        out.key = 'use.zapResisted';
+        break;
+      }
+      target.cancelled = true;
+      target.hasted = 0;
+      out.key = 'use.zapCancel';
+      break;
+    }
+    case 'WAN_POLYMORPH': {
+      const target = nearestMonster(session, 12);
+      if (!target) {
+        out.key = 'use.nothingHappens';
+        break;
+      }
+      const oldName = target.data.id;
+      if (monsterMagicResists(target.data, rng)) {
+        out.vars = { ...out.vars, mon: oldName };
+        out.key = 'use.zapResisted';
+        break;
+      }
+      const data = pickMonsterType(
+        rng,
+        session.depth + 2,
+        session.player.level,
+        undefined,
+        undefined,
+        session.genocides,
+      );
+      if (!data) {
+        out.key = 'use.nothingHappens';
+        break;
+      }
+      // 变形保留生命比例，换掉原型与体型相关的一切。
+      const fraction = target.mhp / Math.max(1, target.mhpmax);
+      target.data = data;
+      target.disguise = null;
+      target.mhpmax = Math.max(1, rng.dice(Math.max(1, data.lvl), 8));
+      target.mhp = Math.max(1, Math.ceil(target.mhpmax * fraction));
+      out.vars = { ...out.vars, mon: oldName, target: data.id };
+      out.key = 'use.zapPolymorph';
+      break;
+    }
+    case 'WAN_CREATE_MONSTER': {
+      const data = pickMonsterType(
+        rng,
+        session.depth + 1,
+        session.player.level,
+        undefined,
+        undefined,
+        session.genocides,
+      );
+      const spot = data ? spotNearPlayer(session, 4) : null;
+      if (!data || !spot) {
+        out.key = 'use.nothingHappens';
+        break;
+      }
+      const mon = new MonsterEntity(data, spot.x, spot.y, rng);
+      mon.asleep = false;
+      session.level.monsters.push(mon);
+      out.vars = { ...out.vars, mon: data.id };
+      out.key = 'use.zapCreateMonster';
+      break;
+    }
+    case 'WAN_LOCKING': {
+      let locked = 0;
+      for (const [i, door] of session.level.doors) {
+        const x = i % COLNO;
+        const y = Math.floor(i / COLNO);
+        const player = session.player;
+        if (Math.max(Math.abs(x - player.x), Math.abs(y - player.y)) > 8) continue;
+        if (door.broken || (door.closed && door.locked)) continue;
+        door.closed = true;
+        door.locked = true;
+        locked++;
+      }
+      out.vars = { ...out.vars, n: locked };
+      out.key = locked > 0 ? 'use.zapLocking' : 'use.nothingHappens';
+      break;
+    }
+    case 'WAN_SECRET_DOOR_DETECTION': {
+      const revealed = session.revealDoors();
+      out.vars = { ...out.vars, n: revealed };
+      out.key = revealed > 0 ? 'use.zapSecretDoors' : 'use.nothingHappens';
+      break;
+    }
+    case 'WAN_ENLIGHTENMENT': {
+      session.log('msg.enlightenStats', {
+        str: session.player.str,
+        int: session.player.int,
+        wis: session.player.wis,
+        dex: session.player.dex,
+        con: session.player.con,
+        cha: session.player.cha,
+        luck: session.player.luck,
+      });
+      const player = session.player;
+      for (const kind of playerResists(player)) session.log('msg.enlightenResist', { res: kind });
+      if (player.telepathy) session.log('msg.enlightenTelepathy');
+      if (player.seeInvisible) session.log('msg.enlightenSeeInvisible');
+      out.key = 'use.zapEnlightenment';
+      break;
+    }
     case 'WAN_NOTHING':
       out.key = 'use.nothingHappens';
       break;
@@ -1111,6 +1236,25 @@ function findTeleportSpot(session: GameSession): { x: number; y: number } | null
   for (let x = 1; x < level.width - 1; x++) {
     for (let y = 1; y < level.height - 1; y++) {
       if (isWalkable(level.tiles[index(x, y)])) spots.push({ x, y });
+    }
+  }
+  return session.rng.pick(spots) ?? null;
+}
+
+/** 玩家 [2, range] 格内的一块空地；创造怪物之类的魔杖用它。 */
+function spotNearPlayer(session: GameSession, range: number): { x: number; y: number } | null {
+  const p = session.player;
+  const spots: { x: number; y: number }[] = [];
+  for (let dx = -range; dx <= range; dx++) {
+    for (let dy = -range; dy <= range; dy++) {
+      const d = Math.max(Math.abs(dx), Math.abs(dy));
+      if (d < 2 || d > range) continue;
+      const x = p.x + dx;
+      const y = p.y + dy;
+      if (x < 1 || y < 1 || x >= session.level.width - 1 || y >= session.level.height - 1) continue;
+      if (!isWalkable(session.level.tiles[index(x, y)])) continue;
+      if (session.level.monsters.some((m) => !m.dead && m.x === x && m.y === y)) continue;
+      spots.push({ x, y });
     }
   }
   return session.rng.pick(spots) ?? null;

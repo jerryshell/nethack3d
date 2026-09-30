@@ -383,6 +383,10 @@ export interface Monster {
   slowed: number;
   /** 拟形怪的伪装：物品原型 id（如 BOULDER），被识破后清空。 */
   disguise?: string | null;
+  /** 定身剩余回合：大于 0 时无法行动（定身魔杖）。 */
+  stasis?: number;
+  /** 被取消：失去所有非物理的特殊攻击。 */
+  cancelled?: boolean;
 }
 
 export type EquipmentSlot =
@@ -642,6 +646,10 @@ export interface SerializedMonster {
   sl?: number;
   /** 拟形怪的伪装物品原型 id。 */
   dg?: string;
+  /** 定身剩余回合。 */
+  st?: number;
+  /** 是否被取消。 */
+  cn?: 0 | 1;
   mv: number;
 }
 

@@ -3944,6 +3944,159 @@ section('挖掘与地形改造', async () => {
   }
 });
 
+section('法杖效果', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const { makeItem } = await import('../src/game/items');
+  const { addToInventory } = await import('../src/game/inventory');
+
+  const giveWand = (s: InstanceType<typeof GameSession>, id: string) => {
+    const wand = makeItem(objById.get(id) as ObjectData, s.rng);
+    wand.charges = 10;
+    addToInventory(s.player, wand);
+    return wand;
+  };
+  /** 只留一只不抵抗魔法的怪物，并把玩家挪到它旁边。 */
+  const loneTarget = (s: InstanceType<typeof GameSession>) => {
+    const mon = s.level.monsters.find((m) => !m.dead && !m.tame);
+    if (!mon) return null;
+    s.level.monsters = [mon];
+    mon.data = { ...mon.data, mr: 0 };
+    const around = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as [number, number][];
+    for (const [dx, dy] of around) {
+      const x = mon.x + dx;
+      const y = mon.y + dy;
+      if (x < 1 || y < 1 || x >= COLNO - 1 || y >= ROWNO - 1) continue;
+      if (!isWalkable(s.level.tiles[index(x, y)])) continue;
+      s.player.x = x;
+      s.player.y = y;
+      s.refreshFov();
+      return mon;
+    }
+    return null;
+  };
+
+  // 定身：目标被冻结，怪物行动阶段递减而不是行动。
+  {
+    const s = new GameSession({ seed: 5001 });
+    const mon = loneTarget(s);
+    ok(!!mon, '找到可测试的怪物');
+    if (mon) {
+      s.useItem(giveWand(s, 'WAN_STASIS'));
+      ok((mon.stasis ?? 0) > 0, '定身魔杖定住目标');
+      const before = mon.stasis ?? 0;
+      for (let i = 0; i < before; i++) s.monsterTurns();
+      ok((mon.stasis ?? 0) < before, '定身回合会递减');
+    }
+  }
+
+  // 取消：目标失去特殊能力，取消状态随存档保留。
+  {
+    const { serializeSession, restoreSession } = await import('../src/game/save');
+    const s = new GameSession({ seed: 5002 });
+    const mon = loneTarget(s);
+    ok(!!mon, '找到可测试的怪物');
+    if (mon) {
+      s.useItem(giveWand(s, 'WAN_CANCELLATION'));
+      ok(mon.cancelled === true, '取消魔杖抹掉目标的能力');
+      const restored = restoreSession(serializeSession(s));
+      ok(
+        restored.level.monsters.some((m) => m.cancelled),
+        '存档保留取消状态',
+      );
+    }
+  }
+
+  // 变形：目标换成另一种怪物，生命比例保留。
+  {
+    const s = new GameSession({ seed: 5003 });
+    const mon = loneTarget(s);
+    ok(!!mon, '找到可测试的怪物');
+    if (mon) {
+      s.useItem(giveWand(s, 'WAN_POLYMORPH'));
+      ok(
+        s.messages.some((m) => m.key === 'use.zapPolymorph'),
+        '变形魔杖换掉了怪物的形态',
+      );
+      ok(mon.mhp > 0 && mon.mhpmax > 0, '变形后生命值合法');
+    }
+  }
+
+  // 造怪：身边多出一只怪物。
+  {
+    const s = new GameSession({ seed: 5004 });
+    const before = s.level.monsters.length;
+    s.useItem(giveWand(s, 'WAN_CREATE_MONSTER'));
+    ok(s.level.monsters.length === before + 1, '造怪魔杖多出一只怪物');
+    ok(
+      s.messages.some((m) => m.key === 'use.zapCreateMonster'),
+      '记录造怪消息',
+    );
+  }
+
+  // 锁门：附近开着的门被关上并上锁。
+  {
+    const s = new GameSession({ seed: 5005 });
+    const door = [...s.level.doors].find(([, d]) => !d.broken);
+    ok(!!door, '地牢里有门');
+    if (door) {
+      const x = door[0] % COLNO;
+      const y = Math.floor(door[0] / COLNO);
+      const around = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as [number, number][];
+      const spot = around
+        .map(([dx, dy]) => ({ x: x + dx, y: y + dy }))
+        .find(
+          (pt) =>
+            pt.x > 0 &&
+            pt.y > 0 &&
+            pt.x < COLNO - 1 &&
+            pt.y < ROWNO - 1 &&
+            isWalkable(s.level.tiles[index(pt.x, pt.y)]),
+        );
+      ok(!!spot, '门旁边有空地');
+      if (spot) {
+        s.player.x = spot.x;
+        s.player.y = spot.y;
+        door[1].closed = false;
+        door[1].locked = false;
+        s.useItem(giveWand(s, 'WAN_LOCKING'));
+        ok(door[1].closed && door[1].locked, '锁门魔杖把门锁上了');
+      }
+    }
+  }
+
+  // 探门：未探索的门与楼梯写入记忆。
+  {
+    const s = new GameSession({ seed: 5006 });
+    const before = [...s.level.doors.keys()].filter((i) => s.level.seen[i] !== 1).length;
+    const revealed = s.revealDoors();
+    ok(revealed >= before, '探门揭示未探索的门');
+    ok(
+      [...s.level.doors.keys()].every((i) => s.level.seen[i] === 1),
+      '所有门都写进记忆',
+    );
+  }
+
+  // 启智：把属性与抗性写进消息。
+  {
+    const s = new GameSession({ seed: 5007 });
+    s.useItem(giveWand(s, 'WAN_ENLIGHTENMENT'));
+    ok(
+      s.messages.some((m) => m.key === 'msg.enlightenStats'),
+      '启智魔杖报告属性',
+    );
+  }
+});
+
 section('祝福与诅咒', async () => {
   const { GameSession } = await import('../src/game/session');
   const { makeItem } = await import('../src/game/items');

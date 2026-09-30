@@ -1725,6 +1725,7 @@ export class GameSession {
     for (const atk of mon.data.attacks) {
       if (this.dead) return;
       if (atk.at !== 'AT_NONE') continue;
+      if (mon.cancelled && atk.ad !== 'AD_PHYS') continue;
       if (atk.ad === 'AD_STON' && (this.player.weapon || this.player.equipment.gloves)) continue;
       this.resolveAttack(mon, atk.ad, atk.dice, resists);
     }
@@ -2340,6 +2341,28 @@ export class GameSession {
   }
 
   /**
+   * 探测密门：把本层所有门与楼梯写进记忆。
+   *
+   * 本作还没有生成密门（SDOOR），因此退化为揭示已有门与楼梯；
+   * 返回新揭示的格子数。
+   */
+  revealDoors(): number {
+    let revealed = 0;
+    for (const [i] of this.level.doors) {
+      if (this.level.seen[i] === 1) continue;
+      this.level.seen[i] = 1;
+      revealed++;
+    }
+    for (const stair of this.level.stairs) {
+      const i = index(stair.x, stair.y);
+      if (this.level.seen[i] === 1) continue;
+      this.level.seen[i] = 1;
+      revealed++;
+    }
+    return revealed;
+  }
+
+  /**
    * 在圣所的振动方块上举行开启仪式。
    *
    * 需要开启之铃、祈祷烛台与死亡之书都在身上，且一件都不能被诅咒；
@@ -2941,6 +2964,11 @@ export class GameSession {
     log.debug('怪物行动阶段开始', { monsters: this.level.monsters.length, turn: this.turn });
     for (const mon of this.level.monsters) {
       if (mon.dead || this.dead) continue;
+      // 定身：跳过行动并递减剩余回合。
+      if ((mon.stasis ?? 0) > 0) {
+        mon.stasis = (mon.stasis ?? 0) - 1;
+        continue;
+      }
       // 加速翻倍、缓速减半；两者都有效时先加倍再减半。
       mon.mv += monsterSpeed(mon);
       if (mon.hasted > 0) mon.hasted--;
@@ -3043,6 +3071,8 @@ export class GameSession {
    */
   private rangedAttack(mon: Monster, dist: number): boolean {
     if (dist < 2 || dist > 6) return false;
+    // 被取消的怪物喷不出吐息。
+    if (mon.cancelled) return false;
     const attack = mon.data.attacks.find(
       (a) => a.at === 'AT_BREA' || a.at === 'AT_SPIT' || a.at === 'AT_MAGC',
     );
@@ -3188,6 +3218,11 @@ export class GameSession {
       // AT_NONE 是被动攻击，由玩家主动出手时结算；0 骰的物理攻击仍是空挥，
       // 但 [0,N] 的特殊攻击按 1 颗骰子解释，不能让它们整个失效。
       if (atk.at === 'AT_NONE' || (atk.ad === 'AD_PHYS' && !meaningful)) {
+        index2++;
+        continue;
+      }
+      // 被取消的怪物只剩下物理攻击。
+      if (mon.cancelled && atk.ad !== 'AD_PHYS') {
         index2++;
         continue;
       }
