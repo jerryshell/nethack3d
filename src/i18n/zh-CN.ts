@@ -379,6 +379,7 @@ const messages: MessageCatalog = {
     stumble: '你脚下一绊，失去了平衡。',
     monSlow: '{mon}试图让你变慢，但什么也没发生。',
     monPoly: '你的身体一阵扭曲，但什么也没有改变。',
+    monShifts: '{mon}改变了形态！',
     monPolyForm: '{mon}让你变成了{form}！',
     monPolyBlocked: '{mon}想让你变形，但护身符挡住了。',
     polyUnchanging: '不变护身符挡住了变形。',

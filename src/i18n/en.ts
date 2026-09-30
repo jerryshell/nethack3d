@@ -474,6 +474,7 @@ const messages: MessageCatalog = {
     stumble: 'You stumble and lose your footing.',
     monSlow: 'The {mon} tries to slow you down, but nothing happens.',
     monPoly: 'Your body warps, but nothing changes.',
+    monShifts: 'The {mon} changes form!',
     monPolyForm: 'The {mon} turns you into {form}!',
     monPolyBlocked: 'The {mon} tries to change you, but your amulet holds.',
     polyUnchanging: 'The amulet of unchanging blocks the change.',

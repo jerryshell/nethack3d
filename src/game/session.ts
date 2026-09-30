@@ -3888,9 +3888,8 @@ export class GameSession {
   /**
    * 怪物踩中陷阱，对应原版 mintrap() 的简化版。
    *
-   * 结算伤害、定身、睡眠、同层传送、地洞与楼层传送；变形与魔法陷阱
-   * 对怪物暂不生效（写在已知边界）。飞行的怪物从地面陷阱上方掠过，
-   * 但魔法传送门例外。
+   * 结算伤害、定身、睡眠、同层传送、地洞、楼层传送、变形与魔法陷阱；
+   * 飞行的怪物从地面陷阱上方掠过，但魔法传送门例外。
    */
   monsterTrap(mon: Monster): void {
     const i = index(mon.x, mon.y);
@@ -3937,6 +3936,48 @@ export class GameSession {
         const delta = this.rng.rn2(3) - 1 || 1;
         const target = Math.max(1, Math.min(this.maxDepth, this.depth + delta));
         if (target !== this.depth) this.sendMonsterToDepth(mon, target, 'msg.monLevelTeleports');
+        break;
+      }
+      // 变形陷阱：换成另一只怪物，保留剩余生命的比例。
+      case 'polymorph': {
+        const before = mon.data.id;
+        const data = pickMonsterType(
+          this.rng,
+          this.depth + 2,
+          this.player.level,
+          undefined,
+          undefined,
+          this.genocides,
+        );
+        if (data && data.id !== before) {
+          const ratio = mon.mhpmax > 0 ? mon.mhp / mon.mhpmax : 1;
+          const visible = this.visible?.[index(mon.x, mon.y)] === 1;
+          mon.data = data;
+          mon.mhpmax = Math.max(1, this.rng.dice(Math.max(1, data.lvl), 8));
+          mon.mhp = Math.max(1, Math.round(mon.mhpmax * ratio));
+          mon.disguise = null;
+          mon.asleep = false;
+          if (visible) this.log('msg.monShifts', { mon: data.id });
+        }
+        break;
+      }
+      // 魔法陷阱：对怪物随机造成伤害、治疗、传送或催眠。
+      case 'magic': {
+        const roll = this.rng.rn2(4);
+        if (roll === 0) {
+          mon.mhp -= this.rng.dice(1, 8);
+          if (mon.mhp <= 0) this.trapKillMonster(mon);
+        } else if (roll === 1) {
+          mon.mhp = Math.min(mon.mhpmax, mon.mhp + this.rng.dice(2, 8));
+        } else if (roll === 2) {
+          const spot = this.randomFloorTile();
+          if (spot) {
+            mon.x = spot.x;
+            mon.y = spot.y;
+          }
+        } else {
+          mon.asleep = true;
+        }
         break;
       }
       default:

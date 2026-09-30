@@ -2264,6 +2264,68 @@ section('怪物与陷阱', async () => {
       ok(!s2.level.monsters.includes(mon), '楼层传送陷阱把怪物送出当前层');
     }
   }
+
+  // 变形陷阱把怪物换成另一只，保留剩余生命比例。
+  {
+    const s3 = new GameSession({ seed: 917 });
+    s3.level.monsters = [];
+    s3.level.traps.clear();
+    const spot3 = (() => {
+      for (let x = 1; x < s3.level.width - 1; x++) {
+        for (let y = 1; y < s3.level.height - 1; y++) {
+          if (s3.level.tiles[index(x, y)] !== T.ROOM) continue;
+          if (x === s3.player.x && y === s3.player.y) continue;
+          return { x, y };
+        }
+      }
+      return null;
+    })();
+    ok(!!spot3, '找得到变形陷阱测试的地面');
+    if (spot3) {
+      const mon = new Monster(monById.get('KOBOLD') as MonsterData, spot3.x, spot3.y, createRng(5));
+      mon.asleep = false;
+      mon.mhp = 20;
+      mon.mhpmax = 40;
+      s3.level.monsters = [mon];
+      s3.level.traps.set(index(spot3.x, spot3.y), { type: 'POLY_TRAP', seen: false });
+      const before = mon.data.id;
+      for (let i = 0; i < 40 && mon.data.id === before; i++) s3.monsterTrap(mon);
+      ok(mon.data.id !== before, `变形陷阱把怪物换了形态（${before} -> ${mon.data.id}）`);
+      ok(mon.mhp > 0 && mon.mhp <= mon.mhpmax, '变形后生命值仍合法');
+    }
+  }
+
+  // 魔法陷阱对怪物造成一种随机效果。
+  {
+    const s4 = new GameSession({ seed: 917 });
+    s4.level.monsters = [];
+    s4.level.traps.clear();
+    const spot4 = (() => {
+      for (let x = 1; x < s4.level.width - 1; x++) {
+        for (let y = 1; y < s4.level.height - 1; y++) {
+          if (s4.level.tiles[index(x, y)] !== T.ROOM) continue;
+          if (x === s4.player.x && y === s4.player.y) continue;
+          return { x, y };
+        }
+      }
+      return null;
+    })();
+    if (spot4) {
+      const mon = new Monster(monById.get('KOBOLD') as MonsterData, spot4.x, spot4.y, createRng(5));
+      mon.asleep = false;
+      mon.mhp = 10;
+      mon.mhpmax = 40;
+      s4.level.monsters = [mon];
+      s4.level.traps.set(index(spot4.x, spot4.y), { type: 'MAGIC_TRAP', seen: false });
+      const hp = mon.mhp;
+      let changed = false;
+      for (let i = 0; i < 30 && !changed; i++) {
+        s4.monsterTrap(mon);
+        changed = mon.mhp !== hp || mon.x !== spot4.x || mon.y !== spot4.y || mon.asleep;
+      }
+      ok(changed, '魔法陷阱对怪物产生了效果');
+    }
+  }
 });
 
 section('怪物捡拾物品', async () => {
