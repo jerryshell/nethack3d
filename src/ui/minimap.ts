@@ -116,6 +116,8 @@ export function createMinimap(): MinimapHandle {
     if (session.visible) {
       for (const mon of level.monsters) {
         if (mon.dead || mon.mhp <= 0) continue;
+        // 伪装的拟形怪不在地图上暴露身份。
+        if (mon.disguise) continue;
         if (session.visible[mon.y * COLNO + mon.x] !== 1) continue;
         ctx.fillStyle = css(PALETTE.altarGlow);
         ctx.fillRect(mon.x, mon.y, 1, 1);

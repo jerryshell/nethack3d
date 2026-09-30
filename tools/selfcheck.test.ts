@@ -3746,6 +3746,63 @@ section('分支地牢', async () => {
       soko.level.monsters.filter((m) => m.data.id === 'GIANT_MIMIC').length === 2,
       '推箱顶层有两只巨型拟形怪',
     );
+    // 拟形怪伪装成巨石，攻击后才现形。
+    const mimic = soko.level.monsters.find((m) => m.data.id === 'GIANT_MIMIC');
+    ok(mimic?.disguise === 'BOULDER', '拟形怪伪装成巨石');
+    if (mimic) {
+      soko.attackMonster(mimic);
+      ok(!mimic.disguise, '攻击后拟形怪现出原形');
+      ok(
+        soko.messages.some((m) => m.key === 'msg.mimicRevealed'),
+        '记录拟形怪现形消息',
+      );
+    }
+  }
+
+  // 推箱分支禁止传送：陷阱、卷轴与传送症都被神秘力量挡住。
+  {
+    const s = new GameSession({ seed: 561 });
+    s.changeDepth(1, 'down', 'sokoban');
+    ok(s.teleportBlocked, '推箱分支标记为禁止传送');
+    const at = index(s.player.x, s.player.y);
+    s.level.traps.set(at, { type: 'TELEP_TRAP', seen: true });
+    const before = { x: s.player.x, y: s.player.y };
+    const moved = s.springTrap(at);
+    ok(!moved && s.player.x === before.x && s.player.y === before.y, '传送陷阱在推箱层不生效');
+    ok(
+      s.messages.some((m) => m.key === 'msg.teleportBlocked'),
+      '记录传送被挡下的消息',
+    );
+  }
+
+  // 力场法术轰碎巨石；推箱层会因此损失幸运。
+  {
+    const { makeItem } = await import('../src/game/items');
+    const s = new GameSession({ seed: 563 });
+    s.changeDepth(1, 'down', 'sokoban');
+    s.level.monsters.length = 0;
+    const pile = s.level.objects.find((p) => p.items.some((i) => i.id === 'BOULDER'));
+    ok(!!pile, '推箱层有巨石可轰');
+    if (pile) {
+      s.player.x = pile.x;
+      s.player.y = pile.y;
+      const book = makeItem(objById.get('SPE_FORCE_BOLT') as ObjectData, s.rng);
+      s.player.knownSpells.push('SPE_FORCE_BOLT');
+      s.player.pw = 50;
+      const luck = s.player.luck;
+      s.castSpell(book);
+      ok(!pile.items.some((i) => i.id === 'BOULDER'), '力场法术轰碎了巨石');
+      ok(s.player.luck === luck - 1, `推箱层破坏巨石扣幸运（${luck} → ${s.player.luck}）`);
+    }
+  }
+
+  // 拟形怪的伪装随存档保留。
+  {
+    const s = new GameSession({ seed: 567 });
+    s.changeDepth(1, 'down', 'sokoban');
+    const restored = restoreSession(serializeSession(s));
+    const mimic = restored.level.monsters.find((m) => m.data.id === 'GIANT_MIMIC');
+    ok(mimic?.disguise === 'BOULDER', '存档保留拟形怪伪装');
   }
 
   // 巨石滚进洞里：巨石与洞一起消失。

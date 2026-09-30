@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import { createMonsterModel, enableShadows } from './models';
+import { createItemModel, createMonsterModel, enableShadows } from './models';
 import { createCharacter, lookForMonster } from './characters';
 import type { CharacterHandle } from './characters';
 import { tileToWorld } from './dungeonMesh';
 import { lambertOf } from './palette';
 import type { GameSession } from '../game/session';
+import type { Monster } from '../types';
 import { index } from '../game/dungeon';
+import { objById } from '../data/index';
 
 /**
  * 怪物图层。
@@ -34,6 +36,8 @@ interface MonsterView {
   character?: CharacterHandle | null;
   /** 最近一次播放的动作，避免每帧重复切换。 */
   action?: string;
+  /** 当前是否显示为伪装形态；现形后重建视图。 */
+  disguised: boolean;
 }
 
 export class EntityLayer extends THREE.Group {
@@ -55,16 +59,17 @@ export class EntityLayer extends THREE.Group {
     for (const mon of level.monsters) {
       alive.add(mon.id);
       let view = this.views.get(mon.id);
+      // 拟形怪现出原形时重建视图，把巨石换成怪物模型。
+      if (view && view.disguised !== !!mon.disguise) {
+        this.remove(view.group);
+        view.group.traverse(disposeMesh);
+        view.character?.dispose();
+        this.views.delete(mon.id);
+        view = undefined;
+      }
       if (!view) {
-        // 人形族群用带骨骼动画的人物模型，按怪物自身的颜色染色、按体型缩放。
-        const look = lookForMonster(mon.data);
-        const character = look
-          ? createCharacter(look.key, { tint: mon.data.color, scale: look.scale })
-          : null;
-        const group = character ? character.root : createMonsterModel(mon.data);
+        const { group, character } = this.buildGroup(mon);
         group.position.set(0, 0, 0);
-        // 参与实时阴影：怪物投射并接收脚边的光影。
-        enableShadows(group);
         this.add(group);
         view = {
           group,
@@ -75,6 +80,7 @@ export class EntityLayer extends THREE.Group {
           bobPhase: Math.random() * Math.PI * 2,
           character,
           action: character ? 'idle' : undefined,
+          disguised: !!mon.disguise,
         };
         this.views.set(mon.id, view);
       }
@@ -99,6 +105,30 @@ export class EntityLayer extends THREE.Group {
         view.action = 'die';
       }
     }
+  }
+
+  /** 依据怪物当前形态建视图组：伪装的拟形怪显示成巨石。 */
+  private buildGroup(mon: Monster): { group: THREE.Group; character: CharacterHandle | null } {
+    if (mon.disguise) {
+      const proto = objById.get(mon.disguise);
+      if (proto) {
+        const model = createItemModel(proto);
+        model.scale.setScalar(0.85);
+        const group = new THREE.Group();
+        group.add(model);
+        // 参与实时阴影：怪物投射并接收脚边的光影。
+        enableShadows(group);
+        return { group, character: null };
+      }
+    }
+    // 人形族群用带骨骼动画的人物模型，按怪物自身的颜色染色、按体型缩放。
+    const look = lookForMonster(mon.data);
+    const character = look
+      ? createCharacter(look.key, { tint: mon.data.color, scale: look.scale })
+      : null;
+    const group = character ? character.root : createMonsterModel(mon.data);
+    enableShadows(group);
+    return { group, character };
   }
 
   /** 怪物当前的插值世界坐标；不存在时返回 null。 */

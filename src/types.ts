@@ -377,6 +377,8 @@ export interface Monster {
   hasted: number;
   /** 缓速剩余回合：速度减半（最低 1）。 */
   slowed: number;
+  /** 拟形怪的伪装：物品原型 id（如 BOULDER），被识破后清空。 */
+  disguise?: string | null;
 }
 
 export type EquipmentSlot =
@@ -634,6 +636,8 @@ export interface SerializedMonster {
   /** 加速与缓速剩余回合。 */
   ha?: number;
   sl?: number;
+  /** 拟形怪的伪装物品原型 id。 */
+  dg?: string;
   mv: number;
 }
 

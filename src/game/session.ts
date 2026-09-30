@@ -288,6 +288,11 @@ export class GameSession {
     return this.branch === 'main' ? MAX_DEPTH : branchMaxDepth(this.branch);
   }
 
+  /** 推箱分支禁止传送：原版的「神秘力量」挡住所有传送。 */
+  get teleportBlocked(): boolean {
+    return this.branch === 'sokoban';
+  }
+
   ensureLevelPopulation(level: Level): void {
     if (level.populated) return;
     level.populated = true;
@@ -363,7 +368,10 @@ export class GameSession {
       }
       if (!candidates.length) continue;
       const spot = candidates[this.rng.rn2(candidates.length)];
-      level.monsters.push(new MonsterEntity(data, spot.x, spot.y, this.rng));
+      const mon = new MonsterEntity(data, spot.x, spot.y, this.rng);
+      // 顶层两只巨型拟形怪伪装成巨石，像原版一样等玩家撞上来。
+      if (data.id === 'GIANT_MIMIC') mon.disguise = 'BOULDER';
+      level.monsters.push(mon);
     }
   }
 
@@ -1357,6 +1365,10 @@ export class GameSession {
         break;
       }
       case 'teleport': {
+        if (this.teleportBlocked) {
+          this.log('msg.teleportBlocked');
+          break;
+        }
         const spot = this.randomFloorTile();
         if (spot) {
           this.player.x = spot.x;
@@ -1368,6 +1380,10 @@ export class GameSession {
         break;
       }
       case 'levelTeleport': {
+        if (this.teleportBlocked) {
+          this.log('msg.teleportBlocked');
+          break;
+        }
         const delta = this.rng.rn2(3) - 1 || 1;
         const target = Math.max(1, Math.min(MAX_DEPTH, this.depth + delta));
         this.log(effect.message, { trap: trapName, depth: target });
@@ -1404,6 +1420,10 @@ export class GameSession {
           this.log('msg.trapDrainPw', { trap: trapName, n: drained });
         } else {
           const spot = this.randomFloorTile();
+          if (this.teleportBlocked) {
+            this.log('msg.teleportBlocked');
+            break;
+          }
           if (spot) {
             this.player.x = spot.x;
             this.player.y = spot.y;
@@ -1537,12 +1557,16 @@ export class GameSession {
     }
     // 传送症或传送戒指：偶尔不受控地随机传走。
     if ((p.teleportitis || this.hasEquipmentPower('TELEPORT')) && this.rng.rn2(85) === 0) {
-      const spot = this.randomFloorTile();
-      if (spot) {
-        p.x = spot.x;
-        p.y = spot.y;
-        this.refreshFov();
-        this.log('msg.teleportitis');
+      if (this.teleportBlocked) {
+        this.log('msg.teleportBlocked');
+      } else {
+        const spot = this.randomFloorTile();
+        if (spot) {
+          p.x = spot.x;
+          p.y = spot.y;
+          this.refreshFov();
+          this.log('msg.teleportitis');
+        }
       }
     }
     if (p.prayerTimeout > 0) p.prayerTimeout--;
@@ -1597,6 +1621,11 @@ export class GameSession {
   attackMonster(mon: Monster): 'attacked' | 'killed' {
     const player = this.player;
     mon.asleep = false;
+    // 攻击伪装的拟形怪会先把它戳破。
+    if (mon.disguise) {
+      mon.disguise = null;
+      this.log('msg.mimicRevealed', { mon: mon.data.id });
+    }
     // 攻击自己的宠物会让它不再信任你。
     if (mon.tame) {
       mon.tame = false;
@@ -1864,6 +1893,13 @@ export class GameSession {
       case 'attack': {
         const target = this.nearestMonster(8);
         if (!target) {
+          // 力场类法术没有活目标时改为轰碎最近的巨石（原版力场法术的用法）。
+          const boulder = this.nearestBoulder(8);
+          if (boulder) {
+            this.breakBoulder(boulder);
+            key = 'msg.boulderBroken';
+            break;
+          }
           key = 'msg.castNoTarget';
           break;
         }
@@ -1925,6 +1961,10 @@ export class GameSession {
         break;
       }
       case 'escape': {
+        if (this.teleportBlocked) {
+          key = 'msg.teleportBlocked';
+          break;
+        }
         const spot = this.randomFloorTile();
         if (spot) {
           this.player.x = spot.x;
@@ -1935,7 +1975,7 @@ export class GameSession {
         break;
       }
       case 'matter': {
-        // 物质法术：打开附近的门；没有门就把相邻的墙化为地面。
+        // 物质法术：打开附近的门；没有门就什么都不发生。
         let opened = false;
         for (const [i, door] of this.level.doors) {
           if (!door.closed) continue;
@@ -1971,6 +2011,37 @@ export class GameSession {
     const pile = this.level.objects.find((p) => p.x === x && p.y === y);
     if (!pile) return null;
     return pile.items.some((i) => i.id === 'BOULDER') ? pile : null;
+  }
+
+  /** 射程内最近的一堆巨石；物质法术用它当靶子。 */
+  private nearestBoulder(range: number): GroundPile | null {
+    let best: GroundPile | null = null;
+    let bestD = Infinity;
+    for (const pile of this.level.objects) {
+      if (!pile.items.some((item) => item.id === 'BOULDER')) continue;
+      const d = Math.max(Math.abs(pile.x - this.player.x), Math.abs(pile.y - this.player.y));
+      if (d > range || d >= bestD) continue;
+      best = pile;
+      bestD = d;
+    }
+    return best;
+  }
+
+  /**
+   * 轰碎一堆巨石。
+   *
+   * 推箱分支里破坏巨石会触怒关底的力量：幸运 -1，对应原版的 dokick 惩罚。
+   */
+  private breakBoulder(pile: GroundPile): void {
+    pile.items = pile.items.filter((item) => item.id !== 'BOULDER');
+    if (!pile.items.length) {
+      const at = this.level.objects.indexOf(pile);
+      if (at >= 0) this.level.objects.splice(at, 1);
+    }
+    if (this.branch === 'sokoban') {
+      this.player.luck = Math.max(-10, this.player.luck - 1);
+      this.log('msg.sokobanLuck');
+    }
   }
 
   pickupAction(): ActionResultInfo {
@@ -3036,6 +3107,8 @@ export class GameSession {
    */
   monsterAttack(mon: Monster): void {
     const resists = playerResists(this.player);
+    // 现出原形才能作战：伪装的拟形怪一旦出手就不再罗装。
+    if (mon.disguise) mon.disguise = null;
     let index2 = 0;
     for (const atk of mon.data.attacks) {
       if (this.dead || mon.dead) return;

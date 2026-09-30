@@ -2826,6 +2826,13 @@ const sokoban: Scenario = {
       checker.ok(!!prize, '顶层有奖励', `prize=${prize?.id ?? '无'}`);
       const mimics = session.level.monsters.filter((m) => !m.dead && m.data.id === 'GIANT_MIMIC');
       checker.ok(mimics.length >= 2, '顶层有两只巨型拟形怪', `mimics=${mimics.length}`);
+      const disguised = mimics.filter((m) => m.disguise === 'BOULDER').length;
+      checker.ok(disguised === mimics.length, '拟形怪全部伪装成巨石', `n=${disguised}`);
+      checker.ok(session.teleportBlocked, '推箱分支禁止传送');
+      if (mimics.length) {
+        session.attackMonster(mimics[0]);
+        checker.ok(!mimics[0].disguise, '攻击后拟形怪现出原形');
+      }
       checker.absorb('推箱顶层状态自洽', checkInvariants(session), repro('sokoban', seed));
 
       // 回到入口层，再踩分支楼梯回主地牢。

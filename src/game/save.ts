@@ -49,6 +49,7 @@ function serializeMonster(m: MonsterState): SerializedMonster {
     tameness: m.tameness ?? 0,
     ha: m.hasted ?? 0,
     sl: m.slowed ?? 0,
+    ...(m.disguise ? { dg: m.disguise } : {}),
     mv: m.mv,
   };
 }
@@ -67,6 +68,7 @@ function deserializeMonster(data: SerializedMonster, rng: Rng): MonsterState | n
   mon.tameness = data.tameness ?? 0;
   mon.hasted = data.ha ?? 0;
   mon.slowed = data.sl ?? 0;
+  mon.disguise = data.dg ?? null;
   mon.mv = data.mv ?? 0;
   return mon;
 }

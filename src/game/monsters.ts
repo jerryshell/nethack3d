@@ -35,6 +35,8 @@ export class Monster implements MonsterState {
   hasted: number;
   /** 缓速剩余回合：速度减半（最低 1）。 */
   slowed: number;
+  /** 拟形怪的伪装物品原型 id；为空表示现出原形。 */
+  disguise?: string | null;
 
   constructor(data: MonsterData, x: number, y: number, rng: Rng, { mlev }: { mlev?: number } = {}) {
     this.id = nextId++;
@@ -54,6 +56,7 @@ export class Monster implements MonsterState {
     this.tameness = 0;
     this.hasted = 0;
     this.slowed = 0;
+    this.disguise = null;
   }
 
   get ac(): number {

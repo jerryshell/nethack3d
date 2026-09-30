@@ -607,6 +607,10 @@ function readScroll(session: GameSession, item: ItemInstance): UseOutcome {
       break;
     }
     case 'SCR_TELEPORTATION': {
+      if (session.teleportBlocked) {
+        out.key = 'use.teleportBlocked';
+        break;
+      }
       const spot = findTeleportSpot(session);
       if (spot) {
         session.player.x = spot.x;
@@ -923,6 +927,10 @@ export function zapWand(session: GameSession, item: ItemInstance): UseOutcome {
       break;
     }
     case 'WAN_TELEPORTATION': {
+      if (session.teleportBlocked) {
+        out.key = 'use.teleportBlocked';
+        break;
+      }
       const target = nearestMonster(session, 12);
       const spot = findTeleportSpot(session);
       if (target && spot) {
