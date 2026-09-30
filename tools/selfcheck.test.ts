@@ -2155,6 +2155,55 @@ section('怪物与陷阱', async () => {
     s.level.traps.set(index(spot.x, spot.y), { type: 'FIRE_TRAP', seen: false });
     s.monsterTrap(bee);
     ok(bee.mhp === 100, '飞行的怪物不触发地面陷阱');
+
+    // 看见陷阱触发的怪物会记住同类陷阱，之后不再踩上去。
+    s.level.monsters = [];
+    s.level.traps.clear();
+    const watcher = spawn('KOBOLD');
+    watcher.asleep = false;
+    s.level.monsters = [watcher];
+    s.monsSeeTrap(spot.x, spot.y, 'FIRE_TRAP');
+    ok(s.monsterKnowsTrap(watcher, 'FIRE_TRAP'), '怪物看见陷阱触发后记住它');
+    ok(!s.monsterKnowsTrap(watcher, 'PIT'), '没见过的陷阱不记得');
+    const animal = spawn('GIANT_ANT');
+    s.level.monsters = [animal];
+    s.monsSeeTrap(spot.x, spot.y, 'PIT');
+    ok(!s.monsterKnowsTrap(animal, 'PIT'), '动物不记陷阱');
+
+    // 已知陷阱会被绕开：八邻格全埋已知火焰陷阱时寸步难受。
+    const stuck = spawn('KOBOLD');
+    stuck.mhp = 100;
+    stuck.asleep = false;
+    s.level.monsters = [stuck];
+    s.level.traps.clear();
+    let trappedNeighbors = 0;
+    for (const [dx, dy] of [
+      [-1, -1],
+      [0, -1],
+      [1, -1],
+      [-1, 0],
+      [1, 0],
+      [-1, 1],
+      [0, 1],
+      [1, 1],
+    ]) {
+      const x = stuck.x + dx;
+      const y = stuck.y + dy;
+      if (!isWalkable(s.level.tiles[index(x, y)])) continue;
+      s.level.traps.set(index(x, y), { type: 'FIRE_TRAP', seen: false });
+      trappedNeighbors++;
+    }
+    ok(trappedNeighbors > 0, '怪物身边有可走的格');
+    s.monLearnsTrap(stuck, 'FIRE_TRAP');
+    const start = { x: stuck.x, y: stuck.y };
+    s.stepMonster(stuck, 0);
+    ok(stuck.x === start.x && stuck.y === start.y, '怪物不会踏上已知的陷阱');
+    const { serializeSession, restoreSession } = await import('../src/game/save');
+    const restored = restoreSession(serializeSession(s));
+    ok(
+      restored.level.monsters.some((m) => s.monsterKnowsTrap(m, 'FIRE_TRAP')),
+      '陷阱记忆随存档保留',
+    );
   }
 });
 

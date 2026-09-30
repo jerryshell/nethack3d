@@ -68,6 +68,15 @@ export function trapEffect(type: string): TrapEffect {
   return TRAP_EFFECTS[type] ?? { kind: 'flavor', message: 'msg.trapFlavor' };
 }
 
+/** 陷阱种类的稳定序号：怪物用位掩码记录已知陷阱。 */
+const TRAP_ORDER = Object.keys(TRAP_EFFECTS);
+
+/** 陷阱类型对应的位掩码；未登记的返回 0。 */
+export function trapBit(type: string): number {
+  const i = TRAP_ORDER.indexOf(type);
+  return i < 0 ? 0 : 1 << i;
+}
+
 /**
  * 陷阱类型到名称文案键的映射。
  *

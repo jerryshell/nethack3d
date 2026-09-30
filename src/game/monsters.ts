@@ -49,6 +49,8 @@ export class Monster implements MonsterState {
   hunger?: number;
   /** 平和生物：不主动出手，被攻击后才反击。 */
   peaceful?: boolean;
+  /** 已知陷阱的位掩码：见过触发后就会绕开，对应原版的 mtrapseen。 */
+  trapSeen?: number;
 
   constructor(data: MonsterData, x: number, y: number, rng: Rng, { mlev }: { mlev?: number } = {}) {
     this.id = nextId++;
@@ -75,6 +77,7 @@ export class Monster implements MonsterState {
     this.leashed = false;
     this.hunger = 900;
     this.peaceful = false;
+    this.trapSeen = 0;
   }
 
   get ac(): number {

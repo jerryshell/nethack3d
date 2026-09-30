@@ -398,6 +398,8 @@ export interface Monster {
   hunger?: number;
   /** 平和生物：数据默认敌对、但因站位/阵营不主动出手（如同阵营神殿的天使）。 */
   peaceful?: boolean;
+  /** 已知陷阱的位掩码：见过触发后就会绕开，对应原版的 mtrapseen。 */
+  trapSeen?: number;
 }
 
 export type EquipmentSlot =
@@ -681,6 +683,8 @@ export interface SerializedMonster {
   hg?: number;
   /** 平和生物。 */
   pf?: 0 | 1;
+  /** 已知陷阱的位掩码。 */
+  ts?: number;
   mv: number;
 }
 

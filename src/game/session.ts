@@ -25,7 +25,7 @@ import type {
   SessionStatus,
 } from '../types';
 import type { UseOutcome } from './inventory';
-import { trapEffect, trapNameKey } from './traps';
+import { trapEffect, trapNameKey, trapBit } from './traps';
 import { castFailChance, rollSpellAmount, spellProfile } from './spells';
 import { createLogger, LOG_NS } from '../core/log';
 import {
@@ -1559,6 +1559,9 @@ export class GameSession {
       return false;
     }
     trap.seen = true;
+    const trapAt = coords(tile);
+    // 看见陷阱触发的怪物会记住这类陷阱。
+    this.monsSeeTrap(trapAt.x, trapAt.y, trap.type);
     let moved = false;
 
     switch (effect.kind) {
@@ -3792,6 +3795,9 @@ export class GameSession {
       const i = index(nx, ny);
       const t = this.level.tiles[i];
       if (!isWalkable(t)) continue;
+      // 已知的陷阱会绕开，对应原版的 mon_knows_traps。
+      const trap = this.level.traps.get(i);
+      if (trap && this.monsterKnowsTrap(mon, trap.type)) continue;
       // 不会水、怕火的怪物主动绕开岩浆与水。
       if (this.monsterFearsTile(mon, t)) continue;
       // 拴了牵引绳的宠物走不出玩家两格。
@@ -3852,8 +3858,9 @@ export class GameSession {
     if (!trap) return;
     const effect = trapEffect(trap.type);
     if (trap.type !== 'MAGIC_PORTAL' && mon.data.flags.includes('M1_FLY')) return;
-    // 玩家看得见的话，顺带认出这枚陷阱。
+    // 玩家看得见的话，顺带认出这枚陷阱；附近的怪物也会记住它。
     if (this.visible?.[i] === 1) trap.seen = true;
+    this.monsSeeTrap(mon.x, mon.y, trap.type);
     switch (effect.kind) {
       case 'damage': {
         if (!effect.dice) break;
@@ -3882,6 +3889,40 @@ export class GameSession {
       default:
         break;
     }
+  }
+
+  /**
+   * 怪物看见陷阱触发后记住这类陷阱，对应原版 mons_see_trap()。
+   *
+   * 有眼睛、非动物、非无智的怪物才记得住；亮度决定视线距离：
+   * 亮处 7 格，暗处只有 2 格。
+   */
+  monsSeeTrap(x: number, y: number, type: string): void {
+    const lit = this.level.lit[index(x, y)] === 1;
+    const max = lit ? 7 : 2;
+    for (const mon of this.level.monsters) {
+      if (mon.dead) continue;
+      const flags = mon.data.flags;
+      if (
+        flags.includes('M1_ANIMAL') ||
+        flags.includes('M1_MINDLESS') ||
+        flags.includes('M1_NOEYES')
+      ) {
+        continue;
+      }
+      if (Math.max(Math.abs(mon.x - x), Math.abs(mon.y - y)) > max) continue;
+      this.monLearnsTrap(mon, type);
+    }
+  }
+
+  /** 记住一类陷阱。 */
+  monLearnsTrap(mon: Monster, type: string): void {
+    mon.trapSeen = (mon.trapSeen ?? 0) | trapBit(type);
+  }
+
+  /** 是否已知这类陷阱。 */
+  monsterKnowsTrap(mon: Monster, type: string): boolean {
+    return ((mon.trapSeen ?? 0) & trapBit(type)) !== 0;
   }
 
   /**
@@ -3962,6 +4003,10 @@ export class GameSession {
           if (door?.closed && this.monsterDoorMove(mon, door) === 'none') continue;
         }
         if (ni !== goal && this.monsterFearsTile(mon, tiles[ni])) continue;
+        if (ni !== goal) {
+          const trap = this.level.traps.get(ni);
+          if (trap && this.monsterKnowsTrap(mon, trap.type)) continue;
+        }
         if (ni !== goal && monsterAt(this.level, nx, ny)) continue;
         prev[ni] = cur;
         queue.push(ni);
