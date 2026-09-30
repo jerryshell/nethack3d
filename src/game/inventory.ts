@@ -26,6 +26,23 @@ import { pickMonsterType, Monster as MonsterEntity } from './monsters';
 
 export const INVENTORY_LIMIT = 52; // 字母 a 到 z、A 到 Z
 
+/** 乐器类工具：吹奏或敲击时各有各的效果。 */
+const INSTRUMENTS = new Set([
+  'WOODEN_FLUTE',
+  'MAGIC_FLUTE',
+  'WOODEN_HARP',
+  'MAGIC_HARP',
+  'TOOLED_HORN',
+  'FIRE_HORN',
+  'FROST_HORN',
+  'HORN_OF_PLENTY',
+  'LEATHER_DRUM',
+  'DRUM_OF_EARTHQUAKE',
+  'BUGLE',
+  'BELL',
+  'TIN_WHISTLE',
+]);
+
 /** 物品使用结果：可翻译的消息键与变量。 */
 export interface UseOutcome {
   key: string;
@@ -397,6 +414,86 @@ export function applyItem(session: GameSession, item: ItemInstance): UseOutcome 
         }
         armor.greased = true;
         return { key: 'use.greased', vars: { obj: armor.proto.id }, identified: true };
+      }
+      // 乐器：各显神通。
+      if (INSTRUMENTS.has(proto.id)) {
+        // 火焰号角与冰霜号角：喷出一口吐息。
+        if (proto.id === 'FIRE_HORN' || proto.id === 'FROST_HORN') {
+          const target = nearestMonster(session, 6);
+          if (!target) return { key: 'use.nothing' };
+          const kind = proto.id === 'FIRE_HORN' ? 'fire' : 'cold';
+          if (monsterResists(target.data, kind)) {
+            return {
+              key: 'use.zapResisted',
+              vars: { mon: target.data.id },
+              identified: true,
+            };
+          }
+          const dmg = session.rng.dice(2, 6);
+          target.mhp -= dmg;
+          session.lastCombat = {
+            monsterId: target.id,
+            hit: true,
+            byPlayer: true,
+            damage: dmg,
+          };
+          if (target.mhp <= 0) session.slayMonster(target, true);
+          return {
+            key: kind === 'fire' ? 'use.hornFire' : 'use.hornFrost',
+            vars: { mon: target.data.id, dmg },
+            identified: true,
+          };
+        }
+        // 丰饶角：凭空造出一份食物。
+        if (proto.id === 'HORN_OF_PLENTY') {
+          const food = REAL_OBJECTS.filter((o) => o.cls === 'food' && o.prob > 0);
+          const made = food.length ? session.rng.pick(food) : null;
+          if (!made) return { key: 'use.nothing' };
+          const item2 = makeItem(made, session.rng);
+          addToInventory(p, item2);
+          return { key: 'use.hornPlenty', vars: { obj: item2.proto.id }, identified: true };
+        }
+        // 魔笛与魔琴：附近的怪物陷入沉睡。
+        if (proto.id === 'MAGIC_FLUTE' || proto.id === 'MAGIC_HARP') {
+          let slept = 0;
+          for (const mon of session.level.monsters) {
+            if (mon.dead || mon.tame) continue;
+            if (Math.max(Math.abs(mon.x - p.x), Math.abs(mon.y - p.y)) > 3) continue;
+            mon.asleep = true;
+            slept++;
+          }
+          return { key: 'use.instrumentSleep', vars: { n: slept }, identified: true };
+        }
+        // 怪角：惊退最近的怪物。
+        if (proto.id === 'TOOLED_HORN') {
+          const target = nearestMonster(session, 6);
+          if (!target || target.data.genFlags.includes('G_UNIQ')) return { key: 'use.nothing' };
+          target.fleeing = true;
+          return { key: 'use.mirrorScare', vars: { mon: target.data.id }, identified: true };
+        }
+        // 地震鼓：地动山摇。
+        if (proto.id === 'DRUM_OF_EARTHQUAKE') {
+          let hit = 0;
+          for (const mon of session.level.monsters) {
+            if (mon.dead) continue;
+            const d = Math.max(Math.abs(mon.x - p.x), Math.abs(mon.y - p.y));
+            if (d > 8) continue;
+            mon.mhp -= session.rng.dice(2, 6);
+            mon.asleep = false;
+            hit++;
+            if (mon.mhp <= 0) session.slayMonster(mon, true);
+          }
+          return { key: 'use.earthquake', vars: { n: hit }, identified: true };
+        }
+        // 普通乐器：吵醒附近的沉睡怪物。
+        let woke = 0;
+        for (const mon of session.level.monsters) {
+          if (mon.dead || !mon.asleep) continue;
+          if (Math.max(Math.abs(mon.x - p.x), Math.abs(mon.y - p.y)) > 5) continue;
+          mon.asleep = false;
+          woke++;
+        }
+        return { key: 'use.instrumentWake', vars: { n: woke }, identified: true };
       }
       // 镜子：照一照，最近的怪物落荒而逃。
       if (proto.id === 'MIRROR') {

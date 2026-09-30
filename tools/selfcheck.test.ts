@@ -5117,6 +5117,40 @@ section('工具应用', async () => {
     );
   }
 
+  // 乐器：号角喷吐息、魔琴催眠、地震鼓晃地。
+  {
+    const s = new GameSession({ seed: 8507 });
+    s.level.monsters = [];
+    const ant = new Monster(monById.get('GIANT_ANT')!, s.player.x + 3, s.player.y, s.rng);
+    ant.asleep = false;
+    ant.mhp = 100;
+    ant.mhpmax = 100;
+    s.level.monsters.push(ant);
+    const horn = makeItem(objById.get('FIRE_HORN') as ObjectData, s.rng);
+    addToInventory(s.player, horn);
+    s.useItem(horn);
+    ok(ant.mhp < 100, '火焰号角灼伤最近的怪物');
+    ok(
+      s.messages.some((m) => m.key === 'use.hornFire'),
+      '记录号角喷吐消息',
+    );
+    const harp = makeItem(objById.get('MAGIC_HARP') as ObjectData, s.rng);
+    addToInventory(s.player, harp);
+    ant.asleep = false;
+    s.useItem(harp);
+    ok(
+      s.messages.some((m) => m.key === 'use.instrumentSleep'),
+      '魔琴让附近的怪物沉睡',
+    );
+    const drum = makeItem(objById.get('DRUM_OF_EARTHQUAKE') as ObjectData, s.rng);
+    addToInventory(s.player, drum);
+    s.useItem(drum);
+    ok(
+      s.messages.some((m) => m.key === 'use.earthquake'),
+      '地震鼓晃动大地',
+    );
+  }
+
   // 罐装油脂护住护甲一次，毁甲卷轴随之失效。
   {
     const s = new GameSession({ seed: 8505 });
