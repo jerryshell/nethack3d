@@ -88,3 +88,27 @@ export const CASTLE_STOREROOMS: { x1: number; y1: number; x2: number; y2: number
 
 /** 原版储物间的四个类别字符（洗牌后分配到四间）。 */
 export const CASTLE_STOREROOM_CLASSES = ['[', ')', '*', '%'];
+
+/** 原版 castle.lua 的固定守卫：入口大厅与四座塔楼。 */
+export const CASTLE_SOLDIERS: { id: string; x: number; y: number }[] = [
+  { id: 'SOLDIER', x: 8, y: 6 },
+  { id: 'SOLDIER', x: 9, y: 5 },
+  { id: 'SOLDIER', x: 11, y: 5 },
+  { id: 'SOLDIER', x: 12, y: 6 },
+  { id: 'SOLDIER', x: 8, y: 10 },
+  { id: 'SOLDIER', x: 9, y: 11 },
+  { id: 'SOLDIER', x: 11, y: 11 },
+  { id: 'SOLDIER', x: 12, y: 10 },
+  { id: 'LIEUTENANT', x: 9, y: 8 },
+  { id: 'SOLDIER', x: 3, y: 2 },
+  { id: 'SOLDIER', x: 5, y: 2 },
+  { id: 'SOLDIER', x: 57, y: 2 },
+  { id: 'SOLDIER', x: 59, y: 2 },
+  { id: 'SOLDIER', x: 3, y: 14 },
+  { id: 'SOLDIER', x: 5, y: 14 },
+  { id: 'SOLDIER', x: 57, y: 14 },
+  { id: 'SOLDIER', x: 59, y: 14 },
+];
+
+/** 领主的宝箱：原版 des.object("chest", 37, 08)。 */
+export const CASTLE_LORD_CHEST = { x: 37, y: 8 };

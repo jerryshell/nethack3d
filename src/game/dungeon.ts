@@ -36,13 +36,14 @@ import { QUEST_HOME_LEVELS, QUEST_LOCATE_LEVELS, QUEST_GOAL_LEVELS } from '../da
 import {
   CASTLE_DOORS,
   CASTLE_DRAWBRIDGE,
+  CASTLE_LORD_CHEST,
   CASTLE_MAP,
   CASTLE_STOREROOMS,
   CASTLE_TRAPS,
 } from './castle';
 import { QUEST_MAP_CHARS } from './quest';
 import { makeBoulder, makeItem, randomItemOfClass } from './items';
-import { OBJECTS } from '../data/index';
+import { OBJECTS, objById } from '../data/index';
 import type {
   Alignment,
   FeatureState,
@@ -1803,6 +1804,17 @@ function generateCastleLevel({ gameSeed }: { gameSeed: number }): Level {
       const pile = level.objects.find((p) => p.x === ox + x && p.y === oy + y);
       if (pile) pile.items.push(item);
       else level.objects.push({ x: ox + x, y: oy + y, items: [item] });
+    }
+  }
+  // 领主的宝箱：原版放在庭院中央。
+  {
+    const chestProto = objById.get('CHEST');
+    if (chestProto) {
+      level.objects.push({
+        x: ox + CASTLE_LORD_CHEST.x,
+        y: oy + CASTLE_LORD_CHEST.y,
+        items: [makeItem(chestProto, rng)],
+      });
     }
   }
   // 整个地图一个房间：给 inRoom 之类的判断一个范围即可。

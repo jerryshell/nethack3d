@@ -95,7 +95,7 @@ import { resolveWish } from './wish';
 import { specialLevelById } from './special';
 import type { SpecialLevel } from './special';
 import { branchById, branchMaxDepth } from './branches';
-import { CASTLE_MOAT_MONSTERS } from './castle';
+import { CASTLE_MOAT_MONSTERS, CASTLE_SOLDIERS } from './castle';
 import { clearBones, loadBones } from './bones';
 import { deserializeItem } from './itemcodec';
 import { containerCapacity, containerHasRoom, isContainer } from './containers';
@@ -380,9 +380,9 @@ export class GameSession {
     });
   }
 
-  /** 要塞护城河里的水生怪物：原版 castle.lua 的固定摆放。 */
+  /** 要塞的固定守卫与护城河水怪：原版 castle.lua 的固定摆放。 */
   private placeCastleMoatMonsters(level: Level): void {
-    for (const spawn of CASTLE_MOAT_MONSTERS) {
+    for (const spawn of [...CASTLE_MOAT_MONSTERS, ...CASTLE_SOLDIERS]) {
       const data = monById.get(spawn.id);
       if (!data) continue;
       if (monsterAt(level, spawn.x, spawn.y)) continue;

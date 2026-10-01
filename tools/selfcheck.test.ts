@@ -4703,6 +4703,18 @@ section('特殊楼层', async () => {
         8,
       '护城河里有水生怪物',
     );
+    // 原版的固定守卫与领主宝箱。
+    const posts = s.level.monsters.filter(
+      (m) =>
+        !m.dead &&
+        ((m.data.id === 'LIEUTENANT' && m.x === 9 && m.y === 8) ||
+          (m.data.id === 'SOLDIER' && m.x === 8 && m.y === 6)),
+    );
+    ok(posts.length === 2, `入口大厅的固定守卫在位（${posts.length}）`);
+    ok(
+      s.level.objects.some((p) => p.x === 37 && p.y === 8 && p.items.some((i) => i.id === 'CHEST')),
+      '庭院中央有领主宝箱',
+    );
   }
 
   // 圣所：怪物全部是恶魔。
