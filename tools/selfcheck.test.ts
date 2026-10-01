@@ -3587,6 +3587,7 @@ section('密门', async () => {
 
 section('特殊房间', async () => {
   const { GameSession } = await import('../src/game/session');
+  const { index } = await import('../src/game/dungeon');
   const undead = new Set(['ZOMBIE', 'MUMMY', 'VAMPIRE', 'WRAITH', 'GHOST', 'LICH']);
   const soldiers = new Set(['SOLDIER', 'SERGEANT', 'LIEUTENANT', 'CAPTAIN']);
   const seen = new Set<string>();
@@ -3630,11 +3631,23 @@ section('特殊房间', async () => {
             '妖精厅里都是妖精',
           );
           break;
+        case 'temple': {
+          ok(
+            inside.every((m) => m.data.id === 'ALIGNED_CLERIC'),
+            '神庙里是牧师',
+          );
+          const altar = s.level.features.get(
+            index(Math.floor((room.lx + room.hx) / 2), Math.floor((room.ly + room.hy) / 2)),
+          );
+          ok(!!altar && altar.type === 'ALTAR', '神庙中央有祭坛');
+          ok(!!altar?.align, '神庙祭坛有归属');
+          break;
+        }
         default:
           break;
       }
     }
-    if (seen.size >= 5) break;
+    if (seen.size >= 6) break;
   }
   ok(seen.size >= 3, `40 个种子内见过 ${seen.size} 类主题房间`);
 });

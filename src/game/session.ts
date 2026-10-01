@@ -486,6 +486,32 @@ export class GameSession {
           }
           break;
         }
+        case 'temple': {
+          // 祭坛放在房间中央，归属随机；同阵营的牧师守在旁边。
+          const cx = Math.floor((room.lx + room.hx) / 2);
+          const cy = Math.floor((room.ly + room.hy) / 2);
+          const i = index(cx, cy);
+          if (level.tiles[i] === T.ROOM) {
+            level.tiles[i] = T.ALTAR;
+            const aligns = ['lawful', 'neutral', 'chaotic'] as const;
+            level.features.set(i, {
+              type: 'ALTAR',
+              align: aligns[rng.rn2(3)],
+            });
+          }
+          const priest = monById.get('ALIGNED_CLERIC');
+          if (priest) {
+            for (let n = 0, max = 1 + rng.rn2(2); n < max; n++) {
+              const at = spot();
+              if (!at) break;
+              const mon = new MonsterEntity(priest, at.x, at.y, rng);
+              mon.asleep = false;
+              mon.peaceful = true;
+              level.monsters.push(mon);
+            }
+          }
+          break;
+        }
         default:
           break;
       }

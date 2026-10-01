@@ -1845,8 +1845,8 @@ function placeSpecialRoom(level: Level, rng: Rng, depth: number): void {
   // 深层出现更多主题房间。
   const kinds: Room['type'][] =
     depth >= 6
-      ? ['morgue', 'zoo', 'beehive', 'barracks', 'leprechaun']
-      : ['morgue', 'zoo', 'barracks'];
+      ? ['morgue', 'zoo', 'beehive', 'barracks', 'leprechaun', 'temple']
+      : ['morgue', 'zoo', 'barracks', 'temple'];
   const room = rng.pick(candidates) as Room;
   room.type = rng.pick(kinds) as Room['type'];
 }
