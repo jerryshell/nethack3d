@@ -2568,6 +2568,61 @@ section('怪物捡拾物品', async () => {
       }
     }
   }
+
+  // 重伤的怪物会就地进食：先喝携带的治疗药水，其次吃脚下的食物。
+  {
+    const eat = new GameSession({ seed: 917 });
+    eat.level.monsters = [];
+    eat.level.traps.clear();
+    eat.level.objects = [];
+    const eatSpot = (() => {
+      for (let x = 1; x < eat.level.width - 1; x++) {
+        for (let y = 1; y < eat.level.height - 1; y++) {
+          if (eat.level.tiles[index(x, y)] !== T.ROOM) continue;
+          if (x === eat.player.x && y === eat.player.y) continue;
+          return { x, y };
+        }
+      }
+      return null;
+    })();
+    ok(!!eatSpot, '找得到进食测试的地面');
+    if (eatSpot) {
+      const mon = new Monster(
+        monById.get('KOBOLD') as MonsterData,
+        eatSpot.x,
+        eatSpot.y,
+        createRng(5),
+      );
+      mon.asleep = false;
+      mon.mhp = 2;
+      mon.mhpmax = 20;
+      const potion = makeItem(objById.get('POT_EXTRA_HEALING') as ObjectData, eat.rng);
+      mon.carried = [potion];
+      eat.level.monsters = [mon];
+      eat.monsterAction(mon);
+      ok(mon.mhp > 2, `重伤怪物会喝治疗药水（${mon.mhp}/20）`);
+      ok((mon.carried?.length ?? 0) === 0, '药水被喝掉');
+
+      mon.mhp = 2;
+      const food = makeItem(objById.get('FOOD_RATION') as ObjectData, eat.rng);
+      eat.level.objects.push({ x: eatSpot.x, y: eatSpot.y, items: [food] });
+      eat.monsterAction(mon);
+      ok(mon.mhp > 2, `重伤怪物会吃脚下的食物（${mon.mhp}/20）`);
+      ok(
+        !eat.level.objects.some((p) => p.x === eatSpot.x && p.y === eatSpot.y && p.items.length),
+        '食物被吃掉',
+      );
+
+      mon.mhp = mon.mhpmax;
+      const food2 = makeItem(objById.get('FOOD_RATION') as ObjectData, eat.rng);
+      eat.level.objects.push({ x: eatSpot.x, y: eatSpot.y, items: [food2] });
+      eat.monsterAction(mon);
+      ok(
+        eat.level.objects.some((p) => p.items.includes(food2)),
+        '满血怪物不吃东西',
+      );
+    }
+  }
 });
 
 section('怪物伤势提示', async () => {

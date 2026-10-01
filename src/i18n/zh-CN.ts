@@ -360,6 +360,8 @@ const messages: MessageCatalog = {
     monStealsGold: '{mon}抢走了 {n} 枚金币，随即消失。',
     monPicksUp: '{mon}捡起了{item}。',
     monPicksGold: '{mon}捡起了 {n} 枚金币。',
+    monEats: '{mon}吃掉了{item}。',
+    monQuaffs: '{mon}喝下了一瓶药水。',
     autoPickup: '自动捡起了 {n} 件物品。',
     monFalls: '{mon}跌进地洞，掉到了下一层！',
     monLevelTeleports: '{mon}被传送得不见了踪影。',

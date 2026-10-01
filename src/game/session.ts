@@ -3740,6 +3740,9 @@ export class GameSession {
       }
     }
 
+    // 重伤时就地进食：先喝携带的治疗药水，其次吃脚下的食物或尸体。
+    if (this.monsterEats(mon)) return;
+
     // 重伤的怪物有概率转身逃跑。
     if (!mon.fleeing && mon.mhp * 4 <= mon.mhpmax && this.rng.chance(0.5)) {
       mon.fleeing = true;
@@ -3836,8 +3839,47 @@ export class GameSession {
     if (woke > 0) log.debug('噪音唤醒怪物', { woke, turn: this.turn });
   }
 
-  /** 呼救：唤醒 6 格内尚在沉睡的同伴。 */
-  private rallyMonsters(mon: Monster): void {
+  /**
+   * 重伤的怪物就地进食：先喝携带的治疗药水，其次吃脚下的食物或尸体。
+   *
+   * 对应原版怪物检视物品并使用的行为；一次进食消耗它这次行动。
+   * 只有清醒、未逃跑的敌对怪物会这么做（和平生物与宠物走各自分支）。
+   */
+  private monsterEats(mon: Monster): boolean {
+    if (mon.mhp * 2 > mon.mhpmax) return false;
+    const visible = this.visible?.[index(mon.x, mon.y)] === 1;
+    // 先喝携带的治疗药水，效果沿用玩家的药水表。
+    const potions: Record<string, [number, number] | 'full'> = {
+      POT_HEALING: [2, 4],
+      POT_EXTRA_HEALING: [4, 4],
+      POT_FULL_HEALING: 'full',
+    };
+    const potion = mon.carried?.find((item) => item.proto.id in potions);
+    if (potion) {
+      const heal = potions[potion.proto.id];
+      const amount = heal === 'full' ? mon.mhpmax : this.rng.dice(heal[0], heal[1]);
+      mon.mhp = Math.min(mon.mhpmax, mon.mhp + amount);
+      mon.carried = (mon.carried ?? []).filter((item) => item !== potion);
+      if (visible) this.log('msg.monQuaffs', { mon: mon.data.id });
+      return true;
+    }
+    // 其次吃脚下的食物或尸体（未付款的商店货物不碰）。
+    const pile = pileAt(this.level, mon.x, mon.y);
+    const food = pile?.items.find((item) => item.proto.cls === 'food' && !item.unpaid);
+    if (pile && food) {
+      pile.items.splice(pile.items.indexOf(food), 1);
+      if (!pile.items.length) this.level.objects.splice(this.level.objects.indexOf(pile), 1);
+      const heal = food.corpse
+        ? Math.max(1, Math.floor(mon.mlev / 2))
+        : Math.max(1, Math.floor((food.proto.nutrition ?? 50) / 20));
+      mon.mhp = Math.min(mon.mhpmax, mon.mhp + heal);
+      if (visible) this.log('msg.monEats', { mon: mon.data.id, item: describeItem(food) });
+      return true;
+    }
+    return false;
+  }
+
+  /** 呼救：唤醒 6 格内尚在沉睡的同伴。 */ private rallyMonsters(mon: Monster): void {
     let woke = 0;
     for (const other of this.level.monsters) {
       if (other === mon || other.dead || other.tame || !other.asleep) continue;

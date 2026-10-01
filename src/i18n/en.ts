@@ -452,6 +452,8 @@ const messages: MessageCatalog = {
     monStealsGold: 'The {mon} snatches {n} gold and vanishes!',
     monPicksUp: 'The {mon} picks up {item}.',
     monPicksGold: 'The {mon} picks up {n} gold pieces.',
+    monEats: 'The {mon} eats {item}.',
+    monQuaffs: 'The {mon} quaffs a potion.',
     autoPickup: 'You automatically pick up {n} item(s).',
     monFalls: 'The {mon} falls through a hole and lands below!',
     monLevelTeleports: 'The {mon} vanishes from the level.',
