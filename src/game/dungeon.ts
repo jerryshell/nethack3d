@@ -1842,8 +1842,13 @@ function placeSpecialRoom(level: Level, rng: Rng, depth: number): void {
   if (!rng.chance(0.25)) return;
   const candidates = level.rooms.filter((room) => room.type === 'room' && room.index !== 0);
   if (!candidates.length) return;
+  // 深层出现更多主题房间。
+  const kinds: Room['type'][] =
+    depth >= 6
+      ? ['morgue', 'zoo', 'beehive', 'barracks', 'leprechaun']
+      : ['morgue', 'zoo', 'barracks'];
   const room = rng.pick(candidates) as Room;
-  room.type = 'morgue';
+  room.type = rng.pick(kinds) as Room['type'];
 }
 
 function generateLevelCore({
@@ -1915,7 +1920,10 @@ function generateLevelCore({
     carveRooms(level, level.rooms);
     makeCorridors(level, rng);
     placeDoors(level, rng);
-    placeSpecialRoom(level, createRng(deriveSeed(gameSeed, 'special-room', depth)), depth);
+    // 主题房间只出现在普通楼层；特殊楼层的怪物主题由 placeSpecialContent 决定。
+    if (!special) {
+      placeSpecialRoom(level, createRng(deriveSeed(gameSeed, 'special-room', depth)), depth);
+    }
   }
   computeWalls(level);
   // 门上的机关：深层才有，用独立随机流，不扰动本层其它生成内容。

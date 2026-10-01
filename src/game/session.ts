@@ -83,6 +83,7 @@ import {
   nextItemId,
   randomItem,
   randomShopItem,
+  randomItemOfClass,
   stockShop,
   shopBuyPrice,
   shopSellPrice,
@@ -355,7 +356,7 @@ export class GameSession {
         special?.layout === 'bigRoom' ? Math.min(20, 8 + Math.floor(level.depth / 2)) : undefined,
     });
     spawnObjects(level, this.rng, level.depth, this.appearances);
-    this.placeMorgueMonsters(level);
+    this.placeSpecialRoomContent(level);
     this.placeSpecialContent(level, special);
     if (level.special === 'castle') this.placeCastleMoatMonsters(level);
     this.placeBones(level);
@@ -392,33 +393,101 @@ export class GameSession {
   }
 
   /**
-   * 墓室：清掉房内的普通怪物，换成同等级的不死生物。
-   *
-   * 对应原版 mkmorgue()：房间主题由不死系组成，数量随层数小幅增加。
+   * 主题房间的内容：墓室是不死生物，动物园是单一物种，蜂巢是蜜蜂与王浆，
+   * 兵营是士兵与武器装备，妖精厅是妖精与金币。对应原版 mkroom.c 的各类房间。
    */
-  private placeMorgueMonsters(level: Level): void {
-    const undead = new Set(['ZOMBIE', 'MUMMY', 'VAMPIRE', 'WRAITH', 'GHOST', 'LICH']);
-    const pool = GENERATABLE_MONSTERS.filter(
-      (m) => undead.has(m.symClass) && m.diff <= level.depth + 8,
+  private placeSpecialRoomContent(level: Level): void {
+    const rng = createRng(
+      deriveSeed(this.seed, 'special-room', level.branch ?? 'main', level.depth),
     );
-    if (!pool.length) return;
-    // 墓室的刷怪用独立随机流，不扰动本层其它内容。
-    const rng = createRng(deriveSeed(this.seed, 'morgue', level.branch ?? 'main', level.depth));
+    const undead = new Set(['ZOMBIE', 'MUMMY', 'VAMPIRE', 'WRAITH', 'GHOST', 'LICH']);
+    const withinDepth = (m: MonsterData): boolean => m.diff <= level.depth + 8 && m.freq > 0;
+    const pick = <T>(list: T[]): T | null => (list.length ? (rng.pick(list) as T) : null);
     for (const room of level.rooms) {
-      if (room.type !== 'morgue') continue;
+      if (room.type === 'room' || room.type === 'shop') continue;
+      // 清掉房内的普通怪，换成主题内容。
       level.monsters = level.monsters.filter(
         (m) => m.dead || m.x < room.lx || m.x > room.hx || m.y < room.ly || m.y > room.hy,
       );
-      const count = 2 + Math.min(4, Math.floor(level.depth / 6)) + rng.rn2(3);
-      for (let n = 0; n < count; n++) {
-        const x = room.lx + rng.rn2(room.hx - room.lx + 1);
-        const y = room.ly + rng.rn2(room.hy - room.ly + 1);
-        if (level.tiles[index(x, y)] !== T.ROOM) continue;
-        if (monsterAt(level, x, y)) continue;
-        const data = rng.pick(pool) as MonsterData;
-        const mon = new MonsterEntity(data, x, y, rng);
-        mon.asleep = false;
-        level.monsters.push(mon);
+      const spot = (): { x: number; y: number } | null => {
+        for (let tries = 0; tries < 24; tries++) {
+          const x = room.lx + rng.rn2(room.hx - room.lx + 1);
+          const y = room.ly + rng.rn2(room.hy - room.ly + 1);
+          if (level.tiles[index(x, y)] !== T.ROOM) continue;
+          if (monsterAt(level, x, y)) continue;
+          return { x, y };
+        }
+        return null;
+      };
+      const spawn = (data: MonsterData, times: number): void => {
+        for (let n = 0; n < times; n++) {
+          const at = spot();
+          if (!at) return;
+          const mon = new MonsterEntity(data, at.x, at.y, rng);
+          mon.asleep = false;
+          level.monsters.push(mon);
+        }
+      };
+      const drop = (item: ItemInstance | null): void => {
+        if (!item) return;
+        const at = spot();
+        if (!at) return;
+        const pile = level.objects.find((p) => p.x === at.x && p.y === at.y);
+        if (pile) pile.items.push(item);
+        else level.objects.push({ x: at.x, y: at.y, items: [item] });
+      };
+      switch (room.type) {
+        case 'morgue': {
+          const pool = GENERATABLE_MONSTERS.filter((m) => withinDepth(m) && undead.has(m.symClass));
+          const data = pick(pool);
+          if (data) spawn(data, 2 + rng.rn2(4));
+          break;
+        }
+        case 'zoo': {
+          const classes = [
+            ...new Set(GENERATABLE_MONSTERS.filter(withinDepth).map((m) => m.symClass)),
+          ];
+          const cls = pick(classes);
+          if (!cls) break;
+          const pool = GENERATABLE_MONSTERS.filter((m) => withinDepth(m) && m.symClass === cls);
+          const data = pick(pool);
+          if (data) spawn(data, 4 + rng.rn2(5));
+          break;
+        }
+        case 'beehive': {
+          const bee = monById.get('KILLER_BEE');
+          if (!bee) break;
+          spawn(bee, 2 + rng.rn2(4));
+          const jelly = objById.get('LUMP_OF_ROYAL_JELLY');
+          if (jelly) for (let n = 0, max = 1 + rng.rn2(3); n < max; n++) drop(makeItem(jelly, rng));
+          break;
+        }
+        case 'barracks': {
+          const pool = GENERATABLE_MONSTERS.filter(
+            (m) =>
+              withinDepth(m) && ['SOLDIER', 'SERGEANT', 'LIEUTENANT', 'CAPTAIN'].includes(m.id),
+          );
+          const data = pick(pool);
+          if (!data) break;
+          spawn(data, 3 + rng.rn2(4));
+          for (const cls of ['weapon', 'armor'] as const) {
+            for (let n = 0, max = 1 + rng.rn2(3); n < max; n++) {
+              drop(randomItemOfClass(rng, cls, this.appearances));
+            }
+          }
+          break;
+        }
+        case 'leprechaun': {
+          const lep = monById.get('LEPRECHAUN');
+          if (!lep) break;
+          spawn(lep, 2 + rng.rn2(3));
+          for (let n = 0, max = 1 + rng.rn2(3); n < max; n++) {
+            drop(makeGold(rng, level.depth, 20 + rng.rn2(80)));
+          }
+          break;
+        }
+        default:
+          break;
       }
     }
   }

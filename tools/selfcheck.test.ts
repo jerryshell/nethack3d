@@ -3588,23 +3588,55 @@ section('密门', async () => {
 section('特殊房间', async () => {
   const { GameSession } = await import('../src/game/session');
   const undead = new Set(['ZOMBIE', 'MUMMY', 'VAMPIRE', 'WRAITH', 'GHOST', 'LICH']);
-  let tested = false;
-  for (let seed = 1; seed <= 60 && !tested; seed++) {
-    const s = new GameSession({ seed, depth: 10 });
+  const soldiers = new Set(['SOLDIER', 'SERGEANT', 'LIEUTENANT', 'CAPTAIN']);
+  const seen = new Set<string>();
+  for (let seed = 1; seed <= 40; seed++) {
+    const s = new GameSession({ seed, depth: 12 });
     s.ensureLevelPopulation(s.level);
-    const room = s.level.rooms.find((r) => r.type === 'morgue');
-    if (!room) continue;
-    tested = true;
-    const inside = s.level.monsters.filter(
-      (m) => !m.dead && m.x >= room.lx && m.x <= room.hx && m.y >= room.ly && m.y <= room.hy,
-    );
-    ok(inside.length > 0, `墓室里有不死生物（${inside.length}）`);
-    ok(
-      inside.every((m) => undead.has(m.data.symClass)),
-      '墓室怪物都是不死系',
-    );
+    for (const room of s.level.rooms) {
+      if (room.type === 'room' || room.type === 'shop' || seen.has(room.type)) continue;
+      const inside = s.level.monsters.filter(
+        (m) => !m.dead && m.x >= room.lx && m.x <= room.hx && m.y >= room.ly && m.y <= room.hy,
+      );
+      seen.add(room.type);
+      ok(inside.length > 0, `${room.type} 房间里有怪物（${inside.length}）`);
+      switch (room.type) {
+        case 'morgue':
+          ok(
+            inside.every((m) => undead.has(m.data.symClass)),
+            '墓室怪物都是不死系',
+          );
+          break;
+        case 'zoo': {
+          const classes = new Set(inside.map((m) => m.data.symClass));
+          ok(classes.size === 1, `动物园是单一物种（${[...classes].join(',')}）`);
+          break;
+        }
+        case 'beehive':
+          ok(
+            inside.every((m) => m.data.id === 'KILLER_BEE'),
+            '蜂巢里都是蜜蜂',
+          );
+          break;
+        case 'barracks':
+          ok(
+            inside.every((m) => soldiers.has(m.data.id)),
+            '兵营里都是士兵',
+          );
+          break;
+        case 'leprechaun':
+          ok(
+            inside.every((m) => m.data.id === 'LEPRECHAUN'),
+            '妖精厅里都是妖精',
+          );
+          break;
+        default:
+          break;
+      }
+    }
+    if (seen.size >= 5) break;
   }
-  ok(tested, '60 个种子内找得到墓室');
+  ok(seen.size >= 3, `40 个种子内见过 ${seen.size} 类主题房间`);
 });
 
 section('地形设施', async () => {
