@@ -1060,6 +1060,8 @@ export class GameSession {
           door.closed = false;
           this.log('msg.doorOpens');
         }
+        // 任务：吊桥放下时同步开通它靠着的 DBWALL。
+        if (!door.closed && door.drawbridge) this.setDrawbridgeWall(true);
         // 开门时触发门上的机关；触发后机关失效。
         if (!door.closed) this.triggerDoorTrap(nx, ny, door);
         if (this.dead) return { result: 'dead' };
@@ -1603,6 +1605,42 @@ export class GameSession {
     }
     this.monsterTurns();
     this.upkeep();
+  }
+
+  /**
+   * 开关身边 8 格内的门，对应原版的射程限制（开门/锁门魔杖与敲击法术共用）。
+   *
+   * `open` 为真是开门（含解锁与放吊桥），为假是关门上锁（含收吊桥）。
+   * 返回实际发生变化的门数。
+   */
+  setNearbyDoors(open: boolean): number {
+    let changed = 0;
+    for (const [i, door] of this.level.doors) {
+      const at = coords(i);
+      const dist = Math.max(Math.abs(at.x - this.player.x), Math.abs(at.y - this.player.y));
+      if (dist > 8) continue;
+      if (open) {
+        if (!door.closed && !door.locked) continue;
+        door.closed = false;
+        door.locked = false;
+        if (door.drawbridge) this.setDrawbridgeWall(true);
+      } else {
+        if (door.broken || (door.closed && door.locked)) continue;
+        door.closed = true;
+        door.locked = true;
+        if (door.drawbridge) this.setDrawbridgeWall(false);
+      }
+      changed++;
+    }
+    return changed;
+  }
+
+  /** 吊桥开合：同步桥身靠着的 DBWALL 瓦片并触发网格重建。 */
+  private setDrawbridgeWall(open: boolean): void {
+    const wall = this.level.drawbridgeWall;
+    if (wall === undefined) return;
+    this.level.tiles[wall] = open ? T.CORR : T.VWALL;
+    this.markTilesChanged(wall);
   }
 
   /** 揭开整张地图，对应魔法地图卷轴。 */
@@ -2456,6 +2494,7 @@ export class GameSession {
           if (Math.max(Math.abs(x - this.player.x), Math.abs(y - this.player.y)) > 8) continue;
           door.closed = false;
           door.locked = false;
+          if (door.drawbridge) this.setDrawbridgeWall(true);
           opened = true;
           break;
         }

@@ -249,6 +249,20 @@ function buildDoor(level: Level, x: number, y: number, door: DoorState): THREE.G
   }
   debris.visible = door.broken;
   panel.visible = !door.broken;
+  // 吊桥放下时换成桥面，收起时仍是门扇。
+  let deck: THREE.Mesh | null = null;
+  if (door.drawbridge) {
+    deck = new THREE.Mesh(
+      passageAlongX
+        ? shadedBox(1.0, 0.08, 0.8, 1.0, 0.75, 0.5)
+        : shadedBox(0.8, 0.08, 1.0, 1.0, 0.75, 0.5),
+      new THREE.MeshLambertMaterial({ vertexColors: true, color: PALETTE.doorWood }),
+    );
+    deck.position.y = 0.04;
+    deck.visible = !door.closed;
+    panel.visible = door.closed && !door.broken;
+    g.add(deck);
+  }
   const openRotation = passageAlongX ? Math.PI / 2.3 : -Math.PI / 2.3;
   if (!door.closed) pivot.rotation.y = openRotation;
   g.add(left, right, pivot, debris);
@@ -257,6 +271,8 @@ function buildDoor(level: Level, x: number, y: number, door: DoorState): THREE.G
     panel,
     band,
     debris,
+    deck,
+    drawbridge: !!door.drawbridge,
     closed: door.closed,
     broken: door.broken,
     openRotation,
@@ -455,6 +471,9 @@ interface DoorAnimation {
   panel: THREE.Mesh;
   band: THREE.Mesh;
   debris: THREE.Group;
+  /** 吊桥放下时的桥面。 */
+  deck: THREE.Mesh | null;
+  drawbridge: boolean;
   closed: boolean;
   broken: boolean;
   openRotation: number;
@@ -605,7 +624,8 @@ export class DungeonMesh extends THREE.Group {
       if (door) {
         anim.closed = door.closed;
         anim.broken = door.broken;
-        anim.panel.visible = !door.broken;
+        anim.panel.visible = anim.drawbridge ? door.closed && !door.broken : !door.broken;
+        if (anim.deck) anim.deck.visible = !door.closed;
         anim.debris.visible = door.broken;
         anim.band.visible = door.locked && door.closed && !door.broken;
       }

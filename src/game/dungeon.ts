@@ -1754,12 +1754,12 @@ function generateCastleLevel({ gameSeed }: { gameSeed: number }): Level {
     }
   }
   // 吊桥：原版初始收起（阻挡），用开门魔杖或踹门打开。
-  // 桥身靠着东侧的 DBWALL，开门后要能走进去，因此把它开成通道。
+  // 桥身靠着东侧的 DBWALL：放桥时开通，收桥时封回（见 setDrawbridgeWall）。
   const bridge = at(CASTLE_DRAWBRIDGE.x, CASTLE_DRAWBRIDGE.y);
   level.tiles[bridge] = T.DOOR;
   level.doors.set(bridge, { closed: true, locked: true, broken: false, drawbridge: true });
   const dbwall = at(CASTLE_DRAWBRIDGE.x + 1, CASTLE_DRAWBRIDGE.y);
-  if (isWall(level.tiles[dbwall])) level.tiles[dbwall] = T.CORR;
+  level.drawbridgeWall = dbwall;
   // 上行楼梯：原版落脚区中心 (5,10)。
   const upSpot = nearestWalkable(level, 5, 10, width, height, at) ?? { x: 5, y: 10 };
   {

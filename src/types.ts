@@ -317,6 +317,8 @@ export interface Level {
   sokobanVariant?: string;
   /** 固定任务目标层的仇敌落脚点（原版神器的坐标）。 */
   questGoalAnchor?: { x: number; y: number };
+  /** 要塞吊桥靠着的 DBWALL 瓦片下标；放桥时开通、收桥时封回。 */
+  drawbridgeWall?: number;
   /** 分支标识；主地牢为空。 */
   branch?: string | null;
   /** 玩家是否到过该层。 */

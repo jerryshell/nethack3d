@@ -19,7 +19,7 @@ import { describeItem, makeItem } from './items';
 import { killExperience } from './combat';
 import { monsterMagicResists, monsterResists, playerResists } from './resist';
 import type { ResistKind } from './resist';
-import { isWalkable, MAX_DEPTH, COLNO, T } from '../core/constants';
+import { isWalkable, MAX_DEPTH, T } from '../core/constants';
 import { index, inRoom } from './dungeon';
 import { monById, objById, REAL_OBJECTS } from '../data/index';
 import { pickMonsterType, Monster as MonsterEntity } from './monsters';
@@ -1348,18 +1348,8 @@ export function zapWand(session: GameSession, item: ItemInstance): UseOutcome {
       break;
     }
     case 'WAN_OPENING': {
-      // 只开身边 8 格内的门，对应原版的射程限制，而不是全层开门。
-      let opened = 0;
-      const player = session.player;
-      for (const [i, door] of session.level.doors) {
-        if (!door.closed) continue;
-        const x = i % COLNO;
-        const y = Math.floor(i / COLNO);
-        if (Math.max(Math.abs(x - player.x), Math.abs(y - player.y)) > 8) continue;
-        door.closed = false;
-        door.locked = false;
-        opened++;
-      }
+      // 只开身边 8 格内的门（含放吊桥），对应原版的射程限制。
+      const opened = session.setNearbyDoors(true);
       out.key = opened ? 'use.zapOpening' : 'use.nothingHappens';
       break;
     }
@@ -1561,17 +1551,7 @@ export function zapWand(session: GameSession, item: ItemInstance): UseOutcome {
       break;
     }
     case 'WAN_LOCKING': {
-      let locked = 0;
-      for (const [i, door] of session.level.doors) {
-        const x = i % COLNO;
-        const y = Math.floor(i / COLNO);
-        const player = session.player;
-        if (Math.max(Math.abs(x - player.x), Math.abs(y - player.y)) > 8) continue;
-        if (door.broken || (door.closed && door.locked)) continue;
-        door.closed = true;
-        door.locked = true;
-        locked++;
-      }
+      const locked = session.setNearbyDoors(false);
       out.vars = { ...out.vars, n: locked };
       out.key = locked > 0 ? 'use.zapLocking' : 'use.nothingHappens';
       break;
