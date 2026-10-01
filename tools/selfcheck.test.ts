@@ -3585,6 +3585,28 @@ section('密门', async () => {
   }
 });
 
+section('特殊房间', async () => {
+  const { GameSession } = await import('../src/game/session');
+  const undead = new Set(['ZOMBIE', 'MUMMY', 'VAMPIRE', 'WRAITH', 'GHOST', 'LICH']);
+  let tested = false;
+  for (let seed = 1; seed <= 60 && !tested; seed++) {
+    const s = new GameSession({ seed, depth: 10 });
+    s.ensureLevelPopulation(s.level);
+    const room = s.level.rooms.find((r) => r.type === 'morgue');
+    if (!room) continue;
+    tested = true;
+    const inside = s.level.monsters.filter(
+      (m) => !m.dead && m.x >= room.lx && m.x <= room.hx && m.y >= room.ly && m.y <= room.hy,
+    );
+    ok(inside.length > 0, `墓室里有不死生物（${inside.length}）`);
+    ok(
+      inside.every((m) => undead.has(m.data.symClass)),
+      '墓室怪物都是不死系',
+    );
+  }
+  ok(tested, '60 个种子内找得到墓室');
+});
+
 section('地形设施', async () => {
   const { GameSession } = await import('../src/game/session');
   const { FEATURE_ACTIONS, FEATURE_TABLES, rollFeatureEffect } =

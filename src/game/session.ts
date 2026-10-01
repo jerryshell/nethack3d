@@ -101,7 +101,7 @@ import { containerCapacity, containerHasRoom, isContainer } from './containers';
 import { findExploreTarget } from './path';
 import type { Point } from './path';
 import { artifactForRole } from './artifacts';
-import { objById, monById, MONSTERS, monsterName } from '../data/index';
+import { objById, monById, MONSTERS, GENERATABLE_MONSTERS, monsterName } from '../data/index';
 import { SOKOBAN_LEVELS } from '../data/sokoban.gen';
 import {
   applyItem,
@@ -355,6 +355,7 @@ export class GameSession {
         special?.layout === 'bigRoom' ? Math.min(20, 8 + Math.floor(level.depth / 2)) : undefined,
     });
     spawnObjects(level, this.rng, level.depth, this.appearances);
+    this.placeMorgueMonsters(level);
     this.placeSpecialContent(level, special);
     if (level.special === 'castle') this.placeCastleMoatMonsters(level);
     this.placeBones(level);
@@ -387,6 +388,38 @@ export class GameSession {
       const mon = new MonsterEntity(data, spawn.x, spawn.y, this.rng);
       mon.asleep = false;
       level.monsters.push(mon);
+    }
+  }
+
+  /**
+   * 墓室：清掉房内的普通怪物，换成同等级的不死生物。
+   *
+   * 对应原版 mkmorgue()：房间主题由不死系组成，数量随层数小幅增加。
+   */
+  private placeMorgueMonsters(level: Level): void {
+    const undead = new Set(['ZOMBIE', 'MUMMY', 'VAMPIRE', 'WRAITH', 'GHOST', 'LICH']);
+    const pool = GENERATABLE_MONSTERS.filter(
+      (m) => undead.has(m.symClass) && m.diff <= level.depth + 8,
+    );
+    if (!pool.length) return;
+    // 墓室的刷怪用独立随机流，不扰动本层其它内容。
+    const rng = createRng(deriveSeed(this.seed, 'morgue', level.branch ?? 'main', level.depth));
+    for (const room of level.rooms) {
+      if (room.type !== 'morgue') continue;
+      level.monsters = level.monsters.filter(
+        (m) => m.dead || m.x < room.lx || m.x > room.hx || m.y < room.ly || m.y > room.hy,
+      );
+      const count = 2 + Math.min(4, Math.floor(level.depth / 6)) + rng.rn2(3);
+      for (let n = 0; n < count; n++) {
+        const x = room.lx + rng.rn2(room.hx - room.lx + 1);
+        const y = room.ly + rng.rn2(room.hy - room.ly + 1);
+        if (level.tiles[index(x, y)] !== T.ROOM) continue;
+        if (monsterAt(level, x, y)) continue;
+        const data = rng.pick(pool) as MonsterData;
+        const mon = new MonsterEntity(data, x, y, rng);
+        mon.asleep = false;
+        level.monsters.push(mon);
+      }
     }
   }
 

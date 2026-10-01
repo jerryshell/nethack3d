@@ -1831,6 +1831,21 @@ function questLevelSpecial(depth: number, levels: number): string | null {
   return null;
 }
 
+/**
+ * 特殊房间：目前只放墓室（不死生物主题）。
+ *
+ * 对应原版 mkroom.c 的主题房间；商店由独立的派生随机流摆放，
+ * 后一步会把碰巧选中的房间改回商店，所以这里不必避开。
+ */
+function placeSpecialRoom(level: Level, rng: Rng, depth: number): void {
+  if (depth < 5 || level.rooms.length < 2) return;
+  if (!rng.chance(0.25)) return;
+  const candidates = level.rooms.filter((room) => room.type === 'room' && room.index !== 0);
+  if (!candidates.length) return;
+  const room = rng.pick(candidates) as Room;
+  room.type = 'morgue';
+}
+
 function generateLevelCore({
   gameSeed,
   depth,
@@ -1900,6 +1915,7 @@ function generateLevelCore({
     carveRooms(level, level.rooms);
     makeCorridors(level, rng);
     placeDoors(level, rng);
+    placeSpecialRoom(level, createRng(deriveSeed(gameSeed, 'special-room', depth)), depth);
   }
   computeWalls(level);
   // 门上的机关：深层才有，用独立随机流，不扰动本层其它生成内容。

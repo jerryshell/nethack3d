@@ -225,7 +225,7 @@ export interface Room {
   hy: number;
   index: number;
   /** 商店房间由会话在其中摆放店主与货物。 */
-  type: 'room' | 'shop';
+  type: 'room' | 'shop' | 'morgue';
   /** 商店种类；非商店房间为空。 */
   shopType?: ShopType;
   lit: boolean;
